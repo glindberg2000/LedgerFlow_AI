@@ -1,0 +1,50 @@
+# see https://docs.searxng.org/admin/settings/settings.html#settings-use-default-settings
+use_default_settings: true
+
+server:
+    secret_key: "${SEARXNG_SECRET_KEY}"  # Set in .env file
+    limiter: false
+    image_proxy: false
+    method: "POST"
+    port: ${SEARXNG_PORT}
+    bind_address: "0.0.0.0"
+    base_url: ${SEARXNG_BASE_URL}
+    public_instance: false
+    default_http_headers:
+        X-Content-Type-Options: nosniff
+        X-Download-Options: noopen
+        X-Robots-Tag: noindex, nofollow
+        Referrer-Policy: no-referrer
+
+redis:
+    url: ${SEARXNG_REDIS_URL:-redis://redis:6379/0}
+
+search:
+    safe_search: 0
+    autocomplete: ""
+    default_lang: "en"
+    formats:
+        - html
+        - json
+    default_engine: "google"
+
+ui:
+    static_use_hash: true
+    default_theme: simple
+    infinite_scroll: true
+
+general:
+    debug: ${DEBUG:-false}
+    instance_name: "LedgerFlow Search"
+
+engines:
+    - name: google
+      engine: google
+      shortcut: g
+      disabled: false
+
+outgoing:
+    request_timeout: 10.0
+    pool_connections: 100
+    pool_maxsize: 20
+    enable_http2: true 

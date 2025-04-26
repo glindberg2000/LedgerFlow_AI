@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: block-env-files
+        name: Block .env files
+        entry: 🚫  Do NOT commit real .env files!  Use templates.
+        language: system
+        files: '^\.env.*$'
+        exclude: '^\.env.*\.template$'
+        types: [text]
+
+      - id: detect-secrets
+        name: Detect secrets
+        entry: 🚫  Potential secret detected in staged changes.
+        language: system
+        files: '.*'
+        exclude: |
+          (?x)^(
+            .*\.template$|
+            .*test_.*\.py$|
+            .*example.*$
+          )$
+        types: [text] 

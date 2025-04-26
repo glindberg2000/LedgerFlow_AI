@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17.4
+    volumes:
+      - type: bind
+        source: /Users/greg/LedgerFlow_data/pg  # Persistent PostgreSQL data
+        target: /var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ledgerflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ledgerflow}
+      POSTGRES_DB: ${POSTGRES_DB:-ledgerflow}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backup:
+    image: ledgerflow-backup
+    volumes:
+      - type: bind
+        source: /Users/greg/iCloud Drive (Archive)/repos/LedgerFlow_Archive/backups  # Persistent backup storage
+        target: /backups
+      - type: bind
+        source: /var/log
+        target: /var/log
+    environment:
+      BACKUP_PATH: /backups
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-ledgerflow}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ledgerflow}
+      PGDATABASE: ${POSTGRES_DB:-ledgerflow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  django:
+    image: ledgerflow-django
+    volumes:
+      - type: bind
+        source: .  # Application code
+        target: /app
+      - type: volume
+        source: ledgerflow_media  # Persistent media storage
+        target: /app/media
+    ports:
+      - "9001:8000"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ledgerflow}:${POSTGRES_PASSWORD:-ledgerflow}@postgres:5432/${POSTGRES_DB:-ledgerflow}
+      DEBUG: ${DEBUG:-True}
+      SEARXNG_HOST: http://searxng:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - type: bind
+        source: ./searxng/settings.yml  # Persistent SearXNG configuration
+        target: /etc/searxng/settings.yml
+      - type: volume
+        source: searxng_data  # Persistent SearXNG data
+        target: /var/lib/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_REDIS_URL=redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - type: volume
+        source: redis_data  # Persistent Redis data
+        target: /data
+    ports:
+      - "6379:6379"
+
+volumes:
+  ledgerflow_postgres_data:  # Named volume for PostgreSQL
+    name: ledgerflow_postgres_data
+  ledgerflow_media:  # Named volume for Django media files
+    name: ledgerflow_media
+  searxng_data:  # Named volume for SearXNG data
+    name: searxng_data
+  redis_data:  # Named volume for Redis data
+    name: redis_data 

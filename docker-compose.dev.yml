@@ -1,0 +1,112 @@
+name: ledger-dev
+
+services:
+  django:
+    build:
+      context: .
+      target: development
+    volumes:
+      - .:/app
+      - ledgerflow_dev_media:/app/media
+    ports:
+      - "${PORT:-9000}:8000"
+    env_file:
+      - .env.dev
+    environment:
+      - DEBUG=${DEBUG:-1}
+      - DJANGO_SETTINGS_MODULE=core.settings
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8888}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17.4
+    volumes:
+      - type: volume
+        source: ledgerflow_dev_postgres_data
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev
+        target: /backups
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2
+    ports:
+      - "6379:6379"
+    volumes:
+      - ledgerflow_dev_redis:/data
+    restart: unless-stopped
+
+  adminer:
+    image: adminer
+    ports:
+      - "8082:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  backup:
+    image: postgres:17.4
+    volumes:
+      - type: bind
+        source: ~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev
+        target: /backups
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    command: ["true"]
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8888}:8080"
+    environment:
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY}
+      - SEARXNG_PORT=${SEARXNG_PORT:-8888}
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8888}
+      - SEARXNG_REDIS_URL=redis://searxng_redis:6379/0
+      - DEBUG=${DEBUG:-0}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml
+      - searxng_data:/var/lib/searxng
+    depends_on:
+      - searxng_redis
+    restart: unless-stopped
+
+  searxng_redis:
+    image: "redis:alpine"
+    command: redis-server --save "" --appendonly "no"
+    restart: unless-stopped
+
+volumes:
+  ledgerflow_dev_postgres_data:
+    external: true
+    name: ledger-dev_ledgerflow_dev_postgres_data
+  ledgerflow_dev_media:
+    external: true
+    name: ledger-dev_ledgerflow_dev_media
+  ledgerflow_dev_redis:
+    external: true
+    name: ledger-dev_ledgerflow_redis_data_dev
+  searxng_data:
+    external: true
+    name: ledger-dev_searxng_data_dev 

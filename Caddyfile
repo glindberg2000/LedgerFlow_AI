@@ -1,0 +1,45 @@
+{
+        admin off
+        auto_https {$SEARXNG_TLS}
+}
+
+{$SEARXNG_HOSTNAME} {
+        log {
+                output file /dev/stdout
+                format console
+        }
+
+        # SearXNG
+        reverse_proxy localhost:8080 {
+                header_up X-Forwarded-Port {port}
+                header_up X-Forwarded-Proto {scheme}
+                header_up X-Real-IP {remote_host}
+                header_up Host {upstream_hostport}
+        }
+
+        # Cache
+        header /* {
+                # Enable HTTP Strict Transport Security (HSTS)
+                Strict-Transport-Security "max-age=31536000;"
+
+                # Enable cross-site filter (XSS)
+                X-XSS-Protection "1; mode=block"
+
+                # Disable clients from sniffing the media type
+                X-Content-Type-Options "nosniff"
+
+                # Disable site from being loaded in iframe (clickjacking protection)
+                X-Frame-Options "SAMEORIGIN"
+
+                # Keep referrer data off of HTTP connections
+                Referrer-Policy "no-referrer-when-downgrade"
+        }
+}
+
+:80 {
+    reverse_proxy searxng:8080 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+        header_up Host {upstream_host}
+    }
+} 

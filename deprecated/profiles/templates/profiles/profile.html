@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Business Profile</h2>
+            {% if business_profile %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h3 class="card-title">{{ business_profile.business_name }}</h3>
+                    <p class="card-text">Member since: {{ business_profile.created_at|date }}</p>
+                </div>
+            </div>
+
+            <h3>Recent Transactions</h3>
+            {% if transactions %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for transaction in transactions %}
+                        <tr>
+                            <td>{{ transaction.created_at|date }}</td>
+                            <td>{{ transaction.description }}</td>
+                            <td>${{ transaction.amount }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p>No transactions found.</p>
+            {% endif %}
+            {% else %}
+            <div class="alert alert-info">
+                Please create a business profile to get started.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
