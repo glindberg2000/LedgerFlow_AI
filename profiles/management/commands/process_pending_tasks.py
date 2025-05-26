@@ -49,9 +49,9 @@ class Command(BaseCommand):
 
                 # Get the appropriate agent
                 if task.task_type == "payee_lookup":
-                    agent = Agent.objects.get(name="Lookup Payee")
+                    agent = Agent.objects.get(name="Payee Lookup Agent")
                 else:  # classification
-                    agent = Agent.objects.get(name="Classify Agent")
+                    agent = Agent.objects.get(name="Classification Agent")
 
                 if not agent:
                     raise ValueError(f"No agent found for task type {task.task_type}")
