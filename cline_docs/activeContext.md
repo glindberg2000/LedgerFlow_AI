@@ -349,4 +349,13 @@ make <role>-session  # e.g., make reviewer-session
 
 ## Next Steps
 - Document DB access policy for new devs.
-- Optionally automate per-dev DB provisioning for feature isolation. 
+- Optionally automate per-dev DB provisioning for feature isolation.
+
+## SearXNG Multi-Environment Configuration
+- Always use the SEARXNG_HOST env var in code and config.
+- Supported values:
+  - Local dev (host): http://localhost:8888
+  - Docker Compose: http://searxng:8080
+  - Docker container accessing host: http://host.docker.internal:8888
+  - Cloud/remote: http://<public-ip>:8888
+- See onboarding docs and .env.dev for details and troubleshooting. 
