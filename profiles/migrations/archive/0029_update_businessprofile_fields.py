@@ -44,7 +44,17 @@ class Migration(migrations.Migration):
                 migrations.AddField(
                     model_name="businessprofile",
                     name="location",
-                    field=models.CharField(blank=True, max_length=200, null=True),
+                    field=models.CharField(max_length=200, blank=True, null=True),
+                ),
+                migrations.AddField(
+                    model_name="businessprofile",
+                    name="business_rules",
+                    field=JSONField(default=dict),
+                ),
+                migrations.AddField(
+                    model_name="businessprofile",
+                    name="ai_generated_profile",
+                    field=JSONField(default=dict),
                 ),
             ],
         ),

@@ -24,6 +24,7 @@ class Migration(migrations.Migration):
                 ("business_type", models.TextField(blank=True, null=True)),
                 ("business_description", models.TextField(blank=True, null=True)),
                 ("contact_info", models.TextField(blank=True, null=True)),
+                ("location", models.CharField(max_length=200, blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("common_expenses", models.JSONField(default=dict)),
@@ -31,6 +32,8 @@ class Migration(migrations.Migration):
                 ("industry_keywords", models.JSONField(default=dict)),
                 ("category_patterns", models.JSONField(default=dict)),
                 ("additional_info", models.JSONField(default=dict)),
+                ("business_rules", models.JSONField(default=dict)),
+                ("ai_generated_profile", models.JSONField(default=dict)),
             ],
         ),
         migrations.CreateModel(

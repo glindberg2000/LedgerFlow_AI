@@ -13,13 +13,15 @@ class BusinessProfile(models.Model):
     business_type = models.TextField(blank=True, null=True)
     business_description = models.TextField(blank=True, null=True)
     contact_info = models.TextField(blank=True, null=True)
+    location = models.CharField(max_length=200, blank=True, null=True)
 
-    # JSON fields for structured data
-    common_expenses = models.JSONField(default=dict)
-    custom_categories = models.JSONField(default=dict)
-    industry_keywords = models.JSONField(default=dict)
-    category_patterns = models.JSONField(default=dict)
-    additional_info = models.JSONField(default=dict)
+    # User-friendly text fields for AI-generated data
+    common_expenses = models.TextField(blank=True, null=True)
+    custom_categories = models.TextField(blank=True, null=True)
+    industry_keywords = models.TextField(blank=True, null=True)
+    category_patterns = models.TextField(blank=True, null=True)
+    business_rules = models.TextField(blank=True, null=True)
+    ai_generated_profile = models.JSONField(default=dict)
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
