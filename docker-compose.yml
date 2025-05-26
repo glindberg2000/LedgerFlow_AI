@@ -51,6 +51,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-ledgerflow}:${POSTGRES_PASSWORD:-ledgerflow}@postgres:5432/${POSTGRES_DB:-ledgerflow}
       DEBUG: ${DEBUG:-True}
       SEARXNG_HOST: http://searxng:8080
+      SEARXNG_BASE_URL: http://localhost:8080/
+      SEARXNG_REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
