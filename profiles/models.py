@@ -267,7 +267,13 @@ class Agent(models.Model):
     name = models.CharField(max_length=255)
     purpose = models.TextField()
     prompt = models.TextField()
-    llm = models.ForeignKey(LLMConfig, on_delete=models.CASCADE, related_name="agents")
+    llm = models.ForeignKey(
+        LLMConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agents",
+    )
     tools = models.ManyToManyField(
         Tool, related_name="agents", blank=True
     )  # Add tools relationship

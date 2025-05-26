@@ -10,7 +10,9 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # Read environment file
 env_file = ".env.prod" if os.getenv("DJANGO_ENV") == "production" else ".env.dev"
+print(f"[DEBUG] Loading env file: {os.path.join(BASE_DIR, env_file)}")
 environ.Env.read_env(os.path.join(BASE_DIR, env_file))
+print(f"[DEBUG] DATABASE_URL after loading env: {os.environ.get('DATABASE_URL')}")
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("SECRET_KEY")
@@ -19,6 +21,7 @@ SECRET_KEY = env("SECRET_KEY")
 DEBUG = env.bool("DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+SEARXNG_HOST = "http://localhost:8888"
 
 # Application definition
 INSTALLED_APPS = [
@@ -43,7 +46,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "urls"
+ROOT_URLCONF = os.getenv("DJANGO_ROOT_URLCONF", "ledgerflow.urls")
 
 TEMPLATES = [
     {
@@ -61,7 +64,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "wsgi.application"
+WSGI_APPLICATION = "ledgerflow.wsgi.application"
 
 # Database
 DATABASES = {"default": env.db("DATABASE_URL")}
