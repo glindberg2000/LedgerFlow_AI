@@ -230,9 +230,33 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             import json
             from django.urls import reverse
 
-            model = os.environ.get("OPENAI_MODEL_PRECISE", "gpt-4o")
+            # Always use the Agent with purpose containing 'Business Profile Generator'
+            agent = None
+            model = None
+            base_url = None
+            try:
+                from .models import Agent
+
+                # Prefer a dedicated Business Profile Generator agent
+                agent = Agent.objects.filter(
+                    purpose__icontains="business profile generator"
+                ).first()
+                # Fallback: any agent with an LLMConfig
+                if not agent:
+                    agent = Agent.objects.exclude(llm=None).first()
+                if agent and agent.llm and agent.llm.model:
+                    model = agent.llm.model
+                    base_url = agent.llm.url
+            except Exception:
+                pass
+            if not model:
+                model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
             api_key = os.environ.get("OPENAI_API_KEY")
-            client = OpenAI(api_key=api_key)
+            # Use the LLMConfig.url as base_url if set, for multi-provider support
+            if base_url:
+                client = OpenAI(api_key=api_key, base_url=base_url)
+            else:
+                client = OpenAI(api_key=api_key)
             system_prompt = (
                 "You are an expert business profile generator. Given a business description, generate a JSON object with these keys: "
                 "common_expenses, custom_categories, industry_keywords, category_patterns, business_rules. "
@@ -327,11 +351,25 @@ class ClientFilter(admin.SimpleListFilter):
         return queryset
 
 
-def call_agent(agent_name, transaction, model="gpt-4o-mini"):
+def call_agent(agent_name, transaction, model=None):
     """Call the specified agent with the transaction data."""
+    import os
+    from openai import OpenAI
+
+    logger = logging.getLogger(__name__)
+    if model is None:
+        model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
+    logger.info(f"Using OpenAI model: {model}")
     try:
         # Get the agent object from the database
         agent = Agent.objects.get(name=agent_name)
+        base_url = agent.llm.url if agent.llm and agent.llm.url else None
+        api_key = os.environ.get("OPENAI_API_KEY")
+        # Use the LLMConfig.url as base_url if set, for multi-provider support
+        if base_url:
+            client = OpenAI(api_key=api_key, base_url=base_url)
+        else:
+            client = OpenAI(api_key=api_key)
 
         # Get the appropriate prompt based on agent type
         if "payee" in agent_name.lower():
@@ -412,6 +450,52 @@ IMPORTANT INSTRUCTIONS:
                 "Utilities",
                 "Wages",
             ]
+            # Fetch business profile for the transaction's client
+            business_profile = None
+            try:
+                business_profile = transaction.client
+            except Exception:
+                pass
+            # Build business profile context string
+            business_context_lines = []
+            if business_profile:
+                if business_profile.business_type:
+                    business_context_lines.append(
+                        f"Business Type: {business_profile.business_type}"
+                    )
+                if business_profile.business_description:
+                    business_context_lines.append(
+                        f"Business Description: {business_profile.business_description}"
+                    )
+                if business_profile.contact_info:
+                    business_context_lines.append(
+                        f"Contact Info: {business_profile.contact_info}"
+                    )
+                if business_profile.common_expenses:
+                    business_context_lines.append(
+                        f"Common Expenses: {business_profile.common_expenses}"
+                    )
+                if business_profile.custom_categories:
+                    business_context_lines.append(
+                        f"Custom Categories: {business_profile.custom_categories}"
+                    )
+                if business_profile.industry_keywords:
+                    business_context_lines.append(
+                        f"Industry Keywords: {business_profile.industry_keywords}"
+                    )
+                if business_profile.category_patterns:
+                    business_context_lines.append(
+                        f"Category Patterns: {business_profile.category_patterns}"
+                    )
+                if business_profile.business_rules:
+                    business_context_lines.append(
+                        f"Business Rules: {business_profile.business_rules}"
+                    )
+            business_context = "\n".join(business_context_lines)
+            if business_context:
+                business_context = f"Business Profile Context:\n{business_context}\n"
+            else:
+                business_context = ""
             system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:
 1. Analyze transactions and determine if they are business or personal expenses
 2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)
@@ -425,7 +509,7 @@ Consider these factors:
 - Amount and frequency
 - Business rules and patterns"""
 
-            user_prompt = f"""Return your analysis in this exact JSON format:
+            user_prompt = f"""{business_context}Return your analysis in this exact JSON format:
 {{
     "classification_type": "business" or "personal",
     "worksheet": "6A" or "Vehicle" or "HomeOffice" or "Personal",
@@ -504,7 +588,6 @@ IMPORTANT: Your response must be a valid JSON object."""
 
         try:
             # Make the API call
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             response = client.chat.completions.create(**payload)
             logger.info("\n=== API Response ===")
             logger.info(f"Response: {response}")
@@ -1030,6 +1113,7 @@ class TransactionAdmin(admin.ModelAdmin):
 class LLMConfigAdmin(admin.ModelAdmin):
     list_display = ("provider", "model", "url")
     search_fields = ("provider", "model")
+    exclude = ("id",)  # Prevent manual id entry in admin
 
 
 @admin.register(Agent)
@@ -1160,7 +1244,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
             env = os.environ.copy()
             project_root = str(Path(settings.BASE_DIR).parent)
             env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
-            env["DJANGO_SETTINGS_MODULE"] = "pdf_extractor_web.settings"
+            env["DJANGO_SETTINGS_MODULE"] = "ledgerflow.settings"
 
             # Start the process in the background
             process = subprocess.Popen(

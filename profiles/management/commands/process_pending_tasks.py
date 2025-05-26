@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # Set the correct settings module
-        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pdf_extractor_web.settings")
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ledgerflow.settings")
 
         # Initialize Django
         django.setup()

@@ -1,0 +1,49 @@
+# LedgerFlow Product Requirements Document (PRD)
+
+## Overview
+LedgerFlow is a web application for financial transaction management, categorization, and reporting. The next phase focuses on operationalizing batch processing, advanced reporting, integrated PDF parsing, and a full review of the platform for modern usability and scalability.
+
+## Features & Requirements
+
+### 1. Batch Processing for Payee Lookup & Categorization
+- Enable background batch processing of transactions for payee lookup and category assignment.
+- Must support running as a background/async process (e.g., via task queue or job runner).
+- UI should allow triggering batch jobs and monitoring progress.
+- Single/manual row lookup must remain supported.
+- Error handling and logging for failed lookups.
+
+### 2. 6A Reports Generation
+- Generate worksheet-style reports with subtotals for each category ("6A" format).
+- Reports should be downloadable (CSV, XLSX, or PDF) and viewable in the app.
+- Each worksheet should show subtotals per category and overall totals.
+- Filtering by date range, account, or other criteria.
+
+### 3. Integrated Parsers Page for PDF Upload
+- Add a web page for uploading raw PDF statements.
+- Uploaded PDFs are parsed and transactions are normalized into the main database.
+- Show upload status, parsing results, and error messages in the UI.
+- Support for multiple bank formats (extensible parser design).
+- Replace or integrate the current offline console script.
+
+### 4. Full Review & Modernization of Main Site Flow
+- Add a home page/dashboard with clear navigation.
+- Make the app multi-user (user accounts, authentication, permissions).
+- Improve design and UX (responsive, modern look, clear flows).
+- Review and refactor janky or confusing flows.
+- Ensure robust error handling and user feedback throughout.
+
+### 5. Platform Suitability Review
+- Analyze if Django is the best platform for a modern, multi-user, beautiful web app with these features.
+- Compare with alternatives (e.g., FastAPI + React, Next.js, etc.).
+- Make a recommendation for future development.
+
+## Technical Constraints & Notes
+- Current stack: Django, Postgres (now on Neon cloud), Docker Compose for local dev.
+- SearXNG integration for payee lookup (multi-environment config).
+- Must support both local and Docker-based development.
+- Codebase should be maintainable and extensible for future features.
+
+## Out of Scope (for now)
+- Mobile app.
+- Real-time collaboration.
+- Advanced analytics beyond 6A reports. 

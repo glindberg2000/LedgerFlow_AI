@@ -1,0 +1,24 @@
+version: '3'
+
+services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    ports:
+      - "8008:8008"  # HTTP
+    volumes:
+      - ./data:/data
+    environment:
+      - SYNAPSE_SERVER_NAME=matrix.local
+      - SYNAPSE_REPORT_STATS=no
+      - SYNAPSE_ENABLE_REGISTRATION=yes
+    restart: unless-stopped
+
+  element:
+    image: vectorim/element-web:latest
+    ports:
+      - "8009:80"  # Web UI
+    volumes:
+      - ./element-config.json:/app/config.json
+    restart: unless-stopped
+    depends_on:
+      - synapse 
