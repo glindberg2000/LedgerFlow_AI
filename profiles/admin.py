@@ -373,42 +373,9 @@ def call_agent(agent_name, transaction, model=None):
 
         # Get the appropriate prompt based on agent type
         if "payee" in agent_name.lower():
-            system_prompt = """You are a transaction analysis assistant. Your task is to:
-1. Identify the payee/merchant from transaction descriptions
-2. Use the search tool to gather comprehensive vendor information
-3. Synthesize all information into a clear, normalized description
-4. Return a final response in the exact JSON format specified
+            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
 
-IMPORTANT RULES:
-1. Make as many search calls as needed to gather complete information
-2. Synthesize all information into a clear, normalized response
-3. NEVER use the raw transaction description in your final response
-4. Format the response exactly as specified"""
-
-            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:
-{{
-    "normalized_description": "string - Detailed description of what was purchased/paid for, including vendor type and purpose (e.g., 'Farm equipment purchase from Kubota dealership', 'Online subscription to business software')",
-    "payee": "string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')",
-    "confidence": "string - Must be exactly 'high', 'medium', or 'low'",
-    "reasoning": "string - Explanation of the identification, including any search results used",
-    "transaction_type": "string - One of: purchase, payment, transfer, fee, subscription, service",
-    "questions": "string - Any questions about unclear elements",
-    "needs_search": "boolean - Whether additional vendor information is needed"
-}}
-
-Transaction: {transaction.description}
-Amount: ${transaction.amount}
-Date: {transaction.transaction_date}
-
-IMPORTANT INSTRUCTIONS:
-1. Make as many search calls as needed to gather complete information
-2. Synthesize all information into a clear, normalized response
-3. NEVER use the raw transaction description in your final response
-4. Include the type of business and what was purchased in the normalized_description
-5. Reference all search results used in the reasoning field
-6. NEVER include store numbers, locations, or other non-standard elements in the payee field
-7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636')
-8. ALWAYS provide a final JSON response after gathering all necessary information"""
+            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 2-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (2-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
 
         else:
             # Classification prompt
@@ -496,48 +463,17 @@ IMPORTANT INSTRUCTIONS:
                 business_context = f"Business Profile Context:\n{business_context}\n"
             else:
                 business_context = ""
-            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:
-1. Analyze transactions and determine if they are business or personal expenses
-2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)
-3. Provide detailed reasoning for your decisions
-4. Flag any transactions that need additional review
+            # Add payee reasoning if available
+            payee_reasoning = getattr(transaction, "payee_reasoning", None)
+            if payee_reasoning:
+                payee_context = (
+                    f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
+                )
+            else:
+                payee_context = ""
+            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
 
-Consider these factors:
-- Business type and description
-- Industry context
-- Transaction patterns
-- Amount and frequency
-- Business rules and patterns"""
-
-            user_prompt = f"""{business_context}Return your analysis in this exact JSON format:
-{{
-    "classification_type": "business" or "personal",
-    "worksheet": "6A" or "Vehicle" or "HomeOffice" or "Personal",
-    "category": "Name of IRS or business category",
-    "confidence": "high" or "medium" or "low",
-    "reasoning": "Detailed explanation of your decision",
-    "questions": "Any questions or uncertainties about this classification"
-}}
-
-Transaction: {transaction.description}
-Amount: ${transaction.amount}
-Date: {transaction.transaction_date}
-
-Available Categories:
-{chr(10).join(category_list)}
-
-IMPORTANT RULES:
-- Personal expenses MUST use 'Personal' as the worksheet
-- Business expenses must NEVER use 'Personal' as the worksheet
-- For business expenses, use '6A' for general business expenses
-- Use 'Vehicle' for vehicle-related expenses
-- Use 'HomeOffice' for home office expenses
-- DO NOT use 'None' or any other value not in the list above
-- For business expenses, choose the most specific category that matches
-- If no exact match, use the most appropriate IRS category
-- For custom business categories, use them when they match exactly
-
-IMPORTANT: Your response must be a valid JSON object."""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category\": \"Name of IRS or business category\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAvailable Categories:\n{chr(10).join(category_list)}\n\nIMPORTANT RULES:\n- Personal expenses MUST use 'Personal' as the worksheet\n- Business expenses must NEVER use 'Personal' as the worksheet\n- For business expenses, use '6A' for general business expenses\n- Use 'Vehicle' for vehicle-related expenses\n- Use 'HomeOffice' for home office expenses\n- DO NOT use 'None' or any other value not in the list above\n- For business expenses, choose the most specific category that matches\n- If no exact match, use the most appropriate IRS category\n- For custom business categories, use them when they match exactly\n- ALWAYS provide a business_percentage field as described above\n- Use the payee reasoning above as additional context for your decision\n\nIMPORTANT: Your response must be a valid JSON object."""
 
         # Prepare tools for the API call with proper schema
         tool_definitions = []
