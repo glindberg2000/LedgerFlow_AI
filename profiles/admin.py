@@ -766,8 +766,61 @@ reset_processing_status.short_description = (
 )
 
 
+class TransactionAdminForm(forms.ModelForm):
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 2,
+                "cols": 60,
+                "style": "min-height:40px;resize:vertical;width:100%;overflow:auto;",
+            }
+        ),
+        label="Notes",
+        help_text="Optional: Add any additional notes or context for this transaction (for bookkeeper use).",
+    )
+
+    class Meta:
+        model = Transaction
+        fields = "__all__"
+        widgets = {
+            "category": forms.TextInput(attrs={"size": 30}),
+            "classification_type": forms.Select(),
+            "business_percentage": forms.NumberInput(attrs={"min": 0, "max": 100}),
+            "confidence": forms.Select(
+                choices=[("high", "high"), ("medium", "medium"), ("low", "low")]
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Map business_context to notes for UI
+        self.fields["notes"].initial = self.instance.business_context
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # Save notes back to business_context
+        instance.business_context = self.cleaned_data.get("notes", "")
+        # If user changed any classification fields, set classification_method to 'User'
+        changed_fields = self.changed_data
+        if any(
+            f in changed_fields
+            for f in [
+                "category",
+                "classification_type",
+                "business_percentage",
+                "confidence",
+            ]
+        ):
+            instance.classification_method = "User"
+        if commit:
+            instance.save()
+        return instance
+
+
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
+    form = TransactionAdminForm
     list_display = (
         "transaction_date",
         "amount",
@@ -817,16 +870,35 @@ class TransactionAdmin(admin.ModelAdmin):
         "description",
         "normalized_description",
         "payee",
-        "category",
-        "classification_type",
         "worksheet",
-        "business_percentage",
-        "confidence",
-        "business_context",
-        "classification_method",
         "payee_extraction_method",
         "reasoning",
         "payee_reasoning",
+    )
+    # Remove 'business_context' from readonly, add 'notes' as editable
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "transaction_date",
+                    "amount",
+                    "description",
+                    "normalized_description",
+                    "payee",
+                    "category",
+                    "classification_type",
+                    "worksheet",
+                    "business_percentage",
+                    "confidence",
+                    "classification_method",
+                    "payee_extraction_method",
+                    "reasoning",
+                    "payee_reasoning",
+                    "notes",
+                )
+            },
+        ),
     )
     actions = [
         "reset_processing_status",
@@ -834,7 +906,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "batch_classify",
         "mark_as_personal",
         "mark_as_business",
-    ]  # Add new actions
+    ]
 
     def short_reasoning(self, obj):
         if obj.reasoning:
