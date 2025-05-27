@@ -843,8 +843,8 @@ class TransactionAdmin(admin.ModelAdmin):
         "worksheet",
         "business_percentage",
         "confidence",
-        "reasoning",  # Classification reasoning
-        "payee_reasoning",  # Payee lookup reasoning
+        "short_reasoning",  # Use truncated field
+        "short_payee_reasoning",  # Use truncated field
         "classification_method",
         "payee_extraction_method",
     )
@@ -896,7 +896,33 @@ class TransactionAdmin(admin.ModelAdmin):
         "reset_processing_status",
         "batch_payee_lookup",
         "batch_classify",
+        "mark_as_personal",
+        "mark_as_business",
     ]  # Add new actions
+
+    def short_reasoning(self, obj):
+        if obj.reasoning:
+            val = str(obj.reasoning)
+            return format_html(
+                '<span title="{}">{}</span>',
+                val,
+                val[:40] + ("..." if len(val) > 40 else ""),
+            )
+        return ""
+
+    short_reasoning.short_description = "Reasoning"
+
+    def short_payee_reasoning(self, obj):
+        if obj.payee_reasoning:
+            val = str(obj.payee_reasoning)
+            return format_html(
+                '<span title="{}">{}</span>',
+                val,
+                val[:40] + ("..." if len(val) > 40 else ""),
+            )
+        return ""
+
+    short_payee_reasoning.short_description = "Payee Reasoning"
 
     def batch_payee_lookup(self, request, queryset):
         """Create a batch processing task for payee lookup."""
@@ -981,6 +1007,52 @@ class TransactionAdmin(admin.ModelAdmin):
                 )
 
     batch_classify.short_description = "Create batch classification task"
+
+    def mark_as_personal(self, request, queryset):
+        updated = queryset.update(
+            classification_type="personal",
+            worksheet="Personal",
+            category="Personal",
+        )
+        self.message_user(request, f"Marked {updated} transactions as Personal.")
+
+    mark_as_personal.short_description = "Mark selected as Personal"
+
+    def mark_as_business(self, request, queryset):
+        from .models import IRSExpenseCategory, BusinessExpenseCategory, IRSWorksheet
+
+        count = 0
+        worksheet = IRSWorksheet.objects.filter(name="6A").first()
+        for tx in queryset:
+            # Set as business, worksheet 6A
+            tx.classification_type = "business"
+            tx.worksheet = "6A"
+            tx.save(update_fields=["classification_type", "worksheet"])
+            # Check if category is in IRS 6A or user-defined
+            cat_name = tx.category
+            if not IRSExpenseCategory.objects.filter(
+                worksheet=worksheet, name=cat_name
+            ).exists():
+                # Not an official IRS category, check if user-defined exists
+                if not BusinessExpenseCategory.objects.filter(
+                    business=tx.client, worksheet=worksheet, category_name=cat_name
+                ).exists():
+                    # Auto-add user-defined business category
+                    BusinessExpenseCategory.objects.create(
+                        business=tx.client,
+                        worksheet=worksheet,
+                        category_name=cat_name,
+                        is_active=True,
+                    )
+            count += 1
+        self.message_user(
+            request,
+            f"Marked {count} transactions as Business and auto-added categories as needed.",
+        )
+
+    mark_as_business.short_description = (
+        "Mark selected as Business (auto-add category if needed)"
+    )
 
     def get_actions(self, request):
         actions = super().get_actions(request)

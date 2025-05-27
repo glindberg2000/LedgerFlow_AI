@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "profiles",
     "simple_classifications",
     "experimental_admin",
+    "reports",
 ]
 
 MIDDLEWARE = [
