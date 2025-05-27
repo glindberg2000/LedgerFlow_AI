@@ -779,13 +779,53 @@ class TransactionAdminForm(forms.ModelForm):
         label="Notes",
         help_text="Optional: Add any additional notes or context for this transaction (for bookkeeper use).",
     )
+    # Explicitly define as ChoiceField to force dropdown rendering in admin
+    category = forms.ChoiceField(
+        choices=[],  # Will be set dynamically in __init__
+        required=False,
+        label="Category",
+    )
+    classification_type = forms.ChoiceField(
+        choices=[],  # Will be set dynamically in __init__
+        required=False,
+        label="Classification Type",
+    )
+    CLASSIFICATION_TYPE_CHOICES = [
+        ("business", "Business"),
+        ("personal", "Personal"),
+    ]
+
+    def _get_category_choices(self, current_value=None):
+        irs_cats = IRSExpenseCategory.objects.filter(
+            worksheet__name="6A", is_active=True
+        ).order_by("line_number")
+        irs_choices = [(cat.name, f"IRS: {cat.name}") for cat in irs_cats]
+        biz_cats = BusinessExpenseCategory.objects.filter(
+            worksheet__name="6A", is_active=True
+        ).order_by("category_name")
+        biz_choices = [
+            (cat.category_name, f"Business: {cat.category_name}") for cat in biz_cats
+        ]
+        personal_choice = [("Personal", "--- Personal ---")]
+        choices = irs_choices + biz_choices + personal_choice
+        if not choices:
+            choices = [("", "--- No categories available ---")]
+        if current_value and current_value not in [c[0] for c in choices]:
+            choices = [(current_value, f"Current: {current_value}")] + choices
+        return choices
+
+    def _get_classification_type_choices(self, current_value=None):
+        choices = self.CLASSIFICATION_TYPE_CHOICES.copy()
+        if not choices:
+            choices = [("", "--- No types available ---")]
+        if current_value and current_value not in [c[0] for c in choices]:
+            choices = [(current_value, f"Current: {current_value}")] + choices
+        return choices
 
     class Meta:
         model = Transaction
         fields = "__all__"
         widgets = {
-            "category": forms.TextInput(attrs={"size": 30}),
-            "classification_type": forms.Select(),
             "business_percentage": forms.NumberInput(attrs={"min": 0, "max": 100}),
             "confidence": forms.Select(
                 choices=[("high", "high"), ("medium", "medium"), ("low", "low")]
@@ -794,25 +834,28 @@ class TransactionAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Map business_context to notes for UI
         self.fields["notes"].initial = self.instance.business_context
+        # Set dynamic choices for category and classification_type
+        current_category = self.instance.category
+        current_classification = self.instance.classification_type
+        self.fields["category"].choices = self._get_category_choices(current_category)
+        self.fields["classification_type"].choices = (
+            self._get_classification_type_choices(current_classification)
+        )
+        # Make classification_method readonly (never user-editable)
+        if "classification_method" in self.fields:
+            self.fields["classification_method"].disabled = True
+
+    def clean_category(self):
+        # Only save the value, not the label
+        return self.cleaned_data["category"]
 
     def save(self, commit=True):
         instance = super().save(commit=False)
         # Save notes back to business_context
         instance.business_context = self.cleaned_data.get("notes", "")
-        # If user changed any classification fields, set classification_method to 'User'
-        changed_fields = self.changed_data
-        if any(
-            f in changed_fields
-            for f in [
-                "category",
-                "classification_type",
-                "business_percentage",
-                "confidence",
-            ]
-        ):
-            instance.classification_method = "User"
+        # Always set classification_method to 'Human' (the correct CHOICE value) if saving via admin form
+        instance.classification_method = "Human"
         if commit:
             instance.save()
         return instance
@@ -874,6 +917,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "payee_extraction_method",
         "reasoning",
         "payee_reasoning",
+        "classification_method",  # Always readonly
     )
     # Remove 'business_context' from readonly, add 'notes' as editable
     fieldsets = (
@@ -1187,6 +1231,18 @@ class TransactionAdmin(admin.ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         return urls
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        # Remove 'Save and add another' and relabel 'Save and continue editing' to 'Save'
+        extra_context = extra_context or {}
+        extra_context["show_save_and_add_another"] = False
+        extra_context["show_save_and_continue"] = True
+        extra_context["save_as_continue"] = False
+        extra_context["save_as"] = False
+        extra_context["save_continue_label"] = "Save"
+        return super().changeform_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
 
 
 @admin.register(LLMConfig)
