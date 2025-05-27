@@ -875,8 +875,11 @@ class TransactionAdmin(admin.ModelAdmin):
         "worksheet",
         "business_percentage",
         "confidence",
-        "short_reasoning",  # Use truncated field
-        "short_payee_reasoning",  # Use truncated field
+        "source",
+        "file_path",
+        "account_number",
+        "short_reasoning",  # Use icon if present
+        "short_payee_reasoning",  # Use icon if present
         "classification_method",
         "payee_extraction_method",
     )
@@ -954,24 +957,14 @@ class TransactionAdmin(admin.ModelAdmin):
 
     def short_reasoning(self, obj):
         if obj.reasoning:
-            val = str(obj.reasoning)
-            return format_html(
-                '<span title="{}">{}</span>',
-                val,
-                val[:40] + ("..." if len(val) > 40 else ""),
-            )
+            return format_html('<span title="{}">🛈</span>', obj.reasoning)
         return ""
 
     short_reasoning.short_description = "Reasoning"
 
     def short_payee_reasoning(self, obj):
         if obj.payee_reasoning:
-            val = str(obj.payee_reasoning)
-            return format_html(
-                '<span title="{}">{}</span>',
-                val,
-                val[:40] + ("..." if len(val) > 40 else ""),
-            )
+            return format_html('<span title="{}">🛈</span>', obj.payee_reasoning)
         return ""
 
     short_payee_reasoning.short_description = "Payee Reasoning"
@@ -1108,14 +1101,15 @@ class TransactionAdmin(admin.ModelAdmin):
 
     def get_actions(self, request):
         actions = super().get_actions(request)
-        actions["reset_processing_status"] = (
-            reset_processing_status,
-            "reset_processing_status",
-            reset_processing_status.short_description,
-        )
+        # Remove Business Profile Generator from actions
+        actions = {
+            k: v for k, v in actions.items() if "business_profile_generator" not in k
+        }
         # Keep existing agent-specific actions
         for agent in Agent.objects.all():
             action_name = f'process_with_{agent.name.lower().replace(" ", "_")}'
+            if "business_profile_generator" in action_name:
+                continue
             action_function = self._create_agent_action(agent)
             action_function.short_description = f"Process with {agent.name}"
             actions[action_name] = (
@@ -1123,7 +1117,6 @@ class TransactionAdmin(admin.ModelAdmin):
                 action_name,
                 action_function.short_description,
             )
-
         return actions
 
     def _create_agent_action(self, agent):
