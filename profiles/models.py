@@ -4,6 +4,7 @@ import uuid
 import importlib.util
 import os
 from django.core.exceptions import ValidationError
+from django.contrib.auth import get_user_model
 
 # Create your models here.
 
@@ -443,3 +444,45 @@ class SearchResult(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.query})"
+
+
+class StatementFile(models.Model):
+    STATUS_CHOICES = [
+        ("uploaded", "Uploaded"),
+        ("identified", "Identified"),
+        ("parsed", "Parsed"),
+        ("normalized", "Normalized"),
+        ("error", "Error"),
+    ]
+    client = models.ForeignKey(
+        BusinessProfile, on_delete=models.CASCADE, related_name="statement_files"
+    )
+    file = models.FileField(upload_to="clients/%Y/%m/%d/")
+    file_type = models.CharField(
+        max_length=10, choices=[("pdf", "PDF"), ("csv", "CSV"), ("other", "Other")]
+    )
+    original_filename = models.CharField(max_length=255)
+    upload_timestamp = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        get_user_model(), on_delete=models.SET_NULL, null=True, blank=True
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="uploaded")
+    status_detail = models.TextField(blank=True, null=True)
+    bank = models.CharField(max_length=100, blank=True, null=True)
+    account_number = models.CharField(max_length=100, blank=True, null=True)
+    year = models.IntegerField(blank=True, null=True)
+    month = models.IntegerField(blank=True, null=True)
+    parsed_metadata = models.JSONField(blank=True, null=True, default=dict)
+    transactions = models.ManyToManyField(
+        "Transaction", related_name="source_files", blank=True
+    )
+
+    class Meta:
+        ordering = ["-upload_timestamp"]
+        verbose_name = "Statement File"
+        verbose_name_plural = "Statement Files"
+
+    def __str__(self):
+        return f"{self.client} - {self.original_filename} ({self.status})"
+
+    # For extensibility: add batch_id, progress, etc. as needed for batch uploads
