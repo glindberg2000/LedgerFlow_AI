@@ -1,0 +1,3 @@
+[submodule "dataextractai/parsers"]
+	path = dataextractai/parsers
+	url = git@github.com:glindberg2000/PDF-extractor.git
