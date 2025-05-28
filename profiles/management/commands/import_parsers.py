@@ -4,12 +4,12 @@ from profiles.parsers_utilities.models import ParserTemplate
 
 PARSERS_DIR = os.path.join(
     os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "dataextractai",
-        "parsers",
-        "dataextractai",
-        "parsers",
-    )
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ),
+    "dataextractai",
+    "parsers",
+    "dataextractai",
+    "parsers",
 )
 
 

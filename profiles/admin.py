@@ -38,6 +38,8 @@ from django import forms
 from django.utils.html import format_html
 import re
 from .utils import extract_pdf_metadata
+from django.template.response import TemplateResponse
+from django.contrib.admin import AdminSite
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1359,9 +1361,8 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
 
             # Start the task processing command
             python_executable = sys.executable
-            manage_py = str(
-                Path(settings.BASE_DIR).parent / "manage.py"
-            )  # Use the manage.py in the test_django directory
+            # Always use the manage.py in the LedgerFlow project root
+            manage_py = str(Path(settings.BASE_DIR) / "manage.py")
             cmd = [
                 python_executable,
                 manage_py,

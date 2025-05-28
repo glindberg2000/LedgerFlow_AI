@@ -5,6 +5,11 @@ from django import forms
 from .models import ParserTemplate, SampleStatement, ExtractionResult
 from django.contrib import messages
 from django.utils.safestring import mark_safe
+import importlib
+import traceback
+import pandas as pd
+import sys
+import os
 
 
 class ParserTestForm(forms.Form):
@@ -19,6 +24,13 @@ class ParserTestForm(forms.Form):
 def test_parser_view(request):
     from django.contrib.admin.sites import site
 
+    # --- Patch sys.path for legacy parser imports ---
+    PARSERS_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../dataextractai/parsers")
+    )
+    if PARSERS_ROOT not in sys.path:
+        sys.path.insert(0, PARSERS_ROOT)
+    # This allows imports like 'from dataextractai.utils.logging_config import configure_logging' to work
     context = dict(site.each_context(request))
     result = None
     error = None
@@ -37,13 +49,38 @@ def test_parser_view(request):
                 uploaded_by=request.user if request.user.is_authenticated else None,
                 notes=notes,
             )
-            # Stub extraction logic (replace with real extraction)
             try:
-                # For now, just show the template regex and file name
+                # --- Dynamic parser execution ---
+                import_path = parser.template
+                if import_path.startswith("dataextractai.parsers.dataextractai."):
+                    import_path = import_path.replace(
+                        "dataextractai.parsers.dataextractai.",
+                        "dataextractai.parsers.",
+                        1,
+                    )
+                if import_path.startswith("dataextractai.parsers.parsers."):
+                    import_path = import_path.replace(
+                        "dataextractai.parsers.parsers.", "dataextractai.parsers.", 1
+                    )
+                module = importlib.import_module(import_path)
+                entrypoint = None
+                for fn_name in ["parse_pdf", "parse_file", "main", "run"]:
+                    if hasattr(module, fn_name):
+                        entrypoint = getattr(module, fn_name)
+                        break
+                if not entrypoint:
+                    raise Exception(
+                        f"Parser module {import_path} does not have a standard entrypoint (parse_pdf, parse_file, main, or run)"
+                    )
+                file_path = sample.file.path
+                output = entrypoint(file_path)
+                if isinstance(output, pd.DataFrame):
+                    output = output.to_dict(orient="records")
                 extracted_metadata = {
-                    "template": parser.template,
+                    "parser": parser.template,
                     "file_name": sample.file.name,
                     "notes": notes,
+                    "result": output,
                 }
                 ExtractionResult.objects.create(
                     sample=sample,
@@ -58,10 +95,10 @@ def test_parser_view(request):
                     parser=parser,
                     extracted_metadata=None,
                     status="fail",
-                    error_message=str(e),
+                    error_message=traceback.format_exc(),
                 )
                 result = "fail"
-                error = str(e)
+                error = f"{e}\nSee traceback in ExtractionResult."
     else:
         form = ParserTestForm()
     context.update(
