@@ -31,10 +31,12 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # 'profiles' must be in INSTALLED_APPS for management commands in profiles/management/commands/ to work
     "profiles",
     "simple_classifications",
     "experimental_admin",
     "reports",
+    "profiles.parsers_utilities",
 ]
 
 MIDDLEWARE = [

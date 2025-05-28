@@ -11,6 +11,7 @@ from .models import (
     BusinessExpenseCategory,
     TransactionClassification,
     ProcessingTask,
+    StatementFile,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -36,6 +37,7 @@ from django.db import transaction as db_transaction
 from django import forms
 from django.utils.html import format_html
 import re
+from .utils import extract_pdf_metadata
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1511,3 +1513,129 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
                 "opts": self.model._meta,
             },
         )
+
+
+class StatementFileAdminForm(forms.ModelForm):
+    # Use standard single file upload for ModelForm; batch upload requires custom view
+    file = forms.FileField(
+        widget=forms.ClearableFileInput(), required=True, label="Upload File"
+    )
+
+    class Meta:
+        model = StatementFile
+        fields = [
+            "client",
+            "file",
+            "file_type",
+            "bank",
+            "account_number",
+            "year",
+            "month",
+            "status",
+            "status_detail",
+        ]
+
+
+@admin.register(StatementFile)
+class StatementFileAdmin(admin.ModelAdmin):
+    form = StatementFileAdminForm
+    list_display = (
+        "client",
+        "original_filename",
+        "file_type",
+        "status",
+        "upload_timestamp",
+        "uploaded_by",
+        "bank",
+        "account_number",
+        "year",
+        "month",
+        "status_detail",
+    )
+    list_filter = ("client", "file_type", "status", "year", "month", "bank")
+    search_fields = ("original_filename", "bank", "account_number", "status_detail")
+    readonly_fields = ("upload_timestamp", "uploaded_by", "parsed_metadata")
+
+    def save_model(self, request, obj, form, change):
+        # First, save the object so the file is written to disk
+        super().save_model(request, obj, form, change)
+        # Now, if it's a PDF and file exists, extract metadata
+        if obj.file and obj.file_type == "pdf":
+            file_path = obj.file.path
+            if os.path.exists(file_path):
+                try:
+                    meta = extract_pdf_metadata(file_path)
+                    updated = False
+                    if meta.get("bank") and obj.bank != meta["bank"]:
+                        obj.bank = meta["bank"]
+                        updated = True
+                    if (
+                        meta.get("account_number")
+                        and obj.account_number != meta["account_number"]
+                    ):
+                        obj.account_number = meta["account_number"]
+                        updated = True
+                    # Try to extract year/month from statement_period or statement_date
+                    from datetime import datetime
+
+                    date_str = None
+                    if meta.get("statement_period") and isinstance(
+                        meta["statement_period"], tuple
+                    ):
+                        date_str = meta["statement_period"][1]  # Use end date
+                    elif meta.get("statement_date"):
+                        date_str = meta["statement_date"]
+                    if date_str:
+                        try:
+                            dt = datetime.strptime(date_str, "%m/%d/%Y")
+                            if obj.year != dt.year:
+                                obj.year = dt.year
+                                updated = True
+                            if obj.month != dt.month:
+                                obj.month = dt.month
+                                updated = True
+                        except Exception:
+                            pass
+                    # Add status_detail for debugging
+                    obj.status_detail = f"Auto-extracted: {meta}"
+                    updated = True
+                except Exception as e:
+                    obj.status_detail = f"Auto-extract error: {e}"
+                    updated = True
+                if updated:
+                    obj.save()
+
+    def add_view(self, request, form_url="", extra_context=None):
+        # Custom add_view to support batch upload
+        if (
+            request.method == "POST"
+            and request.FILES.getlist("file")
+            and len(request.FILES.getlist("file")) > 1
+        ):
+            form = self.get_form(request)(request.POST, request.FILES)
+            if form.is_valid():
+                for f in request.FILES.getlist("file"):
+                    instance = StatementFile(
+                        client=form.cleaned_data["client"],
+                        file=f,
+                        file_type=form.cleaned_data["file_type"],
+                        original_filename=f.name,
+                        uploaded_by=request.user,
+                        status=form.cleaned_data.get("status", "uploaded"),
+                        status_detail=form.cleaned_data.get("status_detail", ""),
+                        bank=form.cleaned_data.get("bank", ""),
+                        account_number=form.cleaned_data.get("account_number", ""),
+                        year=form.cleaned_data.get("year", None),
+                        month=form.cleaned_data.get("month", None),
+                    )
+                    instance.save()
+                self.message_user(
+                    request,
+                    f"Uploaded {len(request.FILES.getlist('file'))} files successfully.",
+                )
+                from django.shortcuts import redirect
+
+                return redirect("admin:profiles_statementfile_changelist")
+        return super().add_view(request, form_url, extra_context)
+
+    # For extensibility: add progress bars, batch status, and custom UI as needed
