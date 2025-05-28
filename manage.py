@@ -2,11 +2,14 @@
 import os
 import sys
 
+
 def main():
+    print("[DEBUG] sys.path:", sys.path)
+    print("[DEBUG] DJANGO_SETTINGS_MODULE:", os.environ.get("DJANGO_SETTINGS_MODULE"))
     if os.getenv("LEDGER_ENV") == "prod" and os.getenv("ALLOW_DANGEROUS") != "1":
         sys.exit("Refusing to run mgmt commands directly in prod container.")
-    
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ledgerflow.settings')
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ledgerflow.settings")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -17,5 +20,6 @@ def main():
         ) from exc
     execute_from_command_line(sys.argv)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

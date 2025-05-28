@@ -6,7 +6,8 @@ from pathlib import Path
 env = environ.Env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent
+# BASE_DIR must point to the project root (not just the settings directory) for management commands and env loading to work correctly.
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Read environment file
 env_file = ".env.prod" if os.getenv("DJANGO_ENV") == "production" else ".env.dev"
@@ -31,8 +32,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # 'profiles' must be in INSTALLED_APPS for management commands in profiles/management/commands/ to work
-    "profiles",
+    # Use AppConfig path for profiles to ensure management commands are loaded
+    "profiles.apps.ProfilesConfig",
     "simple_classifications",
     "experimental_admin",
     "reports",
