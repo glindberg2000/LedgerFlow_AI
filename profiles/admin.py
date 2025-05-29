@@ -355,7 +355,9 @@ class ClientFilter(admin.SimpleListFilter):
         return queryset
 
 
-def call_agent(agent_name, transaction, model=None):
+def call_agent(
+    agent_name, transaction, model=None, max_retries=2, escalate_on_fail=True
+):
     """Call the specified agent with the transaction data."""
     import os
     from openai import OpenAI
@@ -382,45 +384,40 @@ def call_agent(agent_name, transaction, model=None):
             user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 2-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (2-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
 
         else:
-            # Classification prompt
-            category_list = [
-                "Advertising",
-                "Auto",
-                "Bank Charges",
-                "Business Insurance",
-                "Business Meals",
-                "Business Travel",
-                "Commissions",
-                "Contract Labor",
-                "Depreciation",
-                "Dues & Subscriptions",
-                "Equipment Rental",
-                "Equipment Purchase",
-                "Gas & Oil",
-                "Home Office",
-                "Interest",
-                "Legal & Professional",
-                "Licenses & Permits",
-                "Maintenance & Repairs",
-                "Marketing",
-                "Meals & Entertainment",
-                "Office Supplies",
-                "Other",
-                "Payroll",
-                "Postage",
-                "Printing",
-                "Professional Development",
-                "Property Taxes",
-                "Rent",
-                "Repairs & Maintenance",
-                "Software",
-                "Supplies",
-                "Taxes & Licenses",
-                "Telephone",
-                "Travel",
-                "Utilities",
-                "Wages",
-            ]
+            # Dynamically build allowed categories
+            from profiles.models import (
+                IRSExpenseCategory,
+                IRSWorksheet,
+                BusinessExpenseCategory,
+            )
+
+            # IRS categories (active, for all relevant worksheets)
+            irs_cats = IRSExpenseCategory.objects.filter(
+                is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
+            ).values("id", "name", "worksheet__name")
+            # Business categories for this client
+            biz_cats = BusinessExpenseCategory.objects.filter(
+                is_active=True, business=transaction.client
+            ).values("id", "category_name", "worksheet__name")
+            # Build display list for prompt
+            allowed_categories = []
+            for cat in irs_cats:
+                allowed_categories.append(
+                    f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
+                )
+            for cat in biz_cats:
+                allowed_categories.append(
+                    f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
+                )
+            allowed_categories.append("Other")  # Genuine catch-all
+            allowed_categories.append("Personal")
+            allowed_categories.append("Review")  # For LLM to flag for admin review
+            # Build mapping for validation (not in prompt, but for post-processing)
+            allowed_category_ids = set(
+                [f"IRS-{cat['id']}" for cat in irs_cats]
+                + [f"BIZ-{cat['id']}" for cat in biz_cats]
+                + ["Other", "Personal", "Review"]
+            )
             # Fetch business profile for the transaction's client
             business_profile = None
             try:
@@ -477,7 +474,7 @@ def call_agent(agent_name, transaction, model=None):
                 payee_context = ""
             system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
 
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category\": \"Name of IRS or business category\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAvailable Categories:\n{chr(10).join(category_list)}\n\nIMPORTANT RULES:\n- Personal expenses MUST use 'Personal' as the worksheet\n- Business expenses must NEVER use 'Personal' as the worksheet\n- For business expenses, use '6A' for general business expenses\n- Use 'Vehicle' for vehicle-related expenses\n- Use 'HomeOffice' for home office expenses\n- DO NOT use 'None' or any other value not in the list above\n- For business expenses, choose the most specific category that matches\n- If no exact match, use the most appropriate IRS category\n- For custom business categories, use them when they match exactly\n- ALWAYS provide a business_percentage field as described above\n- Use the payee reasoning above as additional context for your decision\n\nIMPORTANT: Your response must be a valid JSON object."""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
 
         # Prepare tools for the API call with proper schema
         tool_definitions = []
@@ -527,101 +524,58 @@ def call_agent(agent_name, transaction, model=None):
             logger.info(f"Tools: {json.dumps(tool_definitions, indent=2)}")
 
         try:
-            # Make the API call
-            response = client.chat.completions.create(**payload)
-            logger.info("\n=== API Response ===")
-            logger.info(f"Response: {response}")
-
-            # Track if we've already made a tool call
-            tool_call_made = False
-            search_count = 0
-            max_searches = 3
-
-            # Handle tool calls and final response
-            while (
-                response.choices
-                and response.choices[0].message.tool_calls
-                and not tool_call_made
-                and search_count < max_searches
-            ):
-                tool_call = response.choices[0].message.tool_calls[0]
-                tool_name = tool_call.function.name
-                tool_args = json.loads(tool_call.function.arguments)
-
-                logger.info(f"Tool call: {tool_name} with args: {tool_args}")
-
-                # Dynamically import and execute the tool
+            # Retry logic
+            for attempt in range(max_retries + 1):
+                response = client.chat.completions.create(**payload)
+                logger.info(f"LLM response (attempt {attempt+1}): {response}")
+                # Parse and validate response
                 try:
-                    # Get the tool object from the database
-                    tool = Tool.objects.get(name=tool_name)
-                    # Import the tool module dynamically
-                    module_path = tool.module_path
-                    module_name = module_path.split(".")[-1]
-                    module = __import__(module_path, fromlist=[module_name])
-                    # Get the tool function - use search_web for both search tools
-                    if tool_name in ["searxng_search", "brave_search"]:
-                        tool_function = getattr(module, "search_web")
-                    else:
-                        tool_function = getattr(module, module_name)
-
-                    # Execute the tool
-                    search_results = tool_function(tool_args["query"])
-                    logger.info(
-                        f"Search results: {json.dumps(search_results, indent=2)}"
-                    )
-
-                    # Feed results back to the model
-                    payload["messages"].extend(
-                        [
-                            {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": [tool_call],
-                            },
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": tool_name,
-                                "content": json.dumps(search_results),
-                            },
-                        ]
-                    )
-
-                    search_count += 1
-                    if search_count >= max_searches:
-                        # Add a message emphasizing the need for a final JSON response
-                        payload["messages"].append(
-                            {
-                                "role": "user",
-                                "content": "Maximum search limit reached. Now provide your final response in the exact JSON format specified.",
-                            }
-                        )
-                        tool_call_made = True
-
+                    result = response.choices[0].message.content
+                    result_json = json.loads(result)
+                    # Validate category_id
+                    cat_id = result_json.get("category_id")
+                    if cat_id not in allowed_category_ids:
+                        raise ValidationError(f"Invalid category_id: {cat_id}")
+                    # Optionally: validate worksheet, classification_type, etc.
+                    return result_json
                 except Exception as e:
-                    logger.error(f"Error executing tool {tool_name}: {str(e)}")
-                    raise
-
-                # Get next response
-                response = client.chat.completions.create(**payload)
-                logger.info(f"Response after tool: {response}")
-
-            # If we've made all allowed searches, force a final response
-            if search_count >= max_searches and not tool_call_made:
-                payload["messages"].append(
-                    {
-                        "role": "user",
-                        "content": "Maximum search limit reached. Now provide your final response in the exact JSON format specified.",
-                    }
-                )
-                response = client.chat.completions.create(**payload)
-                logger.info(f"Final response after max searches: {response}")
-
-            # Get the final content
-            if not response.choices or not response.choices[0].message.content:
-                raise ValueError("No response content received from the API")
-
-            return json.loads(response.choices[0].message.content)
+                    logger.warning(f"Validation failed (attempt {attempt+1}): {e}")
+                    if attempt == max_retries and escalate_on_fail:
+                        # Escalate to Classification Escalation Agent
+                        try:
+                            escalation_agent = Agent.objects.get(
+                                name="Classification Escalation Agent"
+                            )
+                            logger.info(
+                                "Escalating to Classification Escalation Agent..."
+                            )
+                            return call_agent(
+                                escalation_agent.name,
+                                transaction,
+                                model=escalation_agent.llm.model,
+                                max_retries=1,
+                                escalate_on_fail=False,
+                            )
+                        except Exception as esc_e:
+                            logger.error(f"Escalation failed: {esc_e}")
+                            return {
+                                "classification_type": "review",
+                                "reasoning": f"Escalation failed: {esc_e}",
+                                "category": "Review",
+                            }
+                    elif attempt == max_retries:
+                        logger.error("Max retries reached. Marking for manual review.")
+                        return {
+                            "classification_type": "review",
+                            "reasoning": "Max retries reached. Marking for manual review.",
+                            "category": "Review",
+                        }
+            # Fallback (should not reach here)
+            return {
+                "classification_type": "review",
+                "reasoning": "Unknown error.",
+                "category": "Review",
+            }
 
         except Exception as e:
             logger.error(f"Error calling OpenAI API: {str(e)}")
@@ -679,7 +633,7 @@ def process_transactions(modeladmin, request, queryset):
                 ),
                 "classification_method": "AI",
                 "business_context": response.get("business_context"),
-                "category": response.get("category"),
+                "category": response.get("category_name"),
             }
 
             # Clean up fields
@@ -1156,7 +1110,7 @@ class TransactionAdmin(admin.ModelAdmin):
                         ),
                         "classification_method": "AI",
                         "business_context": response.get("business_context"),
-                        "category": response.get("category"),
+                        "category": response.get("category_name"),
                     }
 
                     # Clean up fields
