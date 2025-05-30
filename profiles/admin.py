@@ -40,6 +40,7 @@ import re
 from .utils import extract_pdf_metadata
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
+from django.utils.safestring import mark_safe
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -819,6 +820,29 @@ class TransactionAdminForm(forms.ModelForm):
         return instance
 
 
+# Add a ProcessedFilter for sidebar
+class ProcessedFilter(admin.SimpleListFilter):
+    title = _("Processed")
+    parameter_name = "processed"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", _("Processed")),
+            ("no", _("Unprocessed")),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.exclude(classification_method__isnull=True).exclude(
+                classification_method="None"
+            )
+        if self.value() == "no":
+            return queryset.filter(
+                classification_method__isnull=True
+            ) | queryset.filter(classification_method="None")
+        return queryset
+
+
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
     form = TransactionAdminForm
@@ -843,6 +867,7 @@ class TransactionAdmin(admin.ModelAdmin):
     )
     list_filter = (
         ClientFilter,
+        ProcessedFilter,  # Add processed filter
         "transaction_date",
         "classification_type",
         "worksheet",
@@ -911,6 +936,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "batch_classify",
         "mark_as_personal",
         "mark_as_business",
+        "mark_as_unclassified",  # New action
     ]
 
     def short_reasoning(self, obj):
@@ -1055,6 +1081,22 @@ class TransactionAdmin(admin.ModelAdmin):
 
     mark_as_business.short_description = (
         "Mark selected as Business (auto-add category if needed)"
+    )
+
+    def mark_as_unclassified(self, request, queryset):
+        updated = queryset.update(
+            classification_method="None",
+            classification_type=None,
+            worksheet=None,
+            category=None,
+            confidence=None,
+            reasoning=None,
+            business_percentage=None,
+        )
+        self.message_user(request, f"Marked {updated} transactions as Unclassified.")
+
+    mark_as_unclassified.short_description = (
+        "Mark selected as Unclassified (reset classification only)"
     )
 
     def get_actions(self, request):
@@ -1273,15 +1315,54 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "task_id",
-        "created_at",
-        "updated_at",
+        "task_type",
+        "client",
+        "status",
         "transaction_count",
         "processed_count",
         "error_count",
+        "created_at",
+        "updated_at",
         "error_details",
         "task_metadata",
     )
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        task = self.get_object(request, object_id)
+        # Always read-only
+        extra_context["hide_save"] = True
+        # Auto-refresh if running
+        if task and task.status in ["pending", "processing"]:
+            extra_context["auto_refresh"] = True
+        # Add log viewer if log file exists
+        import os
+        from django.conf import settings
+        from pathlib import Path
+
+        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
+        if log_file.exists():
+            try:
+                with open(log_file, "r") as f:
+                    lines = f.readlines()[-100:]
+                log_content = mark_safe(
+                    '<pre style="max-height:300px;overflow:auto;background:#222;color:#eee;padding:10px;">{}</pre>'.format(
+                        "".join(lines)
+                    )
+                )
+                extra_context["log_content"] = log_content
+            except Exception:
+                extra_context["log_content"] = mark_safe(
+                    '<pre style="color:red;">Error reading log file.</pre>'
+                )
+        else:
+            extra_context["log_content"] = mark_safe(
+                '<pre style="color:#888;">No log file found for this task.</pre>'
+            )
+        return super().change_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
 
     def run_task(self, request, queryset):
         """Execute the selected task and show progress."""
