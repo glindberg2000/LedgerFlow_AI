@@ -10,6 +10,23 @@
 - Integrating MPC tools and dockerized development workflow
 
 ## Recent Changes
+- Committed: Improved category mapping, sorting, and clickable subtotals in all reports.
+- IRS worksheet and all-categories reports now highlight unmapped business categories and allow direct navigation to filtered transactions.
+- **NEW:** Classification logic now always sets `transaction.category` to the mapped, allowed LLM `category_name` for all classification actions (single, batch, escalation). This prevents legacy or custom category values (e.g., 'Staging Expenses') from persisting and ensures only allowed business/IRS categories are used. Escalation and retry logic is in place to enforce strict mapping and flag for review if the LLM cannot comply.
+
+## Outstanding Issue
+- Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
+- This results in a disconnect between custom/user-defined categories and standardized IRS worksheet categories.
+
+## Next Steps / Recommendations
+- **Parent Mapping:** Use the `parent_category` field in `BusinessExpenseCategory` to explicitly map custom categories to IRS categories. This allows aggregation and reporting to roll up custom categories under the correct IRS line.
+- **Fuzzy Matching:** Implement a fuzzy string matching system to suggest or auto-map similar category names (e.g., 'Staging Expenses' → 'Staging'). This can be used as a fallback or for admin review.
+- **Schema Enforcement During Classification:** During transaction classification, enforce or suggest selection from a controlled vocabulary (IRS + business categories), possibly with auto-complete or admin override, to reduce drift.
+- **Admin UI for Mapping:** Build an admin interface to review, approve, and manage mappings between business and IRS categories, including suggestions for unmapped categories.
+- **Reporting Logic:** Update report aggregation to use the parent mapping or fuzzy match when rolling up subtotals for IRS worksheet lines.
+
+## Action Item
+- Document and discuss the best approach for maintaining robust, user-friendly category mapping between custom business and IRS worksheet categories. Prioritize a solution that is maintainable and transparent for both admins and end users.
 
 ### MPC Tools Integration and Dockerized Workflow
 1. Added MPC tools integration (GitHub, Discord, Task Manager, PostgreSQL)
@@ -358,4 +375,50 @@ make <role>-session  # e.g., make reviewer-session
   - Docker Compose: http://searxng:8080
   - Docker container accessing host: http://host.docker.internal:8888
   - Cloud/remote: http://<public-ip>:8888
-- See onboarding docs and .env.dev for details and troubleshooting. 
+- See onboarding docs and .env.dev for details and troubleshooting.
+
+## MIGRATION SNAPSHOT: End-of-Phase Summary (Pre-Repo Move)
+
+### Major Accomplishments
+- **Classification & Category Mapping:**
+  - Unified all transaction update logic (admin + batch) using a single DRY function (`get_update_fields_from_response`).
+  - LLM classification now strictly enforces allowed business/IRS categories; legacy/custom values are overwritten.
+  - Escalation and retry logic in place for LLM failures, with fallback to a more precise agent.
+  - Admin UI improvements: processed/unprocessed filter, reset action, and batch actions for classification/payee lookup.
+  - 6A and all-categories reports now highlight unmapped categories and allow direct navigation to filtered transactions.
+
+- **Batch Processing:**
+  - Batch jobs for classification and payee lookup now update the DB identically to admin actions.
+  - Real-time batch progress and log viewer in ProcessingTask detail page.
+  - Sidebar and action UX improvements for transaction admin.
+
+- **Memory Bank & Documentation:**
+  - All critical context, system, and technical docs are up to date in `cline_docs/`.
+  - Task-Master tasks reflect the current project state and priorities.
+
+### Outstanding Issues
+- **Data Quality:**
+  - Some legacy transactions and parser outputs have inconsistent or unmapped categories.
+  - Need to revisit parser integration and normalization to ensure clean, reliable data ingestion.
+
+- **Parser Integration:**
+  - Legacy PDF/CSV parsers (in subrepo) were partially integrated; some work in Django, others return blank results.
+  - Dynamic import logic and sys.path patching are in place, but environment and data format mismatches remain.
+  - Next step: Validate parsers in their original console environment, document their behavior, and plan robust re-integration.
+
+### Next Steps (Post-Migration)
+1. **Parser/Normalization Deep-Dive:**
+   - Test legacy parsers in their original environment with known-good samples.
+   - Document input/output, dependencies, and quirks for each parser.
+   - Compare with Django integration and resolve any discrepancies.
+   - Plan for robust, maintainable parser integration in the new repo.
+2. **Data Quality Audit:**
+   - Review and clean existing transaction/category data as needed.
+   - Implement improved normalization and mapping logic as required.
+3. **Continue Feature Development:**
+   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid.
+
+### Notes for Migration
+- This context snapshot should be preserved and imported into the new repo's memory bank before any further work.
+- All code, docs, and task-master tasks are up to date as of this snapshot.
+- Ready for a clean, focused start on parser/data normalization in the new environment. 
