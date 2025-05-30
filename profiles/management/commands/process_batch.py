@@ -9,6 +9,7 @@ import os
 from django.conf import settings
 import time
 from django.db import transaction
+from profiles.utils import get_update_fields_from_response
 
 logger = logging.getLogger(__name__)
 
@@ -88,56 +89,16 @@ class Command(BaseCommand):
                         with transaction.atomic():
                             response = call_agent(agent.name, tx)
 
-                            # Update transaction
-                            update_fields = {
-                                "normalized_description": response.get(
-                                    "normalized_description"
+                            # Use shared field mapping logic
+                            update_fields = get_update_fields_from_response(
+                                agent,
+                                response,
+                                (
+                                    agent.purpose.lower()
+                                    if hasattr(agent, "purpose")
+                                    else "classification"
                                 ),
-                                "payee": response.get("payee"),
-                                "confidence": response.get("confidence"),
-                                "reasoning": response.get("reasoning"),
-                                "payee_reasoning": (
-                                    response.get("reasoning")
-                                    if "payee" in agent.name.lower()
-                                    else None
-                                ),
-                                "transaction_type": response.get("transaction_type"),
-                                "questions": response.get("questions"),
-                                "classification_type": response.get(
-                                    "classification_type"
-                                ),
-                                "worksheet": response.get("worksheet"),
-                                "payee_extraction_method": (
-                                    "AI+Search"
-                                    if "payee" in agent.name.lower()
-                                    else "AI"
-                                ),
-                                "classification_method": "AI",
-                                "business_context": response.get("business_context"),
-                                "category": response.get("category"),
-                            }
-
-                            # Clean up fields
-                            update_fields = {
-                                k: v for k, v in update_fields.items() if v is not None
-                            }
-
-                            # For payee lookups, only update payee-related fields
-                            if "payee" in agent.name.lower():
-                                update_fields = {
-                                    k: v
-                                    for k, v in update_fields.items()
-                                    if k
-                                    in [
-                                        "normalized_description",
-                                        "payee",
-                                        "confidence",
-                                        "payee_reasoning",
-                                        "transaction_type",
-                                        "questions",
-                                        "payee_extraction_method",
-                                    ]
-                                }
+                            )
 
                             Transaction.objects.filter(id=tx.id).update(**update_fields)
                             status["successful"] += 1
