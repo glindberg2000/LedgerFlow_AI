@@ -37,7 +37,7 @@ from django.db import transaction as db_transaction
 from django import forms
 from django.utils.html import format_html
 import re
-from .utils import extract_pdf_metadata
+from .utils import extract_pdf_metadata, get_update_fields_from_response
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
 from django.utils.safestring import mark_safe
@@ -614,75 +614,26 @@ def process_transactions(modeladmin, request, queryset):
         agent = Agent.objects.get(id=agent_id)
         for transaction in queryset:
             response = call_agent(agent.name, transaction)
-
-            # Update transaction with the response
-            update_fields = {
-                "normalized_description": response.get("normalized_description"),
-                "payee": response.get("payee"),
-                "confidence": response.get("confidence"),
-                "reasoning": response.get("reasoning"),
-                "payee_reasoning": (
-                    response.get("reasoning") if "payee" in agent.name.lower() else None
+            update_fields = get_update_fields_from_response(
+                agent,
+                response,
+                (
+                    getattr(agent, "purpose", "").lower()
+                    if hasattr(agent, "purpose")
+                    else "classification"
                 ),
-                "transaction_type": response.get("transaction_type"),
-                "questions": response.get("questions"),
-                "classification_type": response.get("classification_type"),
-                "worksheet": response.get("worksheet"),
-                "business_percentage": response.get("business_percentage"),
-                "payee_extraction_method": (
-                    "AI+Search" if "payee" in agent.name.lower() else "AI"
-                ),
-                "classification_method": "AI",
-                "business_context": response.get("business_context"),
-                "category": response.get("category_name"),
-            }
-
-            # Clean up fields
-            update_fields = {k: v for k, v in update_fields.items() if v is not None}
-
-            # For payee lookups, only update payee-related fields
-            if "payee" in agent.name.lower():
-                update_fields = {
-                    k: v
-                    for k, v in update_fields.items()
-                    if k
-                    in [
-                        "normalized_description",
-                        "payee",
-                        "confidence",
-                        "payee_reasoning",
-                        "transaction_type",
-                        "questions",
-                        "payee_extraction_method",
-                    ]
-                }
-            else:
-                # For classification, ensure personal expenses have correct worksheet and category
-                if update_fields.get("classification_type") == "personal":
-                    update_fields["worksheet"] = "Personal"
-                    update_fields["category"] = "Personal"
-                    # Add detailed reasoning for personal expenses
-                    if "reasoning" not in update_fields:
-                        update_fields["reasoning"] = (
-                            "Transaction classified as personal expense based on description and amount"
-                        )
-
+            )
             logger.info(
                 f"Update fields for transaction {transaction.id}: {update_fields}"
             )
-
-            # Update the transaction
             rows_updated = Transaction.objects.filter(id=transaction.id).update(
                 **update_fields
             )
             logger.info(f"Updated {rows_updated} rows for transaction {transaction.id}")
-
-            # Verify the update
             updated_tx = Transaction.objects.get(id=transaction.id)
             logger.info(
                 f"Transaction {transaction.id} after update: payee={updated_tx.payee}, classification_type={updated_tx.classification_type}, worksheet={updated_tx.worksheet}, confidence={updated_tx.confidence}, category={updated_tx.category}"
             )
-
         messages.success(
             request,
             f"Successfully processed {queryset.count()} transactions with {agent.name}",
@@ -691,7 +642,6 @@ def process_transactions(modeladmin, request, queryset):
         messages.error(request, "Selected agent not found")
     except Exception as e:
         messages.error(request, f"Error processing transactions: {str(e)}")
-
     return HttpResponseRedirect(request.get_full_path())
 
 
@@ -1128,83 +1078,28 @@ class TransactionAdmin(admin.ModelAdmin):
                     )
                     response = call_agent(agent.name, transaction)
                     logger.info(f"Agent response: {response}")
-
-                    # Map response fields to database fields
-                    update_fields = {
-                        "normalized_description": response.get(
-                            "normalized_description"
+                    update_fields = get_update_fields_from_response(
+                        agent,
+                        response,
+                        (
+                            getattr(agent, "purpose", "").lower()
+                            if hasattr(agent, "purpose")
+                            else "classification"
                         ),
-                        "payee": response.get("payee"),
-                        "confidence": response.get("confidence"),
-                        "reasoning": response.get("reasoning"),
-                        "payee_reasoning": (
-                            response.get("reasoning")
-                            if "payee" in agent.name.lower()
-                            else None
-                        ),
-                        "transaction_type": response.get("transaction_type"),
-                        "questions": response.get("questions"),
-                        "classification_type": response.get("classification_type"),
-                        "worksheet": response.get("worksheet"),
-                        "business_percentage": response.get("business_percentage"),
-                        "payee_extraction_method": (
-                            "AI+Search" if "payee" in agent.name.lower() else "AI"
-                        ),
-                        "classification_method": "AI",
-                        "business_context": response.get("business_context"),
-                        "category": response.get("category_name"),
-                    }
-
-                    # Clean up fields
-                    update_fields = {
-                        k: v for k, v in update_fields.items() if v is not None
-                    }
-
-                    # For payee lookups, only update payee-related fields
-                    if "payee" in agent.name.lower():
-                        update_fields = {
-                            k: v
-                            for k, v in update_fields.items()
-                            if k
-                            in [
-                                "normalized_description",
-                                "payee",
-                                "confidence",
-                                "payee_reasoning",
-                                "transaction_type",
-                                "questions",
-                                "payee_extraction_method",
-                            ]
-                        }
-                    else:
-                        # For classification, ensure personal expenses have correct worksheet and category
-                        if update_fields.get("classification_type") == "personal":
-                            update_fields["worksheet"] = "Personal"
-                            update_fields["category"] = "Personal"
-                            # Add detailed reasoning for personal expenses
-                            if "reasoning" not in update_fields:
-                                update_fields["reasoning"] = (
-                                    "Transaction classified as personal expense based on description and amount"
-                                )
-
+                    )
                     logger.info(
                         f"Update fields for transaction {transaction.id}: {update_fields}"
                     )
-
-                    # Update the transaction
                     rows_updated = Transaction.objects.filter(id=transaction.id).update(
                         **update_fields
                     )
                     logger.info(
                         f"Updated {rows_updated} rows for transaction {transaction.id}"
                     )
-
-                    # Verify the update
                     updated_tx = Transaction.objects.get(id=transaction.id)
                     logger.info(
                         f"Transaction {transaction.id} after update: payee={updated_tx.payee}, classification_type={updated_tx.classification_type}, worksheet={updated_tx.worksheet}, confidence={updated_tx.confidence}, category={updated_tx.category}"
                     )
-
                 messages.success(
                     request,
                     f"Successfully processed {queryset.count()} transactions with {agent.name}",

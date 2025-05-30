@@ -7,6 +7,7 @@ from profiles.admin import call_agent
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from django.conf import settings
+from profiles.utils import get_update_fields_from_response
 
 logger = logging.getLogger(__name__)
 
@@ -67,62 +68,10 @@ class Command(BaseCommand):
                         # Call the agent
                         response = call_agent(agent.name, tx)
 
-                        # Update transaction with the response
-                        update_fields = {
-                            "normalized_description": response.get(
-                                "normalized_description"
-                            ),
-                            "payee": response.get("payee"),
-                            "confidence": response.get("confidence"),
-                            "reasoning": response.get("reasoning"),
-                            "payee_reasoning": (
-                                response.get("reasoning")
-                                if task.task_type == "payee_lookup"
-                                else None
-                            ),
-                            "transaction_type": response.get("transaction_type"),
-                            "questions": response.get("questions"),
-                            "classification_type": response.get("classification_type"),
-                            "worksheet": response.get("worksheet"),
-                            "business_percentage": response.get("business_percentage"),
-                            "payee_extraction_method": (
-                                "AI+Search"
-                                if task.task_type == "payee_lookup"
-                                else None
-                            ),
-                            "classification_method": (
-                                "AI" if task.task_type == "classification" else None
-                            ),
-                            "business_context": response.get("business_context"),
-                            "category": response.get("category"),
-                        }
-
-                        # Clean up fields
-                        update_fields = {
-                            k: v for k, v in update_fields.items() if v is not None
-                        }
-
-                        # For payee lookups, only update payee-related fields
-                        if task.task_type == "payee_lookup":
-                            update_fields = {
-                                k: v
-                                for k, v in update_fields.items()
-                                if k
-                                in [
-                                    "normalized_description",
-                                    "payee",
-                                    "confidence",
-                                    "payee_reasoning",
-                                    "transaction_type",
-                                    "questions",
-                                    "payee_extraction_method",
-                                ]
-                            }
-                        else:
-                            # For classification, ensure personal expenses have correct worksheet
-                            if update_fields.get("classification_type") == "personal":
-                                update_fields["worksheet"] = "Personal"
-                                update_fields["category"] = "Personal"
+                        # Use shared field mapping logic
+                        update_fields = get_update_fields_from_response(
+                            agent, response, task.task_type
+                        )
 
                         # Update the transaction
                         Transaction.objects.filter(id=tx.id).update(**update_fields)

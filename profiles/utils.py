@@ -183,3 +183,69 @@ def extract_pdf_metadata(pdf_path):
 
 
 # For extensibility: if all fields are None or confidence is low, fallback to vision agent
+
+
+def get_update_fields_from_response(agent, response, task_type):
+    """
+    Map LLM agent response to transaction update fields for both classification and payee lookup.
+    Always uses category_name for category. Handles payee-only updates and personal expense logic.
+    """
+    update_fields = {
+        "normalized_description": response.get("normalized_description"),
+        "payee": response.get("payee"),
+        "confidence": response.get("confidence"),
+        "reasoning": response.get("reasoning"),
+        "payee_reasoning": (
+            response.get("reasoning")
+            if (
+                task_type == "payee_lookup"
+                or (hasattr(agent, "name") and "payee" in agent.name.lower())
+            )
+            else None
+        ),
+        "transaction_type": response.get("transaction_type"),
+        "questions": response.get("questions"),
+        "classification_type": response.get("classification_type"),
+        "worksheet": response.get("worksheet"),
+        "business_percentage": response.get("business_percentage"),
+        "payee_extraction_method": (
+            "AI+Search"
+            if (
+                task_type == "payee_lookup"
+                or (hasattr(agent, "name") and "payee" in agent.name.lower())
+            )
+            else "AI"
+        ),
+        "classification_method": ("AI" if task_type == "classification" else None),
+        "business_context": response.get("business_context"),
+        "category": response.get("category_name"),
+    }
+    update_fields = {k: v for k, v in update_fields.items() if v is not None}
+    # Payee lookup: only update payee-related fields
+    if task_type == "payee_lookup" or (
+        hasattr(agent, "name") and "payee" in agent.name.lower()
+    ):
+        update_fields = {
+            k: v
+            for k, v in update_fields.items()
+            if k
+            in [
+                "normalized_description",
+                "payee",
+                "confidence",
+                "payee_reasoning",
+                "transaction_type",
+                "questions",
+                "payee_extraction_method",
+            ]
+        }
+    else:
+        # For classification, ensure personal expenses have correct worksheet/category
+        if update_fields.get("classification_type") == "personal":
+            update_fields["worksheet"] = "Personal"
+            update_fields["category"] = "Personal"
+            if "reasoning" not in update_fields:
+                update_fields["reasoning"] = (
+                    "Transaction classified as personal expense based on description and amount"
+                )
+    return update_fields
