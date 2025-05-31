@@ -421,4 +421,36 @@ make <role>-session  # e.g., make reviewer-session
 ### Notes for Migration
 - This context snapshot should be preserved and imported into the new repo's memory bank before any further work.
 - All code, docs, and task-master tasks are up to date as of this snapshot.
-- Ready for a clean, focused start on parser/data normalization in the new environment. 
+- Ready for a clean, focused start on parser/data normalization in the new environment.
+
+# Post-Migration Next Steps
+
+## Immediate Priorities
+- **Parser Integration:**
+  - Validate legacy PDF/CSV parsers in their original environment with known-good samples.
+  - Document input/output, dependencies, and quirks for each parser.
+  - Compare with Django integration and resolve discrepancies.
+  - Plan robust, maintainable parser integration in the new repo.
+- **Data Normalization:**
+  - Review and clean existing transaction/category data as needed.
+  - Implement improved normalization and mapping logic as required.
+- **Reporting Improvements:**
+  - Ensure all business/IRS category mapping is robust and transparent.
+  - Update reports to use new mapping/normalization logic.
+- **Batch Processing:**
+  - Confirm batch jobs for classification and payee lookup update the DB identically to admin actions.
+  - Monitor and improve batch progress/logging UX as needed.
+
+## Context
+- All classification, batch, and parser context is up to date as of the last migration snapshot.
+- The system now enforces strict category mapping and DRY update logic for transactions.
+- Outstanding issues: legacy data quality, parser integration, and normalization.
+
+## What to Build Next
+1. **Parser/Normalization Deep-Dive:**
+   - Test and document all legacy parsers.
+   - Build a robust ingestion pipeline.
+2. **Data Quality Audit:**
+   - Clean and normalize existing data.
+3. **Continue Feature Development:**
+   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid. 
