@@ -43,6 +43,7 @@ from django.contrib.admin import AdminSite
 from django.utils.safestring import mark_safe
 import importlib
 import pkgutil
+from dataextractai.utils.normalize_api import normalize_parsed_data
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1469,51 +1470,6 @@ class StatementFileAdminForm(forms.ModelForm):
         ]
 
 
-def get_parser_module_choices():
-    try:
-        sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
-        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
-
-        autodiscover_parsers()
-        registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
-        registry = getattr(registry_mod, "ParserRegistry")
-        parser_names = list(getattr(registry, "_parsers", {}).keys())
-        print(f"[DEBUG] Parser registry contents: {parser_names}")
-        return [("", "--- No Change ---")] + [(name, name) for name in parser_names]
-    except Exception as e:
-        print(f"[DEBUG] Exception in get_parser_module_choices: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return [("", "--- No Change ---")]
-
-
-class BulkTagForm(forms.Form):
-    parser_module = forms.ChoiceField(required=False, label="Parser Module")
-    statement_type = forms.CharField(
-        required=False,
-        label="Statement Type",
-        help_text="Flexible statement type (e.g., VISA, checking, etc.)",
-    )
-    bank = forms.ChoiceField(required=False, label="Bank")
-    year = forms.ChoiceField(required=False, label="Year")
-
-    def __init__(self, *args, **kwargs):
-        banks = kwargs.pop("banks", [])
-        years = kwargs.pop("years", [])
-        super().__init__(*args, **kwargs)
-        self.fields["parser_module"].choices = get_parser_module_choices()
-        # Remove duplicates and sort
-        unique_banks = sorted(set(b for b in banks if b))
-        unique_years = sorted(set(y for y in years if y))
-        self.fields["bank"].choices = [("", "--- No Change ---")] + [
-            (b, b) for b in unique_banks
-        ]
-        self.fields["year"].choices = [("", "--- No Change ---")] + [
-            (y, y) for y in unique_years
-        ]
-
-
 @admin.action(description="Bulk tag: Parser/Statement Type/Bank/Year")
 def bulk_tag_action(modeladmin, request, queryset):
     banks = StatementFile.objects.values_list("bank", flat=True).distinct()
@@ -1547,6 +1503,83 @@ def bulk_tag_action(modeladmin, request, queryset):
     )
 
 
+@admin.action(description="Batch Parse and Normalize")
+def batch_parse_and_normalize(modeladmin, request, queryset):
+    from django.db import transaction as db_transaction
+    from django.contrib import messages
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.error(f"[DEBUG] sys.path: {sys.path}")
+    from dataextractai.parsers_core.registry import ParserRegistry
+
+    logger.error(
+        f"[DEBUG] Registered parsers after forced import: {list(getattr(ParserRegistry, '_parsers', {}).keys())}"
+    )
+    created, updated, skipped, errors = 0, 0, 0, 0
+    for sf in queryset:
+        parser_name = sf.parser_module
+        logger.error(f"[DEBUG] parser_name for file {sf.file}: {parser_name}")
+        client = sf.client
+        client_name = client.client_id if client else None
+        file_path = sf.file.path if hasattr(sf.file, "path") else sf.file.name
+        try:
+            tx_dicts = normalize_parsed_data(file_path, parser_name, client_name)
+            for tx in tx_dicts:
+                try:
+                    with db_transaction.atomic():
+                        obj, is_created = Transaction.objects.update_or_create(
+                            client=client,
+                            transaction_id=tx["transaction_id"],
+                            defaults={
+                                k: v
+                                for k, v in tx.items()
+                                if k
+                                in [
+                                    "transaction_date",
+                                    "amount",
+                                    "description",
+                                    "category",
+                                    "parsed_data",
+                                    "file_path",
+                                    "source",
+                                    "transaction_type",
+                                    "normalized_amount",
+                                    "statement_start_date",
+                                    "statement_end_date",
+                                    "account_number",
+                                    "normalized_description",
+                                    "payee",
+                                    "confidence",
+                                    "reasoning",
+                                    "payee_reasoning",
+                                    "business_context",
+                                    "questions",
+                                    "classification_type",
+                                    "worksheet",
+                                    "business_percentage",
+                                ]
+                            },
+                        )
+                        if is_created:
+                            created += 1
+                        else:
+                            updated += 1
+                except Exception as e:
+                    logger.error(f"Error upserting transaction: {e}")
+                    errors += 1
+        except Exception as e:
+            logger.error(f"Error parsing file {file_path}: {e}")
+            errors += 1
+    logger.error(
+        f"[DEBUG] Batch parse complete: {created} created, {updated} updated, {errors} errors."
+    )
+    messages.success(
+        request,
+        f"Batch parse complete: {created} created, {updated} updated, {errors} errors.",
+    )
+
+
 @admin.register(StatementFile)
 class StatementFileAdmin(admin.ModelAdmin):
     form = StatementFileAdminForm
@@ -1566,7 +1599,7 @@ class StatementFileAdmin(admin.ModelAdmin):
     list_filter = ("client", "file_type", "status", "year", "month", "bank")
     search_fields = ("original_filename", "bank", "account_number", "status_detail")
     readonly_fields = ("upload_timestamp", "uploaded_by", "parsed_metadata")
-    actions = [bulk_tag_action]
+    actions = [bulk_tag_action, batch_parse_and_normalize]
 
     def save_model(self, request, obj, form, change):
         # First, save the object so the file is written to disk
