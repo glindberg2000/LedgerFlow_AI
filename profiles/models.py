@@ -476,6 +476,8 @@ class StatementFile(models.Model):
     transactions = models.ManyToManyField(
         "Transaction", related_name="source_files", blank=True
     )
+    parser_module = models.CharField(max_length=100, blank=True, null=True, help_text="Registered parser module name (from ParserRegistry)")
+    statement_type = models.CharField(max_length=100, blank=True, null=True, help_text="Flexible statement type (e.g., VISA, checking, etc.)")
 
     class Meta:
         ordering = ["-upload_timestamp"]

@@ -1,10 +1,13 @@
 from django.shortcuts import render, redirect
 from django.contrib import messages
 import csv
-from .forms import TransactionCSVForm
-from .models import Transaction, BusinessProfile
+from .forms import TransactionCSVForm, StatementFileUploadForm
+from .models import Transaction, BusinessProfile, StatementFile
 import logging
 from django.views.generic import ListView
+from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.core.files.storage import default_storage
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +52,36 @@ class BusinessProfileListView(ListView):
     model = BusinessProfile
     template_name = "profiles/profile_list.html"
     context_object_name = "profiles"
+
+
+def upload_statement_files(request):
+    if request.method == "POST":
+        form = StatementFileUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            client = form.cleaned_data["client"]
+            file_type = form.cleaned_data["file_type"]
+            files = request.FILES.getlist("files")
+            uploaded_by = request.user if request.user.is_authenticated else None
+            success, errors = [], []
+            for f in files:
+                try:
+                    instance = StatementFile.objects.create(
+                        client=client,
+                        file=f,
+                        file_type=file_type,
+                        original_filename=f.name,
+                        uploaded_by=uploaded_by,
+                        status="uploaded",
+                    )
+                    success.append(f"Uploaded: {f.name}")
+                except Exception as e:
+                    logger.error(f"Error uploading {f.name}: {e}")
+                    errors.append(f"{f.name}: {e}")
+            if success:
+                messages.success(request, " ".join(success))
+            if errors:
+                messages.error(request, " ".join(errors))
+            return redirect("upload-statement-files")
+    else:
+        form = StatementFileUploadForm()
+    return render(request, "profiles/upload_statement_files.html", {"form": form})

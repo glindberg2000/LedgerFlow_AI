@@ -1,0 +1,57 @@
+# Product Requirements Document: Parser Integration for LedgerFlow
+
+## Overview
+Integrate the modular parser system (from PDF-extractor) into the LedgerFlow Django platform. The goal is to enable seamless PDF and CSV upload, parsing, normalization, and ingestion into the LedgerFlow database, so that parsed transactions and data can be used with the existing Django client classification and tax system.
+
+## Goals
+- Users can upload PDF and CSV financial documents via the LedgerFlow web interface.
+- Uploaded files are processed using the modular parser system.
+- Extracted and normalized data is mapped to LedgerFlow's internal models and stored in the database.
+- Parsed transactions are available for classification, review, and reporting in the Django admin and client UI.
+- The system supports both batch and single-file processing.
+- All parsing, normalization, and ingestion steps are logged and auditable.
+
+## Requirements
+1. **File Upload**
+   - Support PDF and CSV uploads via the Django web UI.
+   - Validate file types and size.
+   - Store uploaded files securely for processing.
+
+2. **Parser Integration**
+   - Integrate the modular parser system as a Python package or Django app.
+   - Support invocation from Django views, tasks, or management commands.
+   - Maintain compatibility with CLI batch processing.
+
+3. **Data Extraction & Normalization**
+   - Use the parser system to extract raw transaction data from uploaded files.
+   - Normalize extracted data to match LedgerFlow's internal schema.
+   - Handle edge cases (e.g., missing fields, malformed data) gracefully.
+
+4. **Database Ingestion**
+   - Map normalized data to Django models (transactions, accounts, etc.).
+   - Ensure data integrity and avoid duplicates.
+   - Support bulk and incremental ingestion.
+
+5. **Classification & Tax System Integration**
+   - Parsed transactions must be available for classification using the existing Django client classification/tax system.
+   - Enable review, correction, and approval workflows for imported data.
+   - Support reporting and export features for parsed and classified data.
+
+6. **Logging & Auditing**
+   - Log all parsing, normalization, and ingestion steps.
+   - Provide audit trails for data provenance and error handling.
+
+7. **Testing & Documentation**
+   - Implement unit and integration tests for all new components.
+   - Document the integration, usage, and troubleshooting steps for devs and admins.
+
+## Out of Scope
+- OCR for scanned PDFs (future enhancement)
+- Real-time collaborative editing
+- Third-party API integrations beyond parsing
+
+## Success Criteria
+- End-to-end flow: upload → parse → normalize → ingest → classify → report
+- High accuracy and reliability for supported document types
+- Minimal manual intervention required for standard cases
+- Full auditability and error handling 

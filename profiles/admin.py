@@ -41,6 +41,8 @@ from .utils import extract_pdf_metadata, get_update_fields_from_response
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
 from django.utils.safestring import mark_safe
+import importlib
+import pkgutil
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1467,6 +1469,84 @@ class StatementFileAdminForm(forms.ModelForm):
         ]
 
 
+def get_parser_module_choices():
+    try:
+        sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
+        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
+
+        autodiscover_parsers()
+        registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
+        registry = getattr(registry_mod, "ParserRegistry")
+        parser_names = list(getattr(registry, "_parsers", {}).keys())
+        print(f"[DEBUG] Parser registry contents: {parser_names}")
+        return [("", "--- No Change ---")] + [(name, name) for name in parser_names]
+    except Exception as e:
+        print(f"[DEBUG] Exception in get_parser_module_choices: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return [("", "--- No Change ---")]
+
+
+class BulkTagForm(forms.Form):
+    parser_module = forms.ChoiceField(required=False, label="Parser Module")
+    statement_type = forms.CharField(
+        required=False,
+        label="Statement Type",
+        help_text="Flexible statement type (e.g., VISA, checking, etc.)",
+    )
+    bank = forms.ChoiceField(required=False, label="Bank")
+    year = forms.ChoiceField(required=False, label="Year")
+
+    def __init__(self, *args, **kwargs):
+        banks = kwargs.pop("banks", [])
+        years = kwargs.pop("years", [])
+        super().__init__(*args, **kwargs)
+        self.fields["parser_module"].choices = get_parser_module_choices()
+        # Remove duplicates and sort
+        unique_banks = sorted(set(b for b in banks if b))
+        unique_years = sorted(set(y for y in years if y))
+        self.fields["bank"].choices = [("", "--- No Change ---")] + [
+            (b, b) for b in unique_banks
+        ]
+        self.fields["year"].choices = [("", "--- No Change ---")] + [
+            (y, y) for y in unique_years
+        ]
+
+
+@admin.action(description="Bulk tag: Parser/Statement Type/Bank/Year")
+def bulk_tag_action(modeladmin, request, queryset):
+    banks = StatementFile.objects.values_list("bank", flat=True).distinct()
+    years = StatementFile.objects.values_list("year", flat=True).distinct()
+    if "apply" in request.POST:
+        form = BulkTagForm(request.POST, banks=banks, years=years)
+        if form.is_valid():
+            data = form.cleaned_data
+            update_fields = {}
+            if data["parser_module"]:
+                update_fields["parser_module"] = data["parser_module"]
+            if data["statement_type"]:
+                update_fields["statement_type"] = data["statement_type"]
+            if data["bank"]:
+                update_fields["bank"] = data["bank"]
+            if data["year"]:
+                update_fields["year"] = data["year"]
+            queryset.update(**update_fields)
+            modeladmin.message_user(request, f"Updated {queryset.count()} files.")
+            return None
+    else:
+        form = BulkTagForm(banks=banks, years=years)
+    return TemplateResponse(
+        request,
+        "admin/bulk_tag_action.html",
+        {
+            "form": form,
+            "queryset": queryset,
+            "action_checkbox_name": admin.helpers.ACTION_CHECKBOX_NAME,
+        },
+    )
+
+
 @admin.register(StatementFile)
 class StatementFileAdmin(admin.ModelAdmin):
     form = StatementFileAdminForm
@@ -1486,6 +1566,7 @@ class StatementFileAdmin(admin.ModelAdmin):
     list_filter = ("client", "file_type", "status", "year", "month", "bank")
     search_fields = ("original_filename", "bank", "account_number", "status_detail")
     readonly_fields = ("upload_timestamp", "uploaded_by", "parsed_metadata")
+    actions = [bulk_tag_action]
 
     def save_model(self, request, obj, form, change):
         # First, save the object so the file is written to disk
