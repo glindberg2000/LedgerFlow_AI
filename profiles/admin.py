@@ -44,6 +44,7 @@ from django.utils.safestring import mark_safe
 import importlib
 import pkgutil
 from dataextractai.utils.normalize_api import normalize_parsed_data
+from django.core.exceptions import ValidationError
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1647,53 +1648,19 @@ class StatementFileAdmin(admin.ModelAdmin):
     actions = [bulk_tag_action, batch_parse_and_normalize]
 
     def save_model(self, request, obj, form, change):
-        # First, save the object so the file is written to disk
+        if not obj.statement_hash and obj.file:
+            obj.statement_hash = obj.compute_statement_hash()
+        if obj.statement_hash:
+            qs = type(obj).objects.filter(
+                client=obj.client, statement_hash=obj.statement_hash
+            )
+            if obj.pk:
+                qs = qs.exclude(pk=obj.pk)
+            if qs.exists():
+                raise ValidationError(
+                    "This statement file has already been uploaded for this client."
+                )
         super().save_model(request, obj, form, change)
-        # Now, if it's a PDF and file exists, extract metadata
-        if obj.file and obj.file_type == "pdf":
-            file_path = obj.file.path
-            if os.path.exists(file_path):
-                try:
-                    meta = extract_pdf_metadata(file_path)
-                    updated = False
-                    if meta.get("bank") and obj.bank != meta["bank"]:
-                        obj.bank = meta["bank"]
-                        updated = True
-                    if (
-                        meta.get("account_number")
-                        and obj.account_number != meta["account_number"]
-                    ):
-                        obj.account_number = meta["account_number"]
-                        updated = True
-                    # Try to extract year/month from statement_period or statement_date
-                    from datetime import datetime
-
-                    date_str = None
-                    if meta.get("statement_period") and isinstance(
-                        meta["statement_period"], tuple
-                    ):
-                        date_str = meta["statement_period"][1]  # Use end date
-                    elif meta.get("statement_date"):
-                        date_str = meta["statement_date"]
-                    if date_str:
-                        try:
-                            dt = datetime.strptime(date_str, "%m/%d/%Y")
-                            if obj.year != dt.year:
-                                obj.year = dt.year
-                                updated = True
-                            if obj.month != dt.month:
-                                obj.month = dt.month
-                                updated = True
-                        except Exception:
-                            pass
-                    # Add status_detail for debugging
-                    obj.status_detail = f"Auto-extracted: {meta}"
-                    updated = True
-                except Exception as e:
-                    obj.status_detail = f"Auto-extract error: {e}"
-                    updated = True
-                if updated:
-                    obj.save()
 
     def add_view(self, request, form_url="", extra_context=None):
         # Custom add_view to support batch upload

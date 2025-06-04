@@ -122,4 +122,7 @@ node_modules/
 # Task files
 tasks.json
 tasks/
-.cursor/mcp.json 
+.cursor/mcp.json *.pdf
+
+transaction_hash_collisions.csv
+db_backup_before_transaction_hash.pgcustom

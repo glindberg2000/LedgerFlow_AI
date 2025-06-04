@@ -5,6 +5,7 @@ import importlib.util
 import os
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+import hashlib
 
 # Create your models here.
 
@@ -153,7 +154,9 @@ class Transaction(models.Model):
     statement_start_date = models.DateField(blank=True, null=True)
     statement_end_date = models.DateField(blank=True, null=True)
     account_number = models.CharField(max_length=50, blank=True, null=True)
-    transaction_id = models.IntegerField(unique=True, null=True)
+    transaction_hash = models.CharField(
+        max_length=64, unique=True, db_index=True, blank=True, null=True
+    )
 
     # Fields for LLM processing
     normalized_description = models.TextField(blank=True, null=True)
@@ -198,18 +201,18 @@ class Transaction(models.Model):
     classification_method = models.CharField(
         max_length=20,
         choices=[
-            ("AI", "AI Classification"),
+            ("AI", "AI Only"),
             ("Human", "Human Override"),
             ("None", "Not Processed"),
         ],
-        default=None,  # Changed from "AI" to None
+        default=None,
         help_text="Method used to classify the transaction",
     )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["client", "transaction_id"], name="unique_transaction"
+                fields=["client", "transaction_hash"], name="unique_transaction"
             )
         ]
 
@@ -242,6 +245,25 @@ class Transaction(models.Model):
             created_by=created_by,
             is_active=True,
         )
+
+    @staticmethod
+    def compute_transaction_hash(
+        client_id, transaction_date, amount, description, category
+    ):
+        """Deterministically hash the canonical fields for deduplication."""
+        key = f"{client_id}|{transaction_date}|{amount}|{description}|{category}"
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+    def save(self, *args, **kwargs):
+        if not self.transaction_hash:
+            self.transaction_hash = Transaction.compute_transaction_hash(
+                self.client_id,
+                self.transaction_date,
+                self.amount,
+                self.description,
+                self.category,
+            )
+        super().save(*args, **kwargs)
 
 
 class LLMConfig(models.Model):
@@ -447,6 +469,11 @@ class SearchResult(models.Model):
 
 
 class StatementFile(models.Model):
+    """
+    Stores uploaded statement files (PDF, CSV, etc.) for a client.
+    Now includes a statement_hash (SHA256 of file contents) for deduplication per client.
+    """
+
     STATUS_CHOICES = [
         ("uploaded", "Uploaded"),
         ("identified", "Identified"),
@@ -476,15 +503,50 @@ class StatementFile(models.Model):
     transactions = models.ManyToManyField(
         "Transaction", related_name="source_files", blank=True
     )
-    parser_module = models.CharField(max_length=100, blank=True, null=True, help_text="Registered parser module name (from ParserRegistry)")
-    statement_type = models.CharField(max_length=100, blank=True, null=True, help_text="Flexible statement type (e.g., VISA, checking, etc.)")
+    parser_module = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Registered parser module name (from ParserRegistry)",
+    )
+    statement_type = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Flexible statement type (e.g., VISA, checking, etc.)",
+    )
+    statement_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="SHA256 of file contents for deduplication",
+    )
 
     class Meta:
         ordering = ["-upload_timestamp"]
         verbose_name = "Statement File"
         verbose_name_plural = "Statement Files"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client", "statement_hash"], name="unique_client_statement_hash"
+            )
+        ]
 
     def __str__(self):
         return f"{self.client} - {self.original_filename} ({self.status})"
+
+    def compute_statement_hash(self):
+        """Compute SHA256 hash of the file contents."""
+        if not self.file:
+            return None
+        self.file.seek(0)
+        file_bytes = self.file.read()
+        self.file.seek(0)
+        return hashlib.sha256(file_bytes).hexdigest()
+
+    def save(self, *args, **kwargs):
+        if not self.statement_hash and self.file:
+            self.statement_hash = self.compute_statement_hash()
+        super().save(*args, **kwargs)
 
     # For extensibility: add batch_id, progress, etc. as needed for batch uploads

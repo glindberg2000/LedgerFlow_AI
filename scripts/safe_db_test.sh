@@ -6,9 +6,9 @@
 set -e
 
 # Configuration
-DEV_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/test"
+DEV_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev"
 PROD_BACKUP_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/prod"
-CONTAINER_BACKUP_DIR="/backups/test"
+CONTAINER_BACKUP_DIR="/backups"
 MIN_BACKUP_SIZE=10240  # 10KB minimum
 
 # Determine environment
