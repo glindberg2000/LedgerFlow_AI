@@ -1470,6 +1470,51 @@ class StatementFileAdminForm(forms.ModelForm):
         ]
 
 
+def get_parser_module_choices():
+    try:
+        sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
+        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
+
+        autodiscover_parsers()
+        registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
+        registry = getattr(registry_mod, "ParserRegistry")
+        parser_names = list(getattr(registry, "_parsers", {}).keys())
+        print(f"[DEBUG] Parser registry contents: {parser_names}")
+        return [("", "--- No Change ---")] + [(name, name) for name in parser_names]
+    except Exception as e:
+        print(f"[DEBUG] Exception in get_parser_module_choices: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return [("", "--- No Change ---")]
+
+
+class BulkTagForm(forms.Form):
+    parser_module = forms.ChoiceField(required=False, label="Parser Module")
+    statement_type = forms.CharField(
+        required=False,
+        label="Statement Type",
+        help_text="Flexible statement type (e.g., VISA, checking, etc.)",
+    )
+    bank = forms.ChoiceField(required=False, label="Bank")
+    year = forms.ChoiceField(required=False, label="Year")
+
+    def __init__(self, *args, **kwargs):
+        banks = kwargs.pop("banks", [])
+        years = kwargs.pop("years", [])
+        super().__init__(*args, **kwargs)
+        self.fields["parser_module"].choices = get_parser_module_choices()
+        # Remove duplicates and sort
+        unique_banks = sorted(set(b for b in banks if b))
+        unique_years = sorted(set(y for y in years if y))
+        self.fields["bank"].choices = [("", "--- No Change ---")] + [
+            (b, b) for b in unique_banks
+        ]
+        self.fields["year"].choices = [("", "--- No Change ---")] + [
+            (y, y) for y in unique_years
+        ]
+
+
 @admin.action(description="Bulk tag: Parser/Statement Type/Bank/Year")
 def bulk_tag_action(modeladmin, request, queryset):
     banks = StatementFile.objects.values_list("bank", flat=True).distinct()
