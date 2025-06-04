@@ -1650,16 +1650,6 @@ class StatementFileAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not obj.statement_hash and obj.file:
             obj.statement_hash = obj.compute_statement_hash()
-        if obj.statement_hash:
-            qs = type(obj).objects.filter(
-                client=obj.client, statement_hash=obj.statement_hash
-            )
-            if obj.pk:
-                qs = qs.exclude(pk=obj.pk)
-            if qs.exists():
-                raise ValidationError(
-                    "This statement file has already been uploaded for this client."
-                )
         super().save_model(request, obj, form, change)
 
     def add_view(self, request, form_url="", extra_context=None):

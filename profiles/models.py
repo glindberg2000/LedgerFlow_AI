@@ -549,4 +549,20 @@ class StatementFile(models.Model):
             self.statement_hash = self.compute_statement_hash()
         super().save(*args, **kwargs)
 
+    def clean(self):
+        super().clean()
+        # Compute hash if not set and file is present
+        if not self.statement_hash and self.file:
+            self.statement_hash = self.compute_statement_hash()
+        if self.statement_hash:
+            qs = type(self).objects.filter(
+                client=self.client, statement_hash=self.statement_hash
+            )
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError(
+                    "This statement file has already been uploaded for this client."
+                )
+
     # For extensibility: add batch_id, progress, etc. as needed for batch uploads
