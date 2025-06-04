@@ -8,6 +8,8 @@ from django.views.generic import ListView
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,14 @@ def upload_statement_files(request):
                         status="uploaded",
                     )
                     success.append(f"Uploaded: {f.name}")
+                except (IntegrityError, ValidationError) as e:
+                    # Check for duplicate error
+                    if "unique_client_statement_hash" in str(e):
+                        msg = f"{f.name}: This statement file has already been uploaded for this client."
+                    else:
+                        msg = f"{f.name}: {e}"
+                    logger.error(f"Error uploading {f.name}: {e}")
+                    errors.append(msg)
                 except Exception as e:
                     logger.error(f"Error uploading {f.name}: {e}")
                     errors.append(f"{f.name}: {e}")
