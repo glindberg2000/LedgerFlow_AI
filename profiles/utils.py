@@ -1,5 +1,6 @@
 import pdfplumber
 import re
+from django.db import connection
 
 # List of known banks for detection (expand as needed)
 KNOWN_BANKS = [
@@ -249,3 +250,11 @@ def get_update_fields_from_response(agent, response, task_type):
                     "Transaction classified as personal expense based on description and amount"
                 )
     return update_fields
+
+
+def sync_transaction_id_sequence():
+    """Ensure the transaction ID sequence is in sync with the max ID in the table."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT setval(pg_get_serial_sequence('profiles_transaction', 'id'), (SELECT COALESCE(MAX(id), 1) FROM profiles_transaction));"
+        )

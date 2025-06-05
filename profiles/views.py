@@ -2,7 +2,13 @@ from django.shortcuts import render, redirect
 from django.contrib import messages
 import csv
 from .forms import TransactionCSVForm, StatementFileUploadForm
-from .models import Transaction, BusinessProfile, StatementFile
+from .models import (
+    Transaction,
+    BusinessProfile,
+    StatementFile,
+    CLASSIFICATION_METHOD_UNCLASSIFIED,
+    PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+)
 import logging
 from django.views.generic import ListView
 from django.contrib.auth import get_user_model
@@ -10,6 +16,7 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from .utils import sync_transaction_id_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 def upload_transactions(request):
     if request.method == "POST":
+        sync_transaction_id_sequence()
         form = TransactionCSVForm(request.POST, request.FILES)
         if form.is_valid():
             csv_file = request.FILES["csv_file"]
@@ -39,6 +47,8 @@ def upload_transactions(request):
                         statement_end_date=row["statement_end_date"] or None,
                         account_number=row["account_number"],
                         transaction_id=row["transaction_id"],
+                        classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
+                        payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
                     )
                 except Exception as e:
                     logger.error(f"Error processing row {row}: {e}")
@@ -91,6 +101,11 @@ def upload_statement_files(request):
                 messages.success(request, " ".join(success))
             if errors:
                 messages.error(request, " ".join(errors))
+                # Do NOT redirect if there are errors; re-render the form so the message shows
+                return render(
+                    request, "profiles/upload_statement_files.html", {"form": form}
+                )
+            # Only redirect if all files were successful
             return redirect("upload-statement-files")
     else:
         form = StatementFileUploadForm()

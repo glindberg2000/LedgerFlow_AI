@@ -228,4 +228,13 @@
 - Feature completion
 - Stability achieved
 - Support requirements met
-- Cost objectives met 
+- Cost objectives met
+
+## [2025-06-05] Progress Update
+- Added automatic transaction ID sequence sync to all bulk import/parse actions.
+- Users will never see duplicate key errors due to sequence mismatch.
+- No manual DB intervention is needed for normal operation.
+
+- Unified the defaulting of payee_extraction_method across admin actions and raw imports.
+- All code paths now use PAYEE_EXTRACTION_METHOD_UNPROCESSED ("None") for payee_extraction_method.
+- Next: Test in UI and DB to confirm all unprocessed transactions are consistent after import or reset. 
