@@ -7,6 +7,11 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 import hashlib
 
+# Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
+CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
+# Canonical value for unprocessed payee extraction. Use this everywhere payee_extraction_method is not processed.
+PAYEE_EXTRACTION_METHOD_UNPROCESSED = "None"
+
 # Create your models here.
 
 
@@ -208,6 +213,15 @@ class Transaction(models.Model):
         default=None,
         help_text="Method used to classify the transaction",
     )
+
+    # New fields for full auditability
+    statement_file = models.ForeignKey(
+        "StatementFile", on_delete=models.CASCADE, null=True, blank=True
+    )
+    transaction_id = models.CharField(
+        max_length=128, db_index=True, null=True, blank=True
+    )
+    parser_name = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         constraints = [

@@ -12,11 +12,13 @@ from .models import (
     TransactionClassification,
     ProcessingTask,
     StatementFile,
+    CLASSIFICATION_METHOD_UNCLASSIFIED,
+    PAYEE_EXTRACTION_METHOD_UNPROCESSED,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
-from django.urls import path
-from django.shortcuts import render, get_object_or_404
+from django.urls import path, reverse
+from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 import json
 from jsonschema import validate, ValidationError
@@ -28,7 +30,6 @@ import traceback
 from openai import OpenAI
 import sys
 from datetime import datetime
-from django.urls import reverse
 from django.utils import timezone
 from pathlib import Path
 import subprocess
@@ -37,14 +38,19 @@ from django.db import transaction as db_transaction
 from django import forms
 from django.utils.html import format_html
 import re
-from .utils import extract_pdf_metadata, get_update_fields_from_response
+from .utils import (
+    extract_pdf_metadata,
+    get_update_fields_from_response,
+    sync_transaction_id_sequence,
+)
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
 from django.utils.safestring import mark_safe
 import importlib
 import pkgutil
-from dataextractai.utils.normalize_api import normalize_parsed_data
+from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
+import pandas as pd
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1039,7 +1045,7 @@ class TransactionAdmin(admin.ModelAdmin):
 
     def mark_as_unclassified(self, request, queryset):
         updated = queryset.update(
-            classification_method="None",
+            classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
             classification_type=None,
             worksheet=None,
             category=None,
@@ -1119,10 +1125,6 @@ class TransactionAdmin(admin.ModelAdmin):
                 )
 
         return process_with_agent
-
-    def get_urls(self):
-        urls = super().get_urls()
-        return urls
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         # Remove 'Save and add another' and relabel 'Save and continue editing' to 'Save'
@@ -1423,17 +1425,6 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
 
     cancel_tasks.short_description = "Cancel selected tasks"
 
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "<uuid:task_id>/transactions/",
-                self.admin_site.admin_view(self.view_task_transactions),
-                name="profiles_processingtask_transactions",
-            ),
-        ]
-        return custom_urls + urls
-
     def view_task_transactions(self, request, task_id):
         """View transactions associated with a processing task."""
         task = get_object_or_404(ProcessingTask, task_id=task_id)
@@ -1551,78 +1542,95 @@ def bulk_tag_action(modeladmin, request, queryset):
 
 @admin.action(description="Batch Parse and Normalize")
 def batch_parse_and_normalize(modeladmin, request, queryset):
+    sync_transaction_id_sequence()
     from django.db import transaction as db_transaction
     from django.contrib import messages
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.error(f"[DEBUG] sys.path: {sys.path}")
-    from dataextractai.parsers_core.registry import ParserRegistry
+    required_fields = [
+        "transaction_date",
+        "description",
+        "amount",
+        "file_path",
+        "source",
+        "transaction_type",
+        "account_number",
+        "transaction_id",
+    ]
 
-    logger.error(
-        f"[DEBUG] Registered parsers after forced import: {list(getattr(ParserRegistry, '_parsers', {}).keys())}"
-    )
-    created, updated, skipped, errors = 0, 0, 0, 0
-    for sf in queryset:
-        parser_name = sf.parser_module
-        logger.error(f"[DEBUG] parser_name for file {sf.file}: {parser_name}")
-        client = sf.client
-        client_name = client.client_id if client else None
-        file_path = sf.file.path if hasattr(sf.file, "path") else sf.file.name
+    for statement in queryset:
+        file_path = (
+            statement.file.path
+            if hasattr(statement.file, "path")
+            else statement.file.name
+        )
+        parser_name = statement.parser_module
+        client_name = statement.client.client_id
+        if not parser_name:
+            messages.error(
+                request,
+                f"No parser assigned for {statement.original_filename}. Please assign a parser before parsing.",
+            )
+            continue
         try:
-            tx_dicts = normalize_parsed_data(file_path, parser_name, client_name)
-            for tx in tx_dicts:
-                try:
-                    with db_transaction.atomic():
-                        obj, is_created = Transaction.objects.update_or_create(
-                            client=client,
-                            transaction_id=tx["transaction_id"],
-                            defaults={
-                                k: v
-                                for k, v in tx.items()
-                                if k
-                                in [
-                                    "transaction_date",
-                                    "amount",
-                                    "description",
-                                    "category",
-                                    "parsed_data",
-                                    "file_path",
-                                    "source",
-                                    "transaction_type",
-                                    "normalized_amount",
-                                    "statement_start_date",
-                                    "statement_end_date",
-                                    "account_number",
-                                    "normalized_description",
-                                    "payee",
-                                    "confidence",
-                                    "reasoning",
-                                    "payee_reasoning",
-                                    "business_context",
-                                    "questions",
-                                    "classification_type",
-                                    "worksheet",
-                                    "business_percentage",
-                                ]
-                            },
-                        )
-                        if is_created:
-                            created += 1
-                        else:
-                            updated += 1
-                except Exception as e:
-                    logger.error(f"Error upserting transaction: {e}")
-                    errors += 1
+            df = normalize_parsed_data_df(
+                file_path=file_path, parser_name=parser_name, client_name=client_name
+            )
+            result = df.to_dict(orient="records")
         except Exception as e:
-            logger.error(f"Error parsing file {file_path}: {e}")
-            errors += 1
-    logger.error(
-        f"[DEBUG] Batch parse complete: {created} created, {updated} updated, {errors} errors."
+            messages.error(
+                request, f"Failed to parse/normalize {statement.original_filename}: {e}"
+            )
+            continue
+        created, skipped = 0, 0
+        for row in result:
+            if hasattr(row, "to_dict"):
+                row = row.to_dict()
+            date_val = row.get("transaction_date")
+            if (
+                not isinstance(date_val, str)
+                or not date_val.strip()
+                or date_val == "nan"
+            ):
+                logger.error(
+                    f"[MALFORMED TRANSACTION] Skipping row due to invalid date: {row}"
+                )
+                skipped += 1
+                continue
+            try:
+                Transaction.objects.create(
+                    client=statement.client,
+                    statement_file=statement,
+                    transaction_date=row["transaction_date"],
+                    description=row["description"],
+                    amount=row["amount"],
+                    file_path=row["file_path"],
+                    source=row["source"],
+                    transaction_type=row["transaction_type"],
+                    account_number=row["account_number"],
+                    transaction_id=row.get("transaction_id"),
+                    transaction_hash=row.get("transaction_hash"),
+                    parser_name=row.get("parser_name"),
+                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
+                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+                )
+                created += 1
+            except Exception as e:
+                logger.error(f"Error creating transaction: {e}")
+                skipped += 1
+        messages.success(
+            request,
+            f"{created} transactions imported for {statement.original_filename}. {skipped} rows skipped.",
+        )
+
+
+class BatchStatementFileUploadForm(forms.Form):
+    client = forms.ModelChoiceField(
+        queryset=BusinessProfile.objects.all(), required=True
     )
-    messages.success(
-        request,
-        f"Batch parse complete: {created} created, {updated} updated, {errors} errors.",
+    file_type = forms.ChoiceField(
+        choices=StatementFile._meta.get_field("file_type").choices, required=True
     )
 
 
@@ -1685,4 +1693,60 @@ class StatementFileAdmin(admin.ModelAdmin):
                 return redirect("admin:profiles_statementfile_changelist")
         return super().add_view(request, form_url, extra_context)
 
-    # For extensibility: add progress bars, batch status, and custom UI as needed
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        batch_upload_url = reverse("admin:profiles_statementfile_batch_upload")
+        extra_context["batch_upload_url"] = batch_upload_url
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def batch_upload_view(self, request):
+        if request.method == "POST":
+            form = BatchStatementFileUploadForm(request.POST, request.FILES)
+            if form.is_valid():
+                client = form.cleaned_data["client"]
+                file_type = form.cleaned_data["file_type"]
+                files = request.FILES.getlist("files")
+                uploaded_by = request.user if request.user.is_authenticated else None
+                success, errors = 0, 0
+                for f in files:
+                    try:
+                        instance = StatementFile(
+                            client=client,
+                            file=f,
+                            file_type=file_type,
+                            original_filename=f.name,
+                            uploaded_by=uploaded_by,
+                            status="uploaded",
+                        )
+                        instance.full_clean()
+                        instance.save()
+                        success += 1
+                    except ValidationError as e:
+                        messages.error(request, f"{f.name}: {e.messages[0]}")
+                        errors += 1
+                    except Exception as e:
+                        messages.error(request, f"{f.name}: {e}")
+                        errors += 1
+                if success:
+                    messages.success(request, f"Uploaded {success} files successfully.")
+                if errors:
+                    messages.error(request, f"{errors} files failed to upload.")
+                return redirect("..")
+        else:
+            form = BatchStatementFileUploadForm()
+        context = self.admin_site.each_context(request)
+        context["opts"] = self.model._meta
+        context["form"] = form
+        context["title"] = "Batch Upload Statement Files"
+        return render(request, "admin/batch_upload_statement_files.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "batch-upload/",
+                self.admin_site.admin_view(self.batch_upload_view),
+                name="profiles_statementfile_batch_upload",
+            ),
+        ]
+        return custom_urls + urls

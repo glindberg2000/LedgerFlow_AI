@@ -453,4 +453,61 @@ make <role>-session  # e.g., make reviewer-session
 2. **Data Quality Audit:**
    - Clean and normalize existing data.
 3. **Continue Feature Development:**
-   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid. 
+   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid.
+
+## Current Debugging Process: Parser/Normalizer Integration
+
+### 1. **Initial Issue**
+- The new normalizer (`normalize_parsed_data_df`) outputs a SHA256 hash in the `transaction_id` field.
+- In the Django model, `transaction_id` is for external/statement IDs, and `transaction_hash` is for deduplication.
+- Fix: The normalizer was updated (by Extractor_Dev) to output the hash in `transaction_hash` and only set `transaction_id` if present in the source data.
+- Django import logic was updated to map these fields correctly.
+
+### 2. **Testing and Results**
+- The parser and normalizer now output valid transactions with correct fields.
+- However, a new error appeared: `null value in column "classification_method" of relation "profiles_transaction" violates not-null constraint`.
+- This means the import logic must provide a value for `classification_method` (required by the model, choices: "AI", "Human", "None").
+
+### 3. **How to Run and Test**
+- **Backend:**
+  - Activate the virtualenv: `source venv/bin/activate`
+  - Run Django: `python manage.py runserver 8001`
+  - Set any needed env vars in the shell before running.
+- **Frontend:** (not covered in this session, check project docs if needed)
+- **Testing Import:**
+  - Use the Django admin UI to upload and parse statement files.
+  - The parser/normalizer should now produce a DataFrame with all expected fields, including `transaction_hash`.
+  - Transactions will fail to import if required fields (like `classification_method`) are missing.
+
+### 4. **Robust Normalizer Usage**
+- Always use `normalize_parsed_data_df(file_path, parser_name, client_name)`.
+- The DataFrame will have all context columns, normalized dates, and deduplication hash.
+- Map `transaction_hash` to the model's hash field, and `transaction_id` to the external/statement ID.
+
+### 5. **Next Steps**
+- Update the import logic to provide a default value for `classification_method` (e.g., "AI" or "None") if not present in the row.
+- Retest import from the UI.
+- If further errors occur, check for other required fields in the model.
+
+### 6. **Crucial Details for New Context**
+- Always check the model for required/not-null fields.
+- Ensure the normalizer output is mapped to the correct model fields.
+- If you see errors about missing fields, update the import logic to provide defaults or handle missing data.
+- Use the memory bank and this file as your source of truth after a reset.
+
+## [2025-06-05] Unification of Unclassified Transaction Defaulting
+- All raw imports and admin resets now use the constant CLASSIFICATION_METHOD_UNCLASSIFIED (value: "None") for classification_method.
+- This ensures consistency between admin actions and import workflows.
+- The constant is defined in profiles/models.py and imported wherever needed.
+- Next steps: verify in UI and DB that all unclassified transactions have classification_method = "None" after import or reset.
+
+## [2025-06-05] Unification of Payee Extraction Method Defaulting
+- All raw imports now use the constant PAYEE_EXTRACTION_METHOD_UNPROCESSED (value: "None") for payee_extraction_method.
+- This ensures consistency between admin actions and import workflows for payee extraction status.
+- The constant is defined in profiles/models.py and imported wherever needed.
+- Next steps: verify in UI and DB that all unprocessed transactions have payee_extraction_method = "None" after import or reset.
+
+## [2025-06-05] Robustness: Automatic Transaction ID Sequence Sync
+- Transaction import and batch parse actions now automatically sync the primary key sequence before bulk creation.
+- This prevents duplicate key errors for users, even if the DB sequence is out of sync.
+- No manual DB intervention is ever required. 

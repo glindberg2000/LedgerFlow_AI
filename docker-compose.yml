@@ -7,6 +7,9 @@ services:
       - type: bind
         source: /Users/greg/LedgerFlow_data/pg  # Persistent PostgreSQL data
         target: /var/lib/postgresql/data
+      - type: bind
+        source: /Users/greg/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/test
+        target: /backups/test
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ledgerflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ledgerflow}
