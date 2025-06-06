@@ -13,6 +13,11 @@
 - Committed: Improved category mapping, sorting, and clickable subtotals in all reports.
 - IRS worksheet and all-categories reports now highlight unmapped business categories and allow direct navigation to filtered transactions.
 - **NEW:** Classification logic now always sets `transaction.category` to the mapped, allowed LLM `category_name` for all classification actions (single, batch, escalation). This prevents legacy or custom category values (e.g., 'Staging Expenses') from persisting and ensures only allowed business/IRS categories are used. Escalation and retry logic is in place to enforce strict mapping and flag for review if the LLM cannot comply.
+- Patched `normalize_parsed_data_df` to guarantee `source`, `file_path`, and `file_name` fields for all imports.
+- Verified First Republic parser and all modular parsers now work with Django import.
+- Cleaned up admin UI and removed legacy parser test utilities.
+- Added and migrated ParsingRun model for import logging.
+- Communicated with Extractor_Dev to coordinate and verify all parser/normalizer changes.
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
@@ -64,6 +69,16 @@
 5. Documented project progress
 
 ## Current State
+- **Parser import pipeline is robust and production-ready.**
+    - All required fields (`source`, `file_path`, `file_name`) are now forcibly added to every row in every parser output, thanks to a patch in `normalize_parsed_data_df` (Extractor_Dev).
+    - No more KeyErrors or missing fields during Django import, even for new or updated parsers (e.g., First Republic Bank).
+- **Admin UI improvements:**
+    - Parser assignment is always visible in the StatementFile admin.
+    - Batch Parse and Normalize is blocked if no parser is assigned, with clear error messages.
+- **Legacy/unused admin parser utilities and models have been removed** for clarity and maintainability.
+- **ParsingRun model** logs all real parsing/import actions, including status, errors, and rows imported, for full audit/history.
+- **All code and database migrations are up to date and working.**
+- **All recent changes have been committed.**
 
 ### Working Features
 1. Basic Django application
