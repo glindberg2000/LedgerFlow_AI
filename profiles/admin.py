@@ -535,58 +535,100 @@ def call_agent(
             logger.info(f"Tools: {json.dumps(tool_definitions, indent=2)}")
 
         try:
-            # Retry logic
-            for attempt in range(max_retries + 1):
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            if tool_definitions:
+                tools = tool_definitions
+            else:
+                tools = None
+            max_tool_calls = 3
+            tool_call_count = 0
+            while True:
+                payload = {
+                    "model": agent.llm.model,
+                    "messages": messages,
+                    "response_format": {"type": "json_object"},
+                }
+                if tools:
+                    payload["tools"] = tools
+                    payload["tool_choice"] = "auto"
                 response = client.chat.completions.create(**payload)
-                logger.info(f"LLM response (attempt {attempt+1}): {response}")
-                # Parse and validate response
-                try:
-                    result = response.choices[0].message.content
-                    result_json = json.loads(result)
-                    # Validate category_id
-                    cat_id = result_json.get("category_id")
-                    if cat_id not in allowed_category_ids:
-                        raise ValidationError(f"Invalid category_id: {cat_id}")
-                    # Optionally: validate worksheet, classification_type, etc.
-                    return result_json
-                except Exception as e:
-                    logger.warning(f"Validation failed (attempt {attempt+1}): {e}")
-                    if attempt == max_retries and escalate_on_fail:
-                        # Escalate to Classification Escalation Agent
-                        try:
-                            escalation_agent = Agent.objects.get(
-                                name="Classification Escalation Agent"
-                            )
-                            logger.info(
-                                "Escalating to Classification Escalation Agent..."
-                            )
-                            return call_agent(
-                                escalation_agent.name,
-                                transaction,
-                                model=escalation_agent.llm.model,
-                                max_retries=1,
-                                escalate_on_fail=False,
-                            )
-                        except Exception as esc_e:
-                            logger.error(f"Escalation failed: {esc_e}")
-                            return {
-                                "classification_type": "review",
-                                "reasoning": f"Escalation failed: {esc_e}",
-                                "category": "Review",
+                logger.info(f"LLM response: {response}")
+                msg = response.choices[0].message
+                # If the LLM returns a tool call, append the assistant message and then the tool message(s)
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    if tool_call_count >= max_tool_calls:
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "Maximum search limit reached. Now provide your final response in the exact JSON format specified.",
                             }
-                    elif attempt == max_retries:
-                        logger.error("Max retries reached. Marking for manual review.")
-                        return {
-                            "classification_type": "review",
-                            "reasoning": "Max retries reached. Marking for manual review.",
-                            "category": "Review",
+                        )
+                        continue
+                    # 1. Append the assistant message with tool_calls
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                (
+                                    tc.to_dict()
+                                    if hasattr(tc, "to_dict")
+                                    else {
+                                        "id": tc.id,
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments,
+                                        },
+                                        "type": "function",
+                                    }
+                                )
+                                for tc in msg.tool_calls
+                            ],
                         }
-            # Fallback (should not reach here)
-            return {
-                "classification_type": "review",
-                "reasoning": "Unknown error.",
-                "category": "Review",
-            }
+                    )
+                    # 2. For each tool_call, execute and append a tool message
+                    for tool_call in msg.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args = json.loads(tool_call.function.arguments)
+                        logger.info(
+                            f"Executing tool: {tool_name} with args: {tool_args}"
+                        )
+                        try:
+                            tool_obj = Tool.objects.get(name=tool_name)
+                            module_path = tool_obj.module_path
+                            module_name = module_path.split(".")[-1]
+                            module = __import__(module_path, fromlist=[module_name])
+                            if tool_name == "searxng_search":
+                                tool_function = getattr(module, "searxng_search")
+                            else:
+                                tool_function = getattr(module, tool_name)
+                            tool_result = tool_function(**tool_args)
+                            logger.info(f"Tool result: {tool_result}")
+                        except Exception as e:
+                            logger.error(f"Error executing tool {tool_name}: {str(e)}")
+                            raise
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_name,
+                                "content": json.dumps(tool_result),
+                            }
+                        )
+                        tool_call_count += 1
+                    continue  # Loop again to get the next LLM response
+                # If the LLM returns a final content message, parse and return it
+                if msg.content:
+                    return json.loads(msg.content)
+                logger.error(
+                    "LLM returned neither tool_calls nor content. Breaking loop."
+                )
+                break
+            raise RuntimeError("Failed to get a valid response from the LLM.")
 
         except Exception as e:
             logger.error(f"Error calling OpenAI API: {str(e)}")
