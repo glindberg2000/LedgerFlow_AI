@@ -1525,52 +1525,26 @@ def get_parser_module_choices():
 
 class BulkTagForm(forms.Form):
     parser_module = forms.ChoiceField(required=False, label="Parser Module")
-    statement_type = forms.CharField(
-        required=False,
-        label="Statement Type",
-        help_text="Flexible statement type (e.g., VISA, checking, etc.)",
-    )
-    bank = forms.ChoiceField(required=False, label="Bank")
-    year = forms.ChoiceField(required=False, label="Year")
 
     def __init__(self, *args, **kwargs):
-        banks = kwargs.pop("banks", [])
-        years = kwargs.pop("years", [])
         super().__init__(*args, **kwargs)
         self.fields["parser_module"].choices = get_parser_module_choices()
-        # Remove duplicates and sort
-        unique_banks = sorted(set(b for b in banks if b))
-        unique_years = sorted(set(y for y in years if y))
-        self.fields["bank"].choices = [("", "--- No Change ---")] + [
-            (b, b) for b in unique_banks
-        ]
-        self.fields["year"].choices = [("", "--- No Change ---")] + [
-            (y, y) for y in unique_years
-        ]
 
 
-@admin.action(description="Bulk tag: Parser/Statement Type/Bank/Year")
+@admin.action(description="Bulk tag: Parser only")
 def bulk_tag_action(modeladmin, request, queryset):
-    banks = StatementFile.objects.values_list("bank", flat=True).distinct()
-    years = StatementFile.objects.values_list("year", flat=True).distinct()
     if "apply" in request.POST:
-        form = BulkTagForm(request.POST, banks=banks, years=years)
+        form = BulkTagForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
             update_fields = {}
             if data["parser_module"]:
                 update_fields["parser_module"] = data["parser_module"]
-            if data["statement_type"]:
-                update_fields["statement_type"] = data["statement_type"]
-            if data["bank"]:
-                update_fields["bank"] = data["bank"]
-            if data["year"]:
-                update_fields["year"] = data["year"]
             queryset.update(**update_fields)
             modeladmin.message_user(request, f"Updated {queryset.count()} files.")
             return None
     else:
-        form = BulkTagForm(banks=banks, years=years)
+        form = BulkTagForm()
     return TemplateResponse(
         request,
         "admin/bulk_tag_action.html",
