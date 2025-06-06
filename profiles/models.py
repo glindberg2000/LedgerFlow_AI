@@ -580,3 +580,19 @@ class StatementFile(models.Model):
                 )
 
     # For extensibility: add batch_id, progress, etc. as needed for batch uploads
+
+
+class ParsingRun(models.Model):
+    statement_file = models.ForeignKey(
+        "StatementFile", on_delete=models.CASCADE, related_name="parsing_runs"
+    )
+    parser_module = models.CharField(max_length=100)
+    status = models.CharField(
+        max_length=20, choices=[("success", "Success"), ("fail", "Fail")]
+    )
+    error_message = models.TextField(blank=True, null=True)
+    rows_imported = models.IntegerField(default=0)
+    created = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.statement_file} | {self.parser_module} | {self.status} | {self.created}"

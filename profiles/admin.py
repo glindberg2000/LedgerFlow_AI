@@ -14,6 +14,7 @@ from .models import (
     StatementFile,
     CLASSIFICATION_METHOD_UNCLASSIFIED,
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+    ParsingRun,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -1589,17 +1590,29 @@ def batch_parse_and_normalize(modeladmin, request, queryset):
                 f"No parser assigned for {statement.original_filename}. Please assign a parser before parsing.",
             )
             continue
+        error_message = None
+        created, skipped = 0, 0
         try:
             df = normalize_parsed_data_df(
                 file_path=file_path, parser_name=parser_name, client_name=client_name
             )
             result = df.to_dict(orient="records")
         except Exception as e:
+            error_message = str(e)
             messages.error(
                 request, f"Failed to parse/normalize {statement.original_filename}: {e}"
             )
+            # Log ParsingRun as fail
+            from .models import ParsingRun
+
+            ParsingRun.objects.create(
+                statement_file=statement,
+                parser_module=parser_name,
+                status="fail",
+                error_message=error_message,
+                rows_imported=0,
+            )
             continue
-        created, skipped = 0, 0
         for row in result:
             if hasattr(row, "to_dict"):
                 row = row.to_dict()
@@ -1635,6 +1648,25 @@ def batch_parse_and_normalize(modeladmin, request, queryset):
             except Exception as e:
                 logger.error(f"Error creating transaction: {e}")
                 skipped += 1
+        # Log ParsingRun as success or fail
+        from .models import ParsingRun
+
+        if created > 0:
+            ParsingRun.objects.create(
+                statement_file=statement,
+                parser_module=parser_name,
+                status="success",
+                error_message=None,
+                rows_imported=created,
+            )
+        else:
+            ParsingRun.objects.create(
+                statement_file=statement,
+                parser_module=parser_name,
+                status="fail",
+                error_message=error_message or f"No rows imported. Skipped: {skipped}",
+                rows_imported=0,
+            )
         messages.success(
             request,
             f"{created} transactions imported for {statement.original_filename}. {skipped} rows skipped.",
@@ -1657,6 +1689,7 @@ class StatementFileAdmin(admin.ModelAdmin):
         "client",
         "original_filename",
         "file_type",
+        "parser_module",
         "status",
         "upload_timestamp",
         "uploaded_by",
@@ -1668,7 +1701,12 @@ class StatementFileAdmin(admin.ModelAdmin):
     )
     list_filter = ("client", "file_type", "status", "year", "month", "bank")
     search_fields = ("original_filename", "bank", "account_number", "status_detail")
-    readonly_fields = ("upload_timestamp", "uploaded_by", "parsed_metadata")
+    readonly_fields = (
+        "upload_timestamp",
+        "uploaded_by",
+        "parsed_metadata",
+        "parser_module",
+    )
     actions = [bulk_tag_action, batch_parse_and_normalize]
 
     def save_model(self, request, obj, form, change):
@@ -1766,3 +1804,30 @@ class StatementFileAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+
+@admin.register(ParsingRun)
+class ParsingRunAdmin(admin.ModelAdmin):
+    list_display = (
+        "statement_file",
+        "parser_module",
+        "status",
+        "rows_imported",
+        "short_error",
+        "created",
+    )
+    search_fields = (
+        "statement_file__original_filename",
+        "parser_module",
+        "error_message",
+    )
+    list_filter = ("status", "parser_module", "created")
+
+    def short_error(self, obj):
+        return (
+            (obj.error_message[:60] + "...")
+            if obj.error_message and len(obj.error_message) > 60
+            else obj.error_message
+        )
+
+    short_error.short_description = "Error Message"

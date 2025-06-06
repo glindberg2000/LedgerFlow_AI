@@ -126,3 +126,6 @@ tasks/
 
 transaction_hash_collisions.csv
 db_backup_before_transaction_hash.pgcustom
+
+# Ignore all PDF files in the repo
+*.pdf
