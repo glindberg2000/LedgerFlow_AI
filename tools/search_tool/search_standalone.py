@@ -104,6 +104,11 @@ def search_web(
         raise RuntimeError(f"Unexpected error during search: {str(e)}")
 
 
+def searxng_search(**kwargs):
+    """Wrapper for search_web to match tool name for dynamic import."""
+    return search_web(**kwargs)
+
+
 # Define function schema for OpenAI function calling
 function_schema = {
     "name": "searxng_search",
