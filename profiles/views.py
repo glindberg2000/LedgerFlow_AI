@@ -49,6 +49,10 @@ def upload_transactions(request):
                         transaction_id=row["transaction_id"],
                         classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
                         payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+                        needs_account_number=(
+                            not row.get("account_number")
+                            or str(row.get("account_number")).strip() == ""
+                        ),
                     )
                 except Exception as e:
                     logger.error(f"Error processing row {row}: {e}")
