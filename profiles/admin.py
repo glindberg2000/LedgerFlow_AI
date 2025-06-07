@@ -1683,15 +1683,20 @@ def batch_parse_and_normalize(modeladmin, request, queryset):
                     file_path=row["file_path"],
                     source=row["source"],
                     transaction_type=row["transaction_type"],
-                    account_number=row["account_number"],
+                    account_number=row.get("account_number")
+                    or statement.account_number
+                    or "",
                     transaction_id=row.get("transaction_id"),
                     transaction_hash=row.get("transaction_hash"),
                     parser_name=row.get("parser_name"),
                     classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
                     payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
                     needs_account_number=(
-                        not row.get("account_number")
-                        or str(row.get("account_number")).strip() == ""
+                        not (row.get("account_number") or statement.account_number)
+                        or str(
+                            row.get("account_number") or statement.account_number
+                        ).strip()
+                        == ""
                     ),
                 )
                 created += 1
