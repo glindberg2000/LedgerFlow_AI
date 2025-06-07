@@ -226,6 +226,12 @@ class Transaction(models.Model):
     )
     parser_name = models.CharField(max_length=64, null=True, blank=True)
 
+    # New field for needs_account_number
+    needs_account_number = models.BooleanField(
+        default=False,
+        help_text="True if this transaction needs an account number to be entered manually.",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -544,6 +550,10 @@ class StatementFile(models.Model):
         blank=True,
         null=True,
         help_text="SHA256 of file contents for deduplication",
+    )
+    needs_account_number = models.BooleanField(
+        default=False,
+        help_text="True if this file needs an account number to be entered manually.",
     )
 
     class Meta:

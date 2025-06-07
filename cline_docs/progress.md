@@ -237,4 +237,19 @@
 
 - Unified the defaulting of payee_extraction_method across admin actions and raw imports.
 - All code paths now use PAYEE_EXTRACTION_METHOD_UNPROCESSED ("None") for payee_extraction_method.
-- Next: Test in UI and DB to confirm all unprocessed transactions are consistent after import or reset. 
+- Next: Test in UI and DB to confirm all unprocessed transactions are consistent after import or reset.
+
+## What Works
+
+- Batch uploader allows uploading statement files without account number.
+
+## What's Left to Build
+
+- Enforce account number as mandatory for parsing/processing.
+- Update parsing logic to raise error if account number is missing.
+- Provide UI/admin tools to add/edit account number before parsing if needed.
+- Test and verify the hybrid workflow.
+
+## Progress Status
+
+- In progress: Implementing hybrid account number requirement (optional on upload, mandatory for parsing). 

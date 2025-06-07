@@ -9,6 +9,13 @@
 - Creating comprehensive onboarding materials for new team members
 - Integrating MPC tools and dockerized development workflow
 
+## What I'm Working On Now
+
+- Updating the batch uploader and parsing workflow to use a hybrid approach for account number:
+  - Account number is **optional** on upload (batch uploader).
+  - Account number is **mandatory** for parsing/processing (must be present before parsing, either by extraction or manual entry).
+- Ensuring UI and backend logic reflect this policy.
+
 ## Recent Changes
 - Committed: Improved category mapping, sorting, and clickable subtotals in all reports.
 - IRS worksheet and all-categories reports now highlight unmapped business categories and allow direct navigation to filtered transactions.
@@ -18,6 +25,8 @@
 - Cleaned up admin UI and removed legacy parser test utilities.
 - Added and migrated ParsingRun model for import logging.
 - Communicated with Extractor_Dev to coordinate and verify all parser/normalizer changes.
+- Analyzed the batch uploader code and identified that account number is not currently required or set in batch uploads.
+- Decided on hybrid approach for account number requirement after analysis and discussion.
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
@@ -525,4 +534,11 @@ make <role>-session  # e.g., make reviewer-session
 ## [2025-06-05] Robustness: Automatic Transaction ID Sequence Sync
 - Transaction import and batch parse actions now automatically sync the primary key sequence before bulk creation.
 - This prevents duplicate key errors for users, even if the DB sequence is out of sync.
-- No manual DB intervention is ever required. 
+- No manual DB intervention is ever required.
+
+## Next Steps
+
+1. Ensure batch uploader allows upload without account number.
+2. Update parsing logic to require account number (raise error if missing, provide UI for manual entry if extraction fails).
+3. Update admin/status UI to flag files missing account number before parsing.
+4. Test the full workflow for both upload and parsing stages. 

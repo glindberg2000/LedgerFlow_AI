@@ -846,6 +846,24 @@ class ProcessedFilter(admin.SimpleListFilter):
         return queryset
 
 
+class NeedsAccountNumberFilter(admin.SimpleListFilter):
+    title = _("Needs Account Number")
+    parameter_name = "needs_account_number"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", _("Needs Account Number")),
+            ("no", _("Has Account Number")),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(needs_account_number=True)
+        if self.value() == "no":
+            return queryset.filter(needs_account_number=False)
+        return queryset
+
+
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
     form = TransactionAdminForm
@@ -870,7 +888,8 @@ class TransactionAdmin(admin.ModelAdmin):
     )
     list_filter = (
         ClientFilter,
-        ProcessedFilter,  # Add processed filter
+        ProcessedFilter,
+        NeedsAccountNumberFilter,  # Add our new filter
         "transaction_date",
         "classification_type",
         "worksheet",
@@ -939,7 +958,8 @@ class TransactionAdmin(admin.ModelAdmin):
         "batch_classify",
         "mark_as_personal",
         "mark_as_business",
-        "mark_as_unclassified",  # New action
+        "mark_as_unclassified",
+        "batch_set_account_number",  # New batch action
     ]
 
     def short_reasoning(self, obj):
@@ -955,6 +975,32 @@ class TransactionAdmin(admin.ModelAdmin):
         return ""
 
     short_payee_reasoning.short_description = "Payee Reasoning"
+
+    @admin.action(description="Batch set account number for selected transactions")
+    def batch_set_account_number(self, request, queryset):
+        from django import forms
+
+        class AccountNumberForm(forms.Form):
+            account_number = forms.CharField(label="Account Number", required=True)
+
+        if "apply" in request.POST:
+            form = AccountNumberForm(request.POST)
+            if form.is_valid():
+                account_number = form.cleaned_data["account_number"]
+                updated = queryset.update(
+                    account_number=account_number, needs_account_number=False
+                )
+                self.message_user(
+                    request, f"Set account number for {updated} transactions."
+                )
+                return
+        else:
+            form = AccountNumberForm()
+        return render(
+            request,
+            "admin/batch_set_account_number.html",
+            {"form": form, "queryset": queryset},
+        )
 
     def batch_payee_lookup(self, request, queryset):
         """Create a batch processing task for payee lookup."""
@@ -1643,6 +1689,10 @@ def batch_parse_and_normalize(modeladmin, request, queryset):
                     parser_name=row.get("parser_name"),
                     classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
                     payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+                    needs_account_number=(
+                        not row.get("account_number")
+                        or str(row.get("account_number")).strip() == ""
+                    ),
                 )
                 created += 1
             except Exception as e:
@@ -1680,6 +1730,14 @@ class BatchStatementFileUploadForm(forms.Form):
     file_type = forms.ChoiceField(
         choices=StatementFile._meta.get_field("file_type").choices, required=True
     )
+    parser_module = forms.ChoiceField(
+        choices=[], required=False, label="Parser Module (optional)"
+    )
+    account_number = forms.CharField(label="Account Number (optional)", required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["parser_module"].choices = get_parser_module_choices()
 
 
 @admin.register(StatementFile)
@@ -1699,7 +1757,15 @@ class StatementFileAdmin(admin.ModelAdmin):
         "month",
         "status_detail",
     )
-    list_filter = ("client", "file_type", "status", "year", "month", "bank")
+    list_filter = (
+        "client",
+        "file_type",
+        "status",
+        "year",
+        "month",
+        "bank",
+        NeedsAccountNumberFilter,
+    )
     search_fields = ("original_filename", "bank", "account_number", "status_detail")
     readonly_fields = (
         "upload_timestamp",
@@ -1707,7 +1773,33 @@ class StatementFileAdmin(admin.ModelAdmin):
         "parsed_metadata",
         "parser_module",
     )
-    actions = [bulk_tag_action, batch_parse_and_normalize]
+    actions = [bulk_tag_action, batch_parse_and_normalize, "batch_set_account_number"]
+
+    @admin.action(description="Batch set account number for selected statement files")
+    def batch_set_account_number(self, request, queryset):
+        from django import forms
+
+        class AccountNumberForm(forms.Form):
+            account_number = forms.CharField(label="Account Number", required=True)
+
+        if "apply" in request.POST:
+            form = AccountNumberForm(request.POST)
+            if form.is_valid():
+                account_number = form.cleaned_data["account_number"]
+                updated = queryset.update(
+                    account_number=account_number, needs_account_number=False
+                )
+                self.message_user(
+                    request, f"Set account number for {updated} statement files."
+                )
+                return
+        else:
+            form = AccountNumberForm()
+        return render(
+            request,
+            "admin/batch_set_account_number.html",
+            {"form": form, "queryset": queryset},
+        )
 
     def save_model(self, request, obj, form, change):
         if not obj.statement_hash and obj.file:
@@ -1728,12 +1820,12 @@ class StatementFileAdmin(admin.ModelAdmin):
                         client=form.cleaned_data["client"],
                         file=f,
                         file_type=form.cleaned_data["file_type"],
+                        account_number=form.cleaned_data.get("account_number", ""),
                         original_filename=f.name,
                         uploaded_by=request.user,
                         status=form.cleaned_data.get("status", "uploaded"),
                         status_detail=form.cleaned_data.get("status_detail", ""),
                         bank=form.cleaned_data.get("bank", ""),
-                        account_number=form.cleaned_data.get("account_number", ""),
                         year=form.cleaned_data.get("year", None),
                         month=form.cleaned_data.get("month", None),
                     )
@@ -1759,27 +1851,37 @@ class StatementFileAdmin(admin.ModelAdmin):
             if form.is_valid():
                 client = form.cleaned_data["client"]
                 file_type = form.cleaned_data["file_type"]
+                parser_module = form.cleaned_data.get("parser_module")
+                account_number = form.cleaned_data.get("account_number", "")
                 files = request.FILES.getlist("files")
                 uploaded_by = request.user if request.user.is_authenticated else None
                 success, errors = 0, 0
                 for f in files:
+                    # Auto-detect file type from extension, but allow manual override
+                    ext = f.name.split(".")[-1].lower()
+                    detected_type = None
+                    if ext == "pdf":
+                        detected_type = "pdf"
+                    elif ext == "csv":
+                        detected_type = "csv"
+                    else:
+                        detected_type = "other"
+                    final_file_type = file_type or detected_type
                     try:
                         instance = StatementFile(
                             client=client,
                             file=f,
-                            file_type=file_type,
+                            file_type=final_file_type,
+                            account_number=account_number,
                             original_filename=f.name,
                             uploaded_by=uploaded_by,
                             status="uploaded",
+                            parser_module=parser_module or None,
                         )
                         instance.full_clean()
                         instance.save()
                         success += 1
-                    except ValidationError as e:
-                        messages.error(request, f"{f.name}: {e.messages[0]}")
-                        errors += 1
                     except Exception as e:
-                        messages.error(request, f"{f.name}: {e}")
                         errors += 1
                 if success:
                     messages.success(request, f"Uploaded {success} files successfully.")

@@ -1,57 +1,45 @@
-# Product Requirements Document: Parser Integration for LedgerFlow
+# Product Requirements Document (PRD)
 
-## Overview
-Integrate the modular parser system (from PDF-extractor) into the LedgerFlow Django platform. The goal is to enable seamless PDF and CSV upload, parsing, normalization, and ingestion into the LedgerFlow database, so that parsed transactions and data can be used with the existing Django client classification and tax system.
+## Title
+Hybrid Account Number Workflow for Statement File Upload, Parsing, and Admin Review
+
+## Background
+LedgerFlow must ensure that every statement file and transaction is associated with an account number for downstream reconciliation, reporting, and deduplication. However, account number extraction is only possible for some PDFs, and is rarely available in CSVs. For privacy, masked/last-4 is preferred unless full account number is required. The system should automate extraction where possible, and prompt for manual entry only when needed.
 
 ## Goals
-- Users can upload PDF and CSV financial documents via the LedgerFlow web interface.
-- Uploaded files are processed using the modular parser system.
-- Extracted and normalized data is mapped to LedgerFlow's internal models and stored in the database.
-- Parsed transactions are available for classification, review, and reporting in the Django admin and client UI.
-- The system supports both batch and single-file processing.
-- All parsing, normalization, and ingestion steps are logged and auditable.
+- Allow statement file uploads without requiring account number at upload time.
+- Attempt to extract account number during parsing (PDFs where possible).
+- If account number is missing after parsing, flag the file/transaction for manual entry.
+- Provide admin UI to review and fill in missing account numbers (prefer masked/last-4).
+- Block or warn on export/reporting if any files/transactions are missing account number.
+- Clearly document and communicate limitations for CSVs and privacy best practices.
 
 ## Requirements
-1. **File Upload**
-   - Support PDF and CSV uploads via the Django web UI.
-   - Validate file types and size.
-   - Store uploaded files securely for processing.
-
-2. **Parser Integration**
-   - Integrate the modular parser system as a Python package or Django app.
-   - Support invocation from Django views, tasks, or management commands.
-   - Maintain compatibility with CLI batch processing.
-
-3. **Data Extraction & Normalization**
-   - Use the parser system to extract raw transaction data from uploaded files.
-   - Normalize extracted data to match LedgerFlow's internal schema.
-   - Handle edge cases (e.g., missing fields, malformed data) gracefully.
-
-4. **Database Ingestion**
-   - Map normalized data to Django models (transactions, accounts, etc.).
-   - Ensure data integrity and avoid duplicates.
-   - Support bulk and incremental ingestion.
-
-5. **Classification & Tax System Integration**
-   - Parsed transactions must be available for classification using the existing Django client classification/tax system.
-   - Enable review, correction, and approval workflows for imported data.
-   - Support reporting and export features for parsed and classified data.
-
-6. **Logging & Auditing**
-   - Log all parsing, normalization, and ingestion steps.
-   - Provide audit trails for data provenance and error handling.
-
-7. **Testing & Documentation**
-   - Implement unit and integration tests for all new components.
-   - Document the integration, usage, and troubleshooting steps for devs and admins.
+1. **Model Changes**
+   - Add a `needs_account_number` Boolean field to `StatementFile` (and/or Transaction) to track missing account numbers.
+2. **Parsing Logic**
+   - Attempt to extract account number from PDFs during parsing.
+   - If extraction fails or is not possible (e.g., CSVs), set `needs_account_number = True`.
+   - If account number is present, set `needs_account_number = False`.
+3. **Admin UI**
+   - Add a filter/list in the admin for files/transactions where `needs_account_number = True`.
+   - Provide a form/inline to allow manual entry of account number (masked/last-4 or full).
+4. **Validation**
+   - Block or warn on export/reporting if any files/transactions are missing account number.
+5. **Documentation**
+   - Update user/admin documentation to clarify:
+     - Account number is not required at upload.
+     - Extraction is attempted during parsing (PDFs only).
+     - Manual entry is required if extraction fails.
+     - CSVs will not have account numbers unless provided externally.
+     - Masked/last-4 is preferred for privacy.
 
 ## Out of Scope
-- OCR for scanned PDFs (future enhancement)
-- Real-time collaborative editing
-- Third-party API integrations beyond parsing
+- Automated account number extraction for CSVs (unless feasible in the future).
+- Enforcement of full account number if masked/last-4 is sufficient for business needs.
 
 ## Success Criteria
-- End-to-end flow: upload → parse → normalize → ingest → classify → report
-- High accuracy and reliability for supported document types
-- Minimal manual intervention required for standard cases
-- Full auditability and error handling 
+- All statement files and transactions have an account number (masked/last-4 or full) before export/reporting.
+- Admins can easily identify and fill in missing account numbers.
+- No user is blocked at upload due to missing account number.
+- Privacy best practices are followed. 
