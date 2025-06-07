@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 import hashlib
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 # Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
 CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
@@ -487,7 +488,8 @@ class SearchResult(models.Model):
 def statement_upload_to_uuid(instance, filename):
     ext = filename.split(".")[-1]
     uuid_str = str(uuid.uuid4())
-    return f"clients/{instance.upload_timestamp.year}/{instance.upload_timestamp.month:02d}/{uuid_str}.{ext}"
+    now = timezone.now()
+    return f"clients/{now.year}/{now.month:02d}/{uuid_str}.{ext}"
 
 
 class StatementFile(models.Model):
