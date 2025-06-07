@@ -129,3 +129,6 @@ db_backup_before_transaction_hash.pgcustom
 
 # Ignore all PDF files in the repo
 *.pdf
+
+# Ignore uploaded statement files
+clients/*

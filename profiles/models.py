@@ -6,6 +6,8 @@ import os
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 import hashlib
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 # Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
 CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
@@ -482,6 +484,12 @@ class SearchResult(models.Model):
         return f"{self.title} ({self.query})"
 
 
+def statement_upload_to_uuid(instance, filename):
+    ext = filename.split(".")[-1]
+    uuid_str = str(uuid.uuid4())
+    return f"clients/{instance.upload_timestamp.year}/{instance.upload_timestamp.month:02d}/{uuid_str}.{ext}"
+
+
 class StatementFile(models.Model):
     """
     Stores uploaded statement files (PDF, CSV, etc.) for a client.
@@ -498,7 +506,7 @@ class StatementFile(models.Model):
     client = models.ForeignKey(
         BusinessProfile, on_delete=models.CASCADE, related_name="statement_files"
     )
-    file = models.FileField(upload_to="clients/%Y/%m/%d/")
+    file = models.FileField(upload_to=statement_upload_to_uuid)
     file_type = models.CharField(
         max_length=10, choices=[("pdf", "PDF"), ("csv", "CSV"), ("other", "Other")]
     )
@@ -596,3 +604,9 @@ class ParsingRun(models.Model):
 
     def __str__(self):
         return f"{self.statement_file} | {self.parser_module} | {self.status} | {self.created}"
+
+
+@receiver(post_delete, sender=StatementFile)
+def delete_statementfile_file(sender, instance, **kwargs):
+    if instance.file:
+        instance.file.delete(save=False)
