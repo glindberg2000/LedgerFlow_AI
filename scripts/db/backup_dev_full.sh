@@ -35,7 +35,7 @@ mkdir -p "$BACKUP_DIR/full_backup_$TIMESTAMP"/{db,media,config,logs}
 # 1. Database Backup
 log "Starting database backup..."
 DB_BACKUP_FILE="$BACKUP_DIR/full_backup_$TIMESTAMP/db/database.sql.gz"
-docker compose -f $COMPOSE_FILE exec -T postgres pg_dump -U newuser mydatabase | gzip > "$DB_BACKUP_FILE"
+docker compose -f $COMPOSE_FILE exec -T postgres pg_dump -U newuser ledgerflow_test_restore | gzip > "$DB_BACKUP_FILE"
 
 # Check DB backup size
 DB_SIZE=$(stat -f%z "$DB_BACKUP_FILE")
@@ -77,7 +77,7 @@ $(docker compose -f $COMPOSE_FILE ps)
 
 Database Tables:
 ---------------
-$(docker compose -f $COMPOSE_FILE exec -T postgres psql -U newuser mydatabase -c "\dt" 2>/dev/null)
+$(docker compose -f $COMPOSE_FILE exec -T postgres psql -U newuser ledgerflow_test_restore -c "\dt" 2>/dev/null)
 
 Note: This backup is stored in iCloud and will be synced automatically.
 Location: $BACKUP_DIR

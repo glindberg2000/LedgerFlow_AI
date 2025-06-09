@@ -100,3 +100,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Allow large admin bulk actions (default is 1000; increased to prevent TooManyFieldsSent errors)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000

@@ -14,7 +14,14 @@
     <form method="post" enctype="multipart/form-data" class="form-horizontal">
         {% csrf_token %}
         <fieldset class="module aligned">
-            {{ form.as_p }}
+            {{ form.client }}<br>
+            {{ form.file_type }}<br>
+            {{ form.parser_module }}<br>
+            {{ form.account_number }}<br>
+            <div class="form-row field-auto-parse">
+                {{ form.auto_parse }} {{ form.auto_parse.label_tag }}<br>
+                <span class="help">{{ form.auto_parse.help_text }}</span>
+            </div>
             <div class="form-row field-files">
                 <label for="id_files">Files:</label>
                 <input type="file" name="files" id="id_files" multiple required>

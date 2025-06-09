@@ -6,7 +6,7 @@ RETENTION_DAYS=7
 COMPOSE_FILE="docker-compose.dev.yml"
 DB_CONTAINER="ledger-dev-postgres-1"
 DB_USER="newuser"
-DB_NAME="mydatabase"
+DB_NAME="ledgerflow_test_restore"
 MIN_BACKUP_SIZE=10240  # 10KB minimum size
 
 # Exit on any error
@@ -43,22 +43,22 @@ if [ -f "$BACKUP_FILE" ]; then
     TEMP_CONTAINER="pg_temp_verify_$TIMESTAMP"
     
     # Start temporary container
-    docker run --name $TEMP_CONTAINER -e POSTGRES_USER=newuser -e POSTGRES_PASSWORD=newuser -e POSTGRES_DB=mydatabase -d postgres:15
+    docker run --name $TEMP_CONTAINER -e POSTGRES_USER=newuser -e POSTGRES_PASSWORD=newuser -e POSTGRES_DB=ledgerflow_test_restore -d postgres:15
 
     # Wait for container to be ready
     sleep 5
 
     # Attempt to restore
-    if gunzip < "$BACKUP_FILE" | docker exec -i $TEMP_CONTAINER psql -U newuser mydatabase; then
+    if gunzip < "$BACKUP_FILE" | docker exec -i $TEMP_CONTAINER psql -U newuser ledgerflow_test_restore; then
         log "Backup verified successfully"
         # Check if data is present
-        TRANSACTION_COUNT=$(docker exec -i $TEMP_CONTAINER psql -U newuser mydatabase -t -c "SELECT COUNT(*) FROM profiles_transaction;")
+        TRANSACTION_COUNT=$(docker exec -i $TEMP_CONTAINER psql -U newuser ledgerflow_test_restore -t -c "SELECT COUNT(*) FROM profiles_transaction;")
         log "Verified transaction count: $TRANSACTION_COUNT"
         BACKUP_SIZE=$(ls -lh "$BACKUP_FILE" | awk '{print $5}')
         log "Backup size: $BACKUP_SIZE bytes"
         
         # Additional data integrity checks
-        TABLE_COUNT=$(docker exec -i $TEMP_CONTAINER psql -U newuser mydatabase -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+        TABLE_COUNT=$(docker exec -i $TEMP_CONTAINER psql -U newuser ledgerflow_test_restore -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
         log "Verified table count: $TABLE_COUNT"
     else
         log "ERROR: Backup verification failed"
