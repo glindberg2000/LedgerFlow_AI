@@ -9,6 +9,80 @@
 - Creating comprehensive onboarding materials for new team members
 - Integrating MPC tools and dockerized development workflow
 
+**Critical Schema Issue:**
+- The `profiles_transactionclassification` table (for transaction classification history/audit) is missing from the database, even though the model and migrations exist and are marked as applied.
+- This is a global schema/migration drift problem, not just a data or legacy file issue.
+- Any admin action, cascade, or code that touches the classification history will fail for all clients, not just problematic files.
+
+## Backup & Restore: Crucial Details
+
+**Backup Storage Locations:**
+- **Primary (iCloud):**
+  - `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/`
+    - `dev/` (development backups)
+    - `prod/` (production backups)
+    - `test/` (test/restore)
+    - `logs/` (backup logs)
+    - `migrations/` (pre-migration backups)
+- **Docker Bind Mounts:**
+  - Dev: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev` → `/backups` in postgres/backup containers
+  - Prod: `/Users/greg/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups` → `/icloud_backups` in backup container
+
+**Backup Scripts & Automation:**
+- **Manual/CLI:**
+  - `make backup FILE=...` (see Makefile)
+  - `scripts/db/backup_dev_db.sh` (hourly DB backup, integrity check, retention)
+  - `scripts/db/backup_dev_full.sh` (daily full backup: DB, media, config, manifest)
+- **Cron Jobs:**
+  - Hourly DB: `0 * * * * /path/to/backup_dev_db.sh`
+  - Daily full: `0 2 * * * /path/to/backup_dev_full.sh`
+  - Logs: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev/logs/`
+  - Setup: `scripts/db/setup_backup_cron.sh` (installs jobs, test run in 5 min)
+
+**Restore Procedures:**
+- **Makefile:**
+  - `make restore FILE=...` (see Makefile for env/volume details)
+- **Manual:**
+  - `./restore_db_clean.sh -f path/to/backup.sql.gz` (see cline_docs/database_backup.md)
+- **Test Restore:**
+  - `make restore-test FILE=...` (restores to temp DB, verifies structure/data)
+
+**Docker Compose: Key Services, Ports, Volumes**
+- **Dev (docker-compose.dev.yml):**
+  - `django`: 9000:8000, media: ledgerflow_dev_media
+  - `postgres`: 5435:5432, data: ledgerflow_dev_postgres_data, backups: bind mount
+  - `redis`: 6379:6379
+  - `adminer`: 8082:8080
+  - `searxng`: 8888:8080 (localhost only)
+- **Prod (docker-compose.prod.yml):**
+  - `django`: 9002:8000, media/static: bind mounts
+  - `postgres`: 5436:5432, data: ledgerflow_postgres_data
+  - `backup`: iCloud backup bind mount
+
+**Volume Protection & Verification:**
+- Run `make check-volumes` or `./scripts/verify_volumes.sh` to verify Docker volumes and backup directories exist and are writable.
+- Key volumes: `ledgerflow_postgres_data`, `ledgerflow_media`, `searxng_data`, `redis_data`
+- Key bind mounts: see docker-compose files and verify_volumes.sh
+
+**Backup Integrity & Retention:**
+- Minimum backup size: 10KB (checked in scripts)
+- All backups are verified for size, structure, and test-restored to temp DB
+- Retention: 7 days for hourly/daily, auto-cleanup in scripts
+- iCloud sync: All backups/logs are synced automatically; check iCloud status if missing files
+
+**Environment Variables/Config:**
+- DB credentials: set in `.env.dev`/`.env.prod` and passed to containers
+- Backup scripts use Docker Compose service/container names (see Makefile/scripts)
+- SearXNG/Redis: see .env.dev and docker-compose for host/port config
+
+**Logs & Troubleshooting:**
+- Backup logs: `backups/dev/logs/` (iCloud)
+- Script output: check cron logs, script logs, and Docker logs for backup/restore containers
+- For errors: check backup size, permissions, iCloud sync, and container health
+
+**Full Details:**
+- See `cline_docs/database_backup.md` for a complete backup/restore reference, including safety, verification, and troubleshooting procedures.
+
 ## What I'm Working On Now
 
 - Updating the batch uploader and parsing workflow to use a hybrid approach for account number:
@@ -541,4 +615,26 @@ make <role>-session  # e.g., make reviewer-session
 1. Ensure batch uploader allows upload without account number.
 2. Update parsing logic to require account number (raise error if missing, provide UI for manual entry if extraction fails).
 3. Update admin/status UI to flag files missing account number before parsing.
-4. Test the full workflow for both upload and parsing stages. 
+4. Test the full workflow for both upload and parsing stages.
+
+## What Was Done
+- Confirmed the table is missing using a Django ORM script.
+- All migrations for the `profiles` app are marked as applied, but the table is not present in the DB (classic migration drift).
+- A full database-only backup was created and verified using `scripts/db/backup_dev_db.sh` (backup file: `ledgerflow_backup_20250609_095414.sql.gz`).
+- No destructive schema changes have been made yet.
+
+## Next Planned Steps
+- Safely repair the schema by resetting and reapplying migrations for the `profiles` app (which will drop and recreate all tables in that app).
+- This will destroy all data in `profiles` tables, so the backup is critical for restoration.
+- Optionally, test the restore process in a new database before applying to production/dev.
+
+## Reasoning
+- The missing table is a permanent, global issue that will break classification features for all clients, now and in the future, unless fixed.
+- The only safe, permanent fix is to recreate the table via migrations, which requires resetting the app's schema.
+- All actions are being taken with full backups and data safety in mind.
+
+## Key Details
+- Backup script and location: `scripts/db/backup_dev_db.sh`, iCloud-synced backup folder.
+- Table missing: `profiles_transactionclassification` (required for classification history/audit).
+- All migrations for `profiles` are marked as applied, but the table is not present in the DB.
+- Next step: schema repair/reset, then restore data as needed. 

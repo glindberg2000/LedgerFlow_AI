@@ -165,6 +165,9 @@ class Transaction(models.Model):
     transaction_hash = models.CharField(
         max_length=64, unique=True, db_index=True, blank=True, null=True
     )
+    transaction_id = models.CharField(
+        max_length=128, db_index=True, null=True, blank=True
+    )
 
     # Fields for LLM processing
     normalized_description = models.TextField(blank=True, null=True)
@@ -220,9 +223,6 @@ class Transaction(models.Model):
     # New fields for full auditability
     statement_file = models.ForeignKey(
         "StatementFile", on_delete=models.CASCADE, null=True, blank=True
-    )
-    transaction_id = models.CharField(
-        max_length=128, db_index=True, null=True, blank=True
     )
     parser_name = models.CharField(max_length=64, null=True, blank=True)
 
@@ -494,8 +494,7 @@ class SearchResult(models.Model):
 def statement_upload_to_uuid(instance, filename):
     ext = filename.split(".")[-1]
     uuid_str = str(uuid.uuid4())
-    now = timezone.now()
-    return f"clients/{now.year}/{now.month:02d}/{uuid_str}.{ext}"
+    return f"clients/{instance.client.client_id}/{uuid_str}.{ext}"
 
 
 class StatementFile(models.Model):
@@ -555,6 +554,12 @@ class StatementFile(models.Model):
         default=False,
         help_text="True if this file needs an account number to be entered manually.",
     )
+    account_holder_name = models.CharField(max_length=255, blank=True, null=True)
+    address = models.CharField(max_length=255, blank=True, null=True)
+    statement_period_start = models.CharField(max_length=32, blank=True, null=True)
+    statement_period_end = models.CharField(max_length=32, blank=True, null=True)
+    statement_date = models.CharField(max_length=32, blank=True, null=True)
+    account_type = models.CharField(max_length=64, blank=True, null=True)
 
     class Meta:
         ordering = ["-upload_timestamp"]
