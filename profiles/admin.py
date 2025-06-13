@@ -1769,29 +1769,51 @@ class StatementFileAdmin(admin.ModelAdmin):
                             temp_file_path = temp_file.name
                         # Detect parser if needed
                         used_parser = parser_module
+                        autodetect_debug = ""
                         if parser_module == "autodetect" or not parser_module:
                             from dataextractai.parsers.detect import (
                                 detect_parser_for_file,
                             )
 
                             detected = detect_parser_for_file(temp_file_path)
+                            autodetect_debug = (
+                                f"detect_parser_for_file({f.name}) => {detected}"
+                            )
                             if detected:
                                 used_parser = detected
                             else:
                                 result["error"] = "No compatible parser found."
+                                result["autodetect_debug"] = autodetect_debug
                                 results.append(result)
                                 os.unlink(temp_file_path)
                                 continue
                         result["parser"] = (
                             used_parser  # Always show which parser was used
                         )
+                        result["autodetect_debug"] = autodetect_debug
+                        # Registry mapping debug
+                        registry_mapping = getattr(registry, "_parsers", {})
+                        result["registry_mapping"] = str(
+                            registry_mapping.get(used_parser)
+                        )
                         # Import parser module and call main() with positional argument
                         try:
+                            # Always use _parser module if it exists
                             parser_mod_name = (
                                 f"dataextractai.parsers.{used_parser}_parser"
                             )
-                            parser_mod = importlib.import_module(parser_mod_name)
-                            parser_main = getattr(parser_mod, "main", None)
+                            try:
+                                parser_mod = importlib.import_module(parser_mod_name)
+                                parser_main = getattr(parser_mod, "main", None)
+                                result["parser_module"] = parser_mod_name
+                                result["main_func"] = str(parser_main)
+                            except ImportError:
+                                # Fallback to non-_parser module if _parser not found
+                                parser_mod_name = f"dataextractai.parsers.{used_parser}"
+                                parser_mod = importlib.import_module(parser_mod_name)
+                                parser_main = getattr(parser_mod, "main", None)
+                                result["parser_module"] = parser_mod_name
+                                result["main_func"] = str(parser_main)
                             if not parser_main:
                                 result["error"] = (
                                     f"Parser module '{parser_mod_name}' has no main() function."
@@ -1799,6 +1821,9 @@ class StatementFileAdmin(admin.ModelAdmin):
                                 results.append(result)
                                 os.unlink(temp_file_path)
                                 continue
+                            print(
+                                f"[DEBUG] Calling {parser_mod_name}.main for file {f.name}"
+                            )
                             parser_output = parser_main(
                                 temp_file_path
                             )  # Positional argument only
