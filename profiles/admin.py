@@ -52,6 +52,7 @@ import pkgutil
 from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
 import pandas as pd
+import tempfile
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1530,8 +1531,8 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         )
 
 
+# Restore the original StatementFileAdminForm for single-file upload
 class StatementFileAdminForm(forms.ModelForm):
-    # Use standard single file upload for ModelForm; batch upload requires custom view
     file = forms.FileField(
         widget=forms.ClearableFileInput(), required=True, label="Upload File"
     )
@@ -1560,8 +1561,7 @@ def get_parser_module_choices():
         registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
         registry = getattr(registry_mod, "ParserRegistry")
         parser_names = list(getattr(registry, "_parsers", {}).keys())
-        print(f"[DEBUG] Parser registry contents: {parser_names}")
-        # Add 'Autodetect' as the default option
+        # Add 'autodetect' as the default option
         return [("autodetect", "Autodetect (Recommended)")] + [
             (name, name) for name in parser_names
         ]
@@ -1573,227 +1573,7 @@ def get_parser_module_choices():
         return [("autodetect", "Autodetect (Recommended)")]
 
 
-class BulkTagForm(forms.Form):
-    parser_module = forms.ChoiceField(required=False, label="Parser Module")
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["parser_module"].choices = get_parser_module_choices()
-
-
-@admin.action(description="Bulk tag: Parser only")
-def bulk_tag_action(modeladmin, request, queryset):
-    if "apply" in request.POST:
-        form = BulkTagForm(request.POST)
-        if form.is_valid():
-            data = form.cleaned_data
-            update_fields = {}
-            if data["parser_module"]:
-                update_fields["parser_module"] = data["parser_module"]
-            queryset.update(**update_fields)
-            modeladmin.message_user(request, f"Updated {queryset.count()} files.")
-            return None
-    else:
-        form = BulkTagForm()
-    return TemplateResponse(
-        request,
-        "admin/bulk_tag_action.html",
-        {
-            "form": form,
-            "queryset": queryset,
-            "action_checkbox_name": admin.helpers.ACTION_CHECKBOX_NAME,
-        },
-    )
-
-
-@admin.action(description="Batch Parse and Normalize")
-def batch_parse_and_normalize(modeladmin, request, queryset):
-    sync_transaction_id_sequence()
-    from django.db import transaction as db_transaction
-    from django.contrib import messages
-    import logging
-
-    logger = logging.getLogger(__name__)
-    required_fields = [
-        "transaction_date",
-        "description",
-        "amount",
-        "file_path",
-        "source",
-        "transaction_type",
-        "account_number",
-        "transaction_id",
-    ]
-
-    # Import detection utility
-    from dataextractai.parsers.detect import detect_parser_for_file
-
-    for statement in queryset:
-        file_path = (
-            statement.file.path
-            if hasattr(statement.file, "path")
-            else statement.file.name
-        )
-        parser_name = statement.parser_module
-        client_name = statement.client.client_id
-        # If autodetect is selected, run detection utility
-        if parser_name == "autodetect" or not parser_name:
-            detected = detect_parser_for_file(file_path)
-            if not detected:
-                messages.error(
-                    request,
-                    f"No compatible parser found for {statement.original_filename}. Please select a parser manually or contact support.",
-                )
-                continue
-            parser_name = detected
-            messages.info(
-                request,
-                f"Parser '{parser_name}' was automatically selected for {statement.original_filename}.",
-            )
-        error_message = None
-        created, skipped = 0, 0
-        try:
-            df = normalize_parsed_data_df(
-                file_path=file_path, parser_name=parser_name, client_name=client_name
-            )
-            result = df.to_dict(orient="records")
-        except Exception as e:
-            error_message = str(e)
-            # Write debug log
-            import os
-
-            debug_log_path = os.path.join(
-                os.path.dirname(__file__), "..", "debug_transaction_error.log"
-            )
-            try:
-                with open(debug_log_path, "a") as f:
-                    f.write(f"Exception during normalization: {e}\n")
-                    f.write(f"File: {file_path}\n")
-                    f.write(f"Parser: {parser_name}\n")
-                    f.write(f"Client: {client_name}\n\n")
-            except Exception as file_err:
-                logger.error(f"Failed to write debug log (normalization): {file_err}")
-            # Add details to UI error message
-            messages.error(
-                request,
-                f"Failed to parse/normalize {statement.original_filename}: {e}\nFile: {file_path}\nParser: {parser_name}\nClient: {client_name}",
-            )
-            # Log ParsingRun as fail
-            from .models import ParsingRun
-
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="fail",
-                error_message=error_message,
-                rows_imported=0,
-            )
-            continue
-        for row in result:
-            if hasattr(row, "to_dict"):
-                row = row.to_dict()
-            date_val = row.get("transaction_date")
-            if (
-                not isinstance(date_val, str)
-                or not date_val.strip()
-                or date_val == "nan"
-            ):
-                logger.error(
-                    f"[MALFORMED TRANSACTION] Skipping row due to invalid date: {row}"
-                )
-                skipped += 1
-                continue
-            try:
-                Transaction.objects.create(
-                    client=statement.client,
-                    statement_file=statement,
-                    transaction_date=row["transaction_date"],
-                    description=row["description"],
-                    amount=row["amount"],
-                    file_path=row["file_path"],
-                    source=row["source"],
-                    transaction_type=row["transaction_type"],
-                    account_number=row.get("account_number")
-                    or statement.account_number
-                    or "",
-                    transaction_id=row.get("transaction_id"),
-                    transaction_hash=row.get("transaction_hash"),
-                    parser_name=row.get("parser_name"),
-                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                    needs_account_number=(
-                        not (row.get("account_number") or statement.account_number)
-                        or str(
-                            row.get("account_number") or statement.account_number
-                        ).strip()
-                        == ""
-                    ),
-                )
-                created += 1
-            except Exception as e:
-                import json
-                import os
-
-                debug_fields = dict(
-                    client=str(statement.client),
-                    statement_file=str(statement),
-                    transaction_date=row.get("transaction_date"),
-                    description=row.get("description"),
-                    amount=row.get("amount"),
-                    file_path=row.get("file_path"),
-                    source=row.get("source"),
-                    transaction_type=row.get("transaction_type"),
-                    account_number=row.get("account_number")
-                    or statement.account_number
-                    or "",
-                    transaction_id=row.get("transaction_id"),
-                    transaction_hash=row.get("transaction_hash"),
-                    parser_name=row.get("parser_name"),
-                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                    needs_account_number=(
-                        not (row.get("account_number") or statement.account_number)
-                        or str(
-                            row.get("account_number") or statement.account_number
-                        ).strip()
-                        == ""
-                    ),
-                )
-                debug_log_path = os.path.join(
-                    os.path.dirname(__file__), "..", "debug_transaction_error.log"
-                )
-                try:
-                    with open(debug_log_path, "a") as f:
-                        f.write(f"Exception: {e}\n")
-                        f.write(f"Fields: {json.dumps(debug_fields, default=str)}\n\n")
-                except Exception as file_err:
-                    logger.error(f"Failed to write debug log: {file_err}")
-                skipped += 1
-        # Log ParsingRun as success or fail
-        from .models import ParsingRun
-
-        if created > 0:
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="success",
-                error_message=None,
-                rows_imported=created,
-            )
-        else:
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="fail",
-                error_message=error_message or f"No rows imported. Skipped: {skipped}",
-                rows_imported=0,
-            )
-        messages.success(
-            request,
-            f"{created} transactions imported for {statement.original_filename}. {skipped} rows skipped.",
-        )
-
-
+# Restore the batch uploader form (no multiple=True in widget)
 class BatchStatementFileUploadForm(forms.Form):
     client = forms.ModelChoiceField(
         queryset=BusinessProfile.objects.all(), required=True
@@ -1805,7 +1585,11 @@ class BatchStatementFileUploadForm(forms.Form):
         choices=[], required=False, label="Parser Module (optional)"
     )
     account_number = forms.CharField(label="Account Number (optional)", required=False)
-    auto_parse = forms.BooleanField(label="Auto-parse", required=False)
+    auto_parse = forms.BooleanField(
+        label="Auto-parse and create transactions on upload",
+        required=False,
+        initial=True,
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1899,7 +1683,9 @@ class StatementFileAdmin(admin.ModelAdmin):
             },
         ),
     )
-    actions = [bulk_tag_action, batch_parse_and_normalize, "batch_set_account_number"]
+    actions = [
+        "batch_set_account_number",
+    ]
 
     def file_link(self, obj):
         if obj.file and hasattr(obj.file, "url"):
@@ -1936,182 +1722,13 @@ class StatementFileAdmin(admin.ModelAdmin):
             {"form": form, "queryset": queryset},
         )
 
-    def save_model(self, request, obj, form, change):
-        if not obj.statement_hash and obj.file:
-            obj.statement_hash = obj.compute_statement_hash()
-        super().save_model(request, obj, form, change)
-
-    def add_view(self, request, form_url="", extra_context=None):
-        # Custom add_view to support batch upload
-        if (
-            request.method == "POST"
-            and request.FILES.getlist("file")
-            and len(request.FILES.getlist("file")) > 1
-        ):
-            form = self.get_form(request)(request.POST, request.FILES)
-            if form.is_valid():
-                auto_parse = form.cleaned_data.get("auto_parse", True)
-                for f in request.FILES.getlist("file"):
-                    ext = f.name.split(".")[-1].lower()
-                    detected_type = None
-                    if ext == "pdf":
-                        detected_type = "pdf"
-                    elif ext == "csv":
-                        detected_type = "csv"
-                    else:
-                        detected_type = "other"
-                    final_file_type = (
-                        form.cleaned_data.get("file_type") or detected_type
-                    )
-                    # If autodetect is selected, run detection utility
-                    final_parser_module = form.cleaned_data.get("parser_module")
-                    metadata = {}
-                    if final_parser_module == "autodetect" or not final_parser_module:
-                        # Save file temporarily to disk to run detection
-                        import tempfile
-
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=f".{f.name.split('.')[-1]}"
-                        ) as tmp:
-                            tmp.write(f.read())
-                            tmp.flush()
-                            detected = detect_parser_for_file(tmp.name)
-                        if not detected:
-                            messages.error(
-                                request,
-                                f"No compatible parser found for {f.name}. Please select a parser manually or contact support.",
-                            )
-                            continue
-                        final_parser_module = detected
-                        from django.contrib import messages
-
-                        messages.info(
-                            request,
-                            f"Parser '{final_parser_module}' was automatically selected for {f.name}.",
-                        )
-                        # If Chase Checking, extract metadata
-                        if final_parser_module == "chase_checking":
-                            try:
-                                from dataextractai.parsers.chase_checking import (
-                                    ChaseCheckingParser,
-                                )
-
-                                parser = ChaseCheckingParser()
-                                metadata = parser.extract_metadata(tmp.name)
-                            except Exception as e:
-                                messages.warning(
-                                    request,
-                                    f"Failed to extract metadata for {f.name}: {e}",
-                                )
-                        # Reset file pointer for Django upload
-                        f.seek(0)
-                    # After metadata extraction and before saving instance
-                    transaction_count = 0
-                    parse_error = None
-                    if (
-                        auto_parse
-                        and final_parser_module
-                        and final_parser_module != "autodetect"
-                    ):
-                        try:
-                            # Dynamically import the parser and call parse_file/normalize
-                            parser_mod = __import__(
-                                f"dataextractai.parsers.{final_parser_module}",
-                                fromlist=[None],
-                            )
-                            parser_class = getattr(
-                                parser_mod,
-                                "".join(
-                                    [
-                                        w.capitalize()
-                                        for w in final_parser_module.split("_")
-                                    ]
-                                )
-                                + "Parser",
-                            )
-                            parser = parser_class()
-                            # Parse the file and create transactions
-                            txns = parser.parse_file(
-                                tmp.name, config={"original_filename": f.name}
-                            )
-                            from profiles.models import Transaction
-
-                            for txn in txns:
-                                Transaction.objects.create(
-                                    client=form.cleaned_data["client"],
-                                    statement_file=obj,
-                                    transaction_date=txn.get("transaction_date")
-                                    or txn.get("Date of Transaction"),
-                                    description=txn.get("description")
-                                    or txn.get(
-                                        "Merchant Name or Transaction Description"
-                                    ),
-                                    amount=txn.get("amount") or txn.get("Amount"),
-                                    file_path=txn.get("file_path"),
-                                    source=txn.get("source"),
-                                    transaction_type=txn.get("transaction_type"),
-                                    account_number=txn.get("account_number")
-                                    or form.cleaned_data.get("account_number", ""),
-                                    transaction_id=txn.get("transaction_id"),
-                                    transaction_hash=txn.get("transaction_hash"),
-                                    parser_name=final_parser_module,
-                                )
-                                transaction_count += 1
-                        except Exception as e:
-                            parse_error = str(e)
-                    # Save instance as before
-                    try:
-                        instance = StatementFile(
-                            client=form.cleaned_data["client"],
-                            file=f,
-                            file_type=final_file_type,
-                            account_number=metadata.get(
-                                "account_number",
-                                form.cleaned_data.get("account_number", ""),
-                            ),
-                            original_filename=f.name,
-                            uploaded_by=request.user,
-                            status="uploaded",
-                            status_detail=form.cleaned_data.get("status_detail", ""),
-                            bank=form.cleaned_data.get("bank", ""),
-                            year=form.cleaned_data.get("year", None),
-                            month=form.cleaned_data.get("month", None),
-                            parser_module=final_parser_module or None,
-                            account_holder_name=metadata.get("account_holder_name"),
-                            address=metadata.get("address"),
-                            account_type=metadata.get("account_type"),
-                            statement_period_start=metadata.get(
-                                "statement_period_start"
-                            ),
-                            statement_period_end=metadata.get("statement_period_end"),
-                            statement_date=metadata.get("statement_date"),
-                        )
-                        instance.full_clean()
-                        instance.save()
-                        if auto_parse and transaction_count > 0:
-                            messages.success(
-                                request,
-                                f"Auto-parsed and created {transaction_count} transactions for {f.name}.",
-                            )
-                        elif parse_error:
-                            messages.warning(
-                                request,
-                                f"Auto-parse failed for {f.name}: {parse_error}",
-                            )
-                        success += 1
-                    except Exception as e:
-                        errors += 1
-                if success:
-                    messages.success(request, f"Uploaded {success} files successfully.")
-                if errors:
-                    messages.error(request, f"{errors} files failed to upload.")
-                return redirect("..")
-        return super().add_view(request, form_url, extra_context)
-
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
-        batch_upload_url = reverse("admin:profiles_statementfile_batch_upload")
-        extra_context["batch_upload_url"] = batch_upload_url
+        from django.urls import reverse
+
+        extra_context["batch_upload_url"] = reverse(
+            "admin:profiles_statementfile_batch_upload"
+        )
         return super().changelist_view(request, extra_context=extra_context)
 
     def batch_upload_view(self, request):
@@ -2120,210 +1737,182 @@ class StatementFileAdmin(admin.ModelAdmin):
             if form.is_valid():
                 client = form.cleaned_data["client"]
                 file_type = form.cleaned_data["file_type"]
-                parser_module = form.cleaned_data.get("parser_module")
-                account_number = form.cleaned_data.get("account_number", "")
+                parser_module = form.cleaned_data["parser_module"]
+                account_number = form.cleaned_data["account_number"]
+                auto_parse = form.cleaned_data["auto_parse"]
                 files = request.FILES.getlist("files")
                 uploaded_by = request.user if request.user.is_authenticated else None
-                auto_parse = form.cleaned_data.get("auto_parse", True)
-                success, errors = 0, 0
-                from dataextractai.parsers.detect import detect_parser_for_file
+                results = []
+                import sys
 
+                sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
+                from dataextractai.parsers_core.autodiscover import autodiscover_parsers
+
+                autodiscover_parsers()
+                import importlib
+
+                registry_mod = importlib.import_module(
+                    "dataextractai.parsers_core.registry"
+                )
+                registry = getattr(registry_mod, "ParserRegistry")
                 for f in files:
-                    ext = f.name.split(".")[-1].lower()
-                    detected_type = None
-                    if ext == "pdf":
-                        detected_type = "pdf"
-                    elif ext == "csv":
-                        detected_type = "csv"
-                    else:
-                        detected_type = "other"
-                    final_file_type = file_type or detected_type
-                    # If autodetect is selected, run detection utility
-                    final_parser_module = parser_module
-                    metadata = {}
-                    if parser_module == "autodetect" or not parser_module:
-                        # Save file temporarily to disk to run detection
-                        import tempfile
+                    result = {"file": f.name}
+                    temp_file_path = None
+                    try:
+                        import tempfile, os
 
                         with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=f".{ext}"
-                        ) as tmp:
-                            tmp.write(f.read())
-                            tmp.flush()
-                            detected = detect_parser_for_file(tmp.name)
-                        if not detected:
-                            errors += 1
-                            from django.contrib import messages
-
-                            messages.error(
-                                request,
-                                f"No compatible parser found for {f.name}. Please select a parser manually or contact support.",
+                            delete=False, suffix=os.path.splitext(f.name)[1]
+                        ) as temp_file:
+                            for chunk in f.chunks():
+                                temp_file.write(chunk)
+                            temp_file_path = temp_file.name
+                        # Detect parser if needed
+                        used_parser = parser_module
+                        if parser_module == "autodetect" or not parser_module:
+                            from dataextractai.parsers.detect import (
+                                detect_parser_for_file,
                             )
+
+                            detected = detect_parser_for_file(temp_file_path)
+                            if detected:
+                                used_parser = detected
+                                result["parser"] = detected
+                            else:
+                                result["error"] = "No compatible parser found."
+                                results.append(result)
+                                os.unlink(temp_file_path)
+                                continue
+                        # Get parser class from registry
+                        parser_cls = registry.get_parser(used_parser)
+                        if not parser_cls:
+                            result["error"] = (
+                                f"Parser '{used_parser}' not found in registry."
+                            )
+                            results.append(result)
+                            os.unlink(temp_file_path)
                             continue
-                        final_parser_module = detected
-                        from django.contrib import messages
-
-                        messages.info(
-                            request,
-                            f"Parser '{final_parser_module}' was automatically selected for {f.name}.",
-                        )
-                        # If Chase Checking, extract metadata
-                        if final_parser_module == "chase_checking":
-                            try:
-                                from dataextractai.parsers.chase_checking import (
-                                    ChaseCheckingParser,
-                                )
-
-                                parser = ChaseCheckingParser()
-                                metadata = parser.extract_metadata(tmp.name)
-                            except Exception as e:
-                                messages.warning(
-                                    request,
-                                    f"Failed to extract metadata for {f.name}: {e}",
-                                )
-                        # Reset file pointer for Django upload
-                        f.seek(0)
-                    # After metadata extraction and before saving instance
-                    transaction_count = 0
-                    parse_error = None
-                    if (
-                        auto_parse
-                        and final_parser_module
-                        and final_parser_module != "autodetect"
-                    ):
+                        parser = parser_cls()
+                        # Call main() and expect ParserOutput
                         try:
-                            # Use ParserRegistry to get the parser class
-                            from dataextractai.parsers_core.registry import (
-                                ParserRegistry,
-                            )
-
-                            parser_class = ParserRegistry.get_parser(
-                                final_parser_module
-                            )
-                            if not parser_class:
-                                raise ImportError(
-                                    f"Parser '{final_parser_module}' not found in registry."
-                                )
-                            parser = parser_class()
-                            # Parse the file and create transactions
-                            try:
-                                txns = parser.parse_file(tmp.name)
-                            except Exception as e:
-                                print("[DEBUG] Exception during parser.parse_file:", e)
-                                print("[DEBUG] Parser:", parser)
-                                print("[DEBUG] File:", tmp.name)
-                                raise
-                            from profiles.models import (
-                                Transaction,
-                                CLASSIFICATION_METHOD_UNCLASSIFIED,
-                                PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                            )
-
-                            for txn in txns:
-                                debug_fields = dict(
-                                    client=client,
-                                    statement_file=None,  # Will set after instance is saved
-                                    transaction_date=txn.get("transaction_date")
-                                    or txn.get("Date of Transaction"),
-                                    description=txn.get("description")
-                                    or txn.get(
-                                        "Merchant Name or Transaction Description"
-                                    ),
-                                    amount=txn.get("amount") or txn.get("Amount"),
-                                    file_path=txn.get("file_path"),
-                                    source=txn.get("source"),
-                                    transaction_type=txn.get("transaction_type"),
-                                    account_number=txn.get("account_number")
-                                    or account_number,
-                                    transaction_id=txn.get("transaction_id"),
-                                    transaction_hash=txn.get("transaction_hash"),
-                                    parser_name=final_parser_module,
-                                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                                )
-                                print(
-                                    "[DEBUG] Transaction fields to be created:",
-                                    debug_fields,
-                                )
-                                try:
-                                    Transaction.objects.create(**debug_fields)
-                                except Exception as e:
-                                    import json
-                                    import os
-
-                                    debug_log_path = os.path.join(
-                                        os.path.dirname(__file__),
-                                        "..",
-                                        "debug_transaction_error.log",
-                                    )
-                                    try:
-                                        with open(debug_log_path, "a") as f:
-                                            f.write(f"Exception: {e}\n")
-                                            f.write(
-                                                f"Fields: {json.dumps(debug_fields, default=str)}\n\n"
-                                            )
-                                    except Exception as file_err:
-                                        logger.error(
-                                            f"Failed to write debug log: {file_err}"
-                                        )
-                                    raise
-                                transaction_count += 1
+                            parser_output = parser.main(file_path=temp_file_path)
                         except Exception as e:
-                            parse_error = str(e)
-                    try:
-                        instance = StatementFile(
-                            client=client,
-                            file=f,
-                            file_type=final_file_type,
-                            account_number=metadata.get(
-                                "account_number", account_number
-                            ),
-                            original_filename=f.name,
-                            uploaded_by=uploaded_by,
-                            status="uploaded",
-                            status_detail=form.cleaned_data.get("status_detail", ""),
-                            bank=form.cleaned_data.get("bank", ""),
-                            year=form.cleaned_data.get("year", None),
-                            month=form.cleaned_data.get("month", None),
-                            parser_module=final_parser_module or None,
-                            account_holder_name=metadata.get("account_holder_name"),
-                            address=metadata.get("address"),
-                            account_type=metadata.get("account_type"),
-                            statement_period_start=metadata.get(
-                                "statement_period_start"
-                            ),
-                            statement_period_end=metadata.get("statement_period_end"),
-                            statement_date=metadata.get("statement_date"),
+                            result["error"] = f"Parser error: {e}"
+                            results.append(result)
+                            os.unlink(temp_file_path)
+                            continue
+                        # Validate ParserOutput
+                        try:
+                            from dataextractai.parsers_core.models import ParserOutput
+
+                            if not isinstance(parser_output, ParserOutput):
+                                result["error"] = (
+                                    f"Parser did not return ParserOutput. Got: {type(parser_output)}"
+                                )
+                                results.append(result)
+                                os.unlink(temp_file_path)
+                                continue
+                        except Exception as e:
+                            result["error"] = f"ParserOutput validation error: {e}"
+                            results.append(result)
+                            os.unlink(temp_file_path)
+                            continue
+                        # Extract metadata and transactions
+                        metadata = (
+                            parser_output.metadata.dict()
+                            if parser_output.metadata
+                            else {}
                         )
-                        instance.full_clean()
-                        instance.save()
-                        if auto_parse and transaction_count > 0:
-                            messages.success(
-                                request,
-                                f"Auto-parsed and created {transaction_count} transactions for {f.name}.",
+                        transactions = (
+                            [t.dict() for t in parser_output.transactions]
+                            if parser_output.transactions
+                            else []
+                        )
+                        result["normalized"] = True
+                        result["metadata"] = metadata
+                        result["transaction_count"] = len(transactions)
+                        if parser_output.errors:
+                            result["errors"] = parser_output.errors
+                        if parser_output.warnings:
+                            result["warnings"] = parser_output.warnings
+                        # Create StatementFile
+                        try:
+                            statement_file = StatementFile.objects.create(
+                                client=client,
+                                file=f,
+                                file_type=file_type,
+                                account_number=metadata.get(
+                                    "account_number", account_number
+                                ),
+                                original_filename=f.name,
+                                uploaded_by=uploaded_by,
+                                status="uploaded",
+                                bank=metadata.get("bank_name"),
+                                year=metadata.get("year"),
+                                month=metadata.get("month"),
+                                parser_module=used_parser,
+                                account_holder_name=metadata.get("account_holder_name"),
+                                address=metadata.get("address"),
+                                account_type=metadata.get("account_type"),
+                                statement_period_start=metadata.get(
+                                    "statement_period_start"
+                                ),
+                                statement_period_end=metadata.get(
+                                    "statement_period_end"
+                                ),
+                                statement_date=metadata.get("statement_date"),
+                                parsed_metadata=metadata,
                             )
-                        elif parse_error:
-                            messages.warning(
-                                request,
-                                f"Auto-parse failed for {f.name}: {parse_error}",
-                            )
-                        success += 1
+                            result["statement_file"] = statement_file.id
+                        except Exception as e:
+                            result["error"] = f"StatementFile creation failed: {e}"
+                            results.append(result)
+                            os.unlink(temp_file_path)
+                            continue
+                        # Optionally create ParsingRun
+                        if auto_parse and used_parser:
+                            try:
+                                ParsingRun.objects.create(
+                                    statement_file=statement_file,
+                                    parser_module=used_parser,
+                                    status="pending",
+                                )
+                                result["parsing_run"] = "created"
+                            except Exception as e:
+                                result["parsing_run_error"] = str(e)
+                        result["success"] = True
+                        os.unlink(temp_file_path)
                     except Exception as e:
-                        errors += 1
-                if success:
-                    messages.success(request, f"Uploaded {success} files successfully.")
-                if errors:
-                    messages.error(request, f"{errors} files failed to upload.")
-                return redirect("..")
+                        result["error"] = str(e)
+                        if temp_file_path and os.path.exists(temp_file_path):
+                            os.unlink(temp_file_path)
+                    results.append(result)
+                from django.urls import reverse
+                from django.contrib import messages
+
+                messages.success(
+                    request, f"Processed {len(files)} files. See results below."
+                )
+                return render(
+                    request,
+                    "admin/batch_upload_statement_files.html",
+                    {
+                        "form": form,
+                        "results": results,
+                        "title": "Batch Upload Statement Files",
+                    },
+                )
         else:
             form = BatchStatementFileUploadForm()
-        context = self.admin_site.each_context(request)
-        context["opts"] = self.model._meta
-        context["form"] = form
-        context["title"] = "Batch Upload Statement Files"
-        return render(request, "admin/batch_upload_statement_files.html", context)
+        return render(
+            request,
+            "admin/batch_upload_statement_files.html",
+            {"form": form, "title": "Batch Upload Statement Files"},
+        )
 
     def get_urls(self):
+        from django.urls import path
+
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -2332,7 +1921,7 @@ class StatementFileAdmin(admin.ModelAdmin):
                 name="profiles_statementfile_batch_upload",
             ),
         ]
-        return custom_urls + urls
+        return custom_urls + urls  # CUSTOM URLS FIRST
 
 
 @admin.register(ParsingRun)
