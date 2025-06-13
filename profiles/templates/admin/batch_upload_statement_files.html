@@ -33,5 +33,45 @@
             <a href="{% url 'admin:profiles_statementfile_changelist' %}" class="button">Back to Statement Files</a>
         </div>
     </form>
+
+    {% if results %}
+    <h2>Upload Results</h2>
+    <table class="results">
+        <tr>
+            <th>File</th>
+            <th>Parser</th>
+            <th>Normalized</th>
+            <th>StatementFile ID</th>
+            <th>ParsingRun</th>
+            <th>Transactions Created</th>
+            <th>Transaction Errors</th>
+            <th>Error</th>
+        </tr>
+        {% for result in results %}
+        <tr>
+            <td>{{ result.file }}</td>
+            <td>{{ result.parser|default:"-" }}</td>
+            <td>{% if result.normalized %}Yes{% elif result.normalized is not none %}No{% else %}-{% endif %}</td>
+            <td>{{ result.statement_file|default:"-" }}</td>
+            <td>
+                {% if result.parsing_run %}{{ result.parsing_run }}{% elif result.parsing_run_error %}Error: {{
+                result.parsing_run_error }}{% else %}-{% endif %}
+            </td>
+            <td>{% if result.transactions_created is not none %}{{ result.transactions_created }}{% else %}-{% endif %}
+            </td>
+            <td>
+                {% if result.transaction_errors %}
+                <ul>
+                    {% for err in result.transaction_errors %}
+                    <li>Idx {{ err.index }}: {{ err.error }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}-{% endif %}
+            </td>
+            <td>{{ result.error|default:"-" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
 </div>
 {% endblock %}
