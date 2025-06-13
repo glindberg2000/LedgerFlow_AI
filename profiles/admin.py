@@ -1777,13 +1777,15 @@ class StatementFileAdmin(admin.ModelAdmin):
                             detected = detect_parser_for_file(temp_file_path)
                             if detected:
                                 used_parser = detected
-                                result["parser"] = detected
                             else:
                                 result["error"] = "No compatible parser found."
                                 results.append(result)
                                 os.unlink(temp_file_path)
                                 continue
-                        # Import parser module and call main()
+                        result["parser"] = (
+                            used_parser  # Always show which parser was used
+                        )
+                        # Import parser module and call main() with positional argument
                         try:
                             parser_mod_name = (
                                 f"dataextractai.parsers.{used_parser}_parser"
@@ -1797,7 +1799,9 @@ class StatementFileAdmin(admin.ModelAdmin):
                                 results.append(result)
                                 os.unlink(temp_file_path)
                                 continue
-                            parser_output = parser_main(file_path=temp_file_path)
+                            parser_output = parser_main(
+                                temp_file_path
+                            )  # Positional argument only
                         except Exception as e:
                             result["error"] = f"Parser error: {e}"
                             results.append(result)
