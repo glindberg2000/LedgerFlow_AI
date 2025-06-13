@@ -1783,19 +1783,21 @@ class StatementFileAdmin(admin.ModelAdmin):
                                 results.append(result)
                                 os.unlink(temp_file_path)
                                 continue
-                        # Get parser class from registry
-                        parser_cls = registry.get_parser(used_parser)
-                        if not parser_cls:
-                            result["error"] = (
-                                f"Parser '{used_parser}' not found in registry."
-                            )
-                            results.append(result)
-                            os.unlink(temp_file_path)
-                            continue
-                        parser = parser_cls()
-                        # Call main() and expect ParserOutput
+                        # Import parser module and call main()
                         try:
-                            parser_output = parser.main(file_path=temp_file_path)
+                            parser_mod_name = (
+                                f"dataextractai.parsers.{used_parser}_parser"
+                            )
+                            parser_mod = importlib.import_module(parser_mod_name)
+                            parser_main = getattr(parser_mod, "main", None)
+                            if not parser_main:
+                                result["error"] = (
+                                    f"Parser module '{parser_mod_name}' has no main() function."
+                                )
+                                results.append(result)
+                                os.unlink(temp_file_path)
+                                continue
+                            parser_output = parser_main(file_path=temp_file_path)
                         except Exception as e:
                             result["error"] = f"Parser error: {e}"
                             results.append(result)
