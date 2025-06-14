@@ -1761,12 +1761,14 @@ class StatementFileAdmin(admin.ModelAdmin):
                     try:
                         import tempfile, os
 
+                        # Save uploaded file to a temp file
                         with tempfile.NamedTemporaryFile(
                             delete=False, suffix=os.path.splitext(f.name)[1]
                         ) as temp_file:
                             for chunk in f.chunks():
                                 temp_file.write(chunk)
                             temp_file_path = temp_file.name
+                        # Always close and flush temp file before using
                         # Detect parser if needed
                         used_parser = parser_module
                         autodetect_debug = ""
@@ -1798,7 +1800,6 @@ class StatementFileAdmin(admin.ModelAdmin):
                         )
                         # Import parser module and call main() with positional argument
                         try:
-                            # Always use _parser module if it exists
                             parser_mod_name = (
                                 f"dataextractai.parsers.{used_parser}_parser"
                             )
@@ -1808,7 +1809,6 @@ class StatementFileAdmin(admin.ModelAdmin):
                                 result["parser_module"] = parser_mod_name
                                 result["main_func"] = str(parser_main)
                             except ImportError:
-                                # Fallback to non-_parser module if _parser not found
                                 parser_mod_name = f"dataextractai.parsers.{used_parser}"
                                 parser_mod = importlib.import_module(parser_mod_name)
                                 parser_main = getattr(parser_mod, "main", None)
@@ -1866,155 +1866,44 @@ class StatementFileAdmin(admin.ModelAdmin):
                             result["errors"] = parser_output.errors
                         if parser_output.warnings:
                             result["warnings"] = parser_output.warnings
-                        # Create StatementFile
+                        # Create StatementFile using the temp file (open in binary mode)
                         try:
-                            statement_file = StatementFile.objects.create(
-                                client=client,
-                                file=f,
-                                file_type=file_type,
-                                account_number=metadata.get(
-                                    "account_number", account_number
-                                ),
-                                original_filename=f.name,
-                                uploaded_by=uploaded_by,
-                                status="uploaded",
-                                bank=metadata.get("bank_name"),
-                                year=metadata.get("year"),
-                                month=metadata.get("month"),
-                                parser_module=used_parser,
-                                account_holder_name=metadata.get("account_holder_name"),
-                                address=metadata.get("address"),
-                                account_type=metadata.get("account_type"),
-                                statement_period_start=metadata.get(
-                                    "statement_period_start"
-                                ),
-                                statement_period_end=metadata.get(
-                                    "statement_period_end"
-                                ),
-                                statement_date=metadata.get("statement_date"),
-                                parsed_metadata=metadata,
-                            )
+                            with open(temp_file_path, "rb") as temp_file_for_db:
+                                statement_file = StatementFile.objects.create(
+                                    client=client,
+                                    file=temp_file_for_db,  # Use the temp file for DB save
+                                    file_type=file_type,
+                                    account_number=metadata.get(
+                                        "account_number", account_number
+                                    ),
+                                    original_filename=f.name,
+                                    uploaded_by=uploaded_by,
+                                    status="uploaded",
+                                    bank=metadata.get("bank_name"),
+                                    year=metadata.get("year"),
+                                    month=metadata.get("month"),
+                                    parser_module=used_parser,
+                                    account_holder_name=metadata.get(
+                                        "account_holder_name"
+                                    ),
+                                    address=metadata.get("address"),
+                                    account_type=metadata.get("account_type"),
+                                    statement_period_start=metadata.get(
+                                        "statement_period_start"
+                                    ),
+                                    statement_period_end=metadata.get(
+                                        "statement_period_end"
+                                    ),
+                                    statement_date=metadata.get("statement_date"),
+                                    parsed_metadata=metadata,
+                                )
                             result["statement_file"] = statement_file.id
                         except Exception as e:
                             result["error"] = f"StatementFile creation failed: {e}"
                             results.append(result)
                             os.unlink(temp_file_path)
                             continue
-                        # Optionally create ParsingRun
-                        transaction_create_results = []
-                        if auto_parse and used_parser:
-                            for idx, tx_data in enumerate(transactions):
-                                try:
-                                    from profiles.models import Transaction
-
-                                    # Robustly set all NOT NULL/choices fields to safe defaults if missing/null
-                                    tx_fields = {
-                                        "client": client,
-                                        "transaction_date": tx_data.get(
-                                            "transaction_date"
-                                        ),
-                                        "amount": tx_data.get("amount"),
-                                        "description": tx_data.get("description"),
-                                        "category": tx_data.get("category") or "",
-                                        "parsed_data": tx_data,
-                                        "file_path": tx_data.get("file_path")
-                                        or statement_file.file.name,
-                                        "source": tx_data.get("source") or used_parser,
-                                        "transaction_type": tx_data.get(
-                                            "transaction_type"
-                                        )
-                                        or "",
-                                        "normalized_amount": tx_data.get(
-                                            "normalized_amount"
-                                        ),
-                                        "statement_start_date": tx_data.get(
-                                            "statement_start_date"
-                                        )
-                                        or metadata.get("statement_period_start"),
-                                        "statement_end_date": tx_data.get(
-                                            "statement_end_date"
-                                        )
-                                        or metadata.get("statement_period_end"),
-                                        "account_number": tx_data.get("account_number")
-                                        or metadata.get("account_number"),
-                                        "transaction_id": tx_data.get("transaction_id"),
-                                        "normalized_description": tx_data.get(
-                                            "normalized_description"
-                                        ),
-                                        "payee": tx_data.get("payee") or "",
-                                        "confidence": tx_data.get("confidence") or "",
-                                        "reasoning": tx_data.get("reasoning") or "",
-                                        "payee_reasoning": tx_data.get(
-                                            "payee_reasoning"
-                                        )
-                                        or "",
-                                        "business_context": tx_data.get(
-                                            "business_context"
-                                        )
-                                        or "",
-                                        "questions": tx_data.get("questions") or "",
-                                        "classification_type": tx_data.get(
-                                            "classification_type"
-                                        )
-                                        or "None",
-                                        "worksheet": tx_data.get("worksheet") or "",
-                                        "business_percentage": tx_data.get(
-                                            "business_percentage", 100
-                                        ),
-                                        "payee_extraction_method": tx_data.get(
-                                            "payee_extraction_method"
-                                        )
-                                        or "None",
-                                        "classification_method": tx_data.get(
-                                            "classification_method"
-                                        )
-                                        or "None",
-                                        "statement_file": statement_file,
-                                        "parser_name": used_parser or "",
-                                    }
-                                    # Remove None fields
-                                    tx_fields = {
-                                        k: v
-                                        for k, v in tx_fields.items()
-                                        if v is not None
-                                    }
-                                    tx_obj = Transaction.objects.create(**tx_fields)
-                                    transaction_create_results.append(
-                                        {
-                                            "index": idx,
-                                            "status": "created",
-                                            "id": tx_obj.id,
-                                        }
-                                    )
-                                except Exception as e:
-                                    transaction_create_results.append(
-                                        {
-                                            "index": idx,
-                                            "status": "error",
-                                            "error": str(e),
-                                        }
-                                    )
-                            result["transactions_created"] = sum(
-                                1
-                                for r in transaction_create_results
-                                if r["status"] == "created"
-                            )
-                            result["transaction_errors"] = [
-                                r
-                                for r in transaction_create_results
-                                if r["status"] == "error"
-                            ]
-                        if auto_parse and used_parser:
-                            try:
-                                ParsingRun.objects.create(
-                                    statement_file=statement_file,
-                                    parser_module=used_parser,
-                                    status="pending",
-                                )
-                                result["parsing_run"] = "created"
-                            except Exception as e:
-                                result["parsing_run_error"] = str(e)
-                        result["success"] = True
+                        # Only delete temp file after both parsing and DB save are complete
                         os.unlink(temp_file_path)
                     except Exception as e:
                         result["error"] = str(e)
