@@ -1905,6 +1905,98 @@ class StatementFileAdmin(admin.ModelAdmin):
                             results.append(result)
                             os.unlink(temp_file_path)
                             continue
+                        # Restore: Always create transactions for all parsers
+                        transaction_create_results = []
+                        for idx, tx_data in enumerate(transactions):
+                            try:
+                                from profiles.models import Transaction
+
+                                tx_fields = {
+                                    "client": client,
+                                    "transaction_date": tx_data.get("transaction_date"),
+                                    "amount": tx_data.get("amount"),
+                                    "description": tx_data.get("description"),
+                                    "category": tx_data.get("category") or "",
+                                    "parsed_data": tx_data,
+                                    "file_path": tx_data.get("file_path")
+                                    or statement_file.file.name,
+                                    "source": tx_data.get("source") or used_parser,
+                                    "transaction_type": tx_data.get("transaction_type")
+                                    or "",
+                                    "normalized_amount": tx_data.get(
+                                        "normalized_amount"
+                                    ),
+                                    "statement_start_date": tx_data.get(
+                                        "statement_start_date"
+                                    )
+                                    or metadata.get("statement_period_start"),
+                                    "statement_end_date": tx_data.get(
+                                        "statement_end_date"
+                                    )
+                                    or metadata.get("statement_period_end"),
+                                    "account_number": tx_data.get("account_number")
+                                    or metadata.get("account_number"),
+                                    "transaction_id": tx_data.get("transaction_id"),
+                                    "normalized_description": tx_data.get(
+                                        "normalized_description"
+                                    ),
+                                    "payee": tx_data.get("payee") or "",
+                                    "confidence": tx_data.get("confidence") or "",
+                                    "reasoning": tx_data.get("reasoning") or "",
+                                    "payee_reasoning": tx_data.get("payee_reasoning")
+                                    or "",
+                                    "business_context": tx_data.get("business_context")
+                                    or "",
+                                    "questions": tx_data.get("questions") or "",
+                                    "classification_type": tx_data.get(
+                                        "classification_type"
+                                    )
+                                    or "None",
+                                    "worksheet": tx_data.get("worksheet") or "",
+                                    "business_percentage": tx_data.get(
+                                        "business_percentage", 100
+                                    ),
+                                    "payee_extraction_method": tx_data.get(
+                                        "payee_extraction_method"
+                                    )
+                                    or "None",
+                                    "classification_method": tx_data.get(
+                                        "classification_method"
+                                    )
+                                    or "None",
+                                    "statement_file": statement_file,
+                                    "parser_name": used_parser or "",
+                                }
+                                # Remove None fields
+                                tx_fields = {
+                                    k: v for k, v in tx_fields.items() if v is not None
+                                }
+                                tx_obj = Transaction.objects.create(**tx_fields)
+                                transaction_create_results.append(
+                                    {
+                                        "index": idx,
+                                        "status": "created",
+                                        "id": tx_obj.id,
+                                    }
+                                )
+                            except Exception as e:
+                                transaction_create_results.append(
+                                    {
+                                        "index": idx,
+                                        "status": "error",
+                                        "error": str(e),
+                                    }
+                                )
+                        result["transactions_created"] = sum(
+                            1
+                            for r in transaction_create_results
+                            if r["status"] == "created"
+                        )
+                        result["transaction_errors"] = [
+                            r
+                            for r in transaction_create_results
+                            if r["status"] == "error"
+                        ]
                         # Only delete temp file after both parsing and DB save are complete
                         os.unlink(temp_file_path)
                     except Exception as e:
