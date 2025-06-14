@@ -1799,6 +1799,18 @@ class StatementFileAdmin(admin.ModelAdmin):
                         result["registry_mapping"] = str(
                             registry_mapping.get(used_parser)
                         )
+                        # Log temp file info before calling parser
+                        try:
+                            temp_file_size = os.path.getsize(temp_file_path)
+                            with open(temp_file_path, "rb") as tf_dbg:
+                                temp_file_head = tf_dbg.read(256)
+                            result["temp_file_path"] = temp_file_path
+                            result["temp_file_size"] = temp_file_size
+                            result["temp_file_head"] = temp_file_head.hex()
+                        except Exception as e:
+                            result["temp_file_debug_error"] = (
+                                f"Failed to read temp file info: {e}"
+                            )
                         # Import parser module and call main() with positional argument
                         try:
                             parser_mod_name = (
@@ -1829,7 +1841,10 @@ class StatementFileAdmin(admin.ModelAdmin):
                                 temp_file_path
                             )  # Positional argument only
                         except Exception as e:
-                            result["error"] = f"Parser error: {e}"
+                            import traceback
+
+                            tb = traceback.format_exc()
+                            result["error"] = f"Parser error: {e}\n{tb}"
                             results.append(result)
                             os.unlink(temp_file_path)
                             continue
