@@ -53,6 +53,7 @@ from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
 import pandas as pd
 import tempfile
+from django.core.files import File
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1869,9 +1870,10 @@ class StatementFileAdmin(admin.ModelAdmin):
                         # Create StatementFile using the temp file (open in binary mode)
                         try:
                             with open(temp_file_path, "rb") as temp_file_for_db:
+                                django_file = File(temp_file_for_db, name=f.name)
                                 statement_file = StatementFile.objects.create(
                                     client=client,
-                                    file=temp_file_for_db,  # Use the temp file for DB save
+                                    file=django_file,  # Use Django File wrapper for DB save
                                     file_type=file_type,
                                     account_number=metadata.get(
                                         "account_number", account_number
