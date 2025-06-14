@@ -132,3 +132,8 @@ db_backup_before_transaction_hash.pgcustom
 
 # Ignore uploaded statement files
 clients/*
+
+# Ignore log files
+tests/*.log
+logs/
+*.log

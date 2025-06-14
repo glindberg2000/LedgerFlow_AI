@@ -1840,6 +1840,22 @@ class StatementFileAdmin(admin.ModelAdmin):
                             parser_output = parser_main(
                                 temp_file_path
                             )  # Positional argument only
+                            # Debug: print parser_output as dict
+                            try:
+                                from dataextractai.parsers_core.models import (
+                                    ParserOutput,
+                                )
+
+                                if isinstance(parser_output, ParserOutput):
+                                    print(
+                                        f"[DEBUG] parser_output.dict(): {parser_output.dict()}"
+                                    )
+                                else:
+                                    print(
+                                        f"[DEBUG] parser_output (not ParserOutput): {parser_output}"
+                                    )
+                            except Exception as e:
+                                print(f"[DEBUG] Exception printing parser_output: {e}")
                         except Exception as e:
                             import traceback
 
@@ -1922,7 +1938,16 @@ class StatementFileAdmin(admin.ModelAdmin):
                             continue
                         # Restore: Always create transactions for all parsers
                         transaction_create_results = []
+                        success_count = 0
+                        fail_count = 0
+                        error_list = []
                         for idx, tx_data in enumerate(transactions):
+                            import logging, traceback
+
+                            logger = logging.getLogger("batch_upload")
+                            logger.warning(
+                                f"[DEBUG] Creating transaction idx={idx} raw tx_data={tx_data}"
+                            )
                             try:
                                 from profiles.models import Transaction
 
@@ -1969,8 +1994,9 @@ class StatementFileAdmin(admin.ModelAdmin):
                                     or "None",
                                     "worksheet": tx_data.get("worksheet") or "",
                                     "business_percentage": tx_data.get(
-                                        "business_percentage", 100
-                                    ),
+                                        "business_percentage"
+                                    )
+                                    or 100,
                                     "payee_extraction_method": tx_data.get(
                                         "payee_extraction_method"
                                     )
@@ -1980,37 +2006,44 @@ class StatementFileAdmin(admin.ModelAdmin):
                                     )
                                     or "None",
                                     "statement_file": statement_file,
-                                    "parser_name": used_parser or "",
+                                    "parser_name": used_parser,
+                                    "needs_account_number": tx_data.get(
+                                        "needs_account_number", False
+                                    ),
                                 }
-                                # Remove None fields
-                                tx_fields = {
-                                    k: v for k, v in tx_fields.items() if v is not None
-                                }
-                                tx_obj = Transaction.objects.create(**tx_fields)
+                                logger.warning(
+                                    f"[DEBUG] idx={idx} tx_fields before creation: {tx_fields}"
+                                )
+                                logger.warning(
+                                    f"[DEBUG] idx={idx} transaction_date type: {type(tx_fields.get('transaction_date'))} value: {tx_fields.get('transaction_date')}"
+                                )
+                                tx = Transaction(**tx_fields)
+                                tx.save()
+                                logger.warning(
+                                    f"[SUCCESS] idx={idx} Transaction saved with id={tx.id}"
+                                )
+                                success_count += 1
                                 transaction_create_results.append(
-                                    {
-                                        "index": idx,
-                                        "status": "created",
-                                        "id": tx_obj.id,
-                                    }
+                                    (idx, "success", tx.id)
                                 )
                             except Exception as e:
-                                transaction_create_results.append(
-                                    {
-                                        "index": idx,
-                                        "status": "error",
-                                        "error": str(e),
-                                    }
+                                tb = traceback.format_exc()
+                                logger.error(
+                                    f"[ERROR] Failed to create transaction idx={idx}: {e}\n{tb}\nData: {tx_data}"
                                 )
+                                fail_count += 1
+                                error_list.append((idx, str(e), tb, tx_data))
+                                transaction_create_results.append((idx, "fail", str(e)))
+                        logger.warning(
+                            f"[SUMMARY] Transaction creation: attempted={len(transactions)}, succeeded={success_count}, failed={fail_count}"
+                        )
+                        if error_list:
+                            logger.error(f"[SUMMARY] Errors: {error_list}")
                         result["transactions_created"] = sum(
-                            1
-                            for r in transaction_create_results
-                            if r["status"] == "created"
+                            1 for r in transaction_create_results if r[0] == "success"
                         )
                         result["transaction_errors"] = [
-                            r
-                            for r in transaction_create_results
-                            if r["status"] == "error"
+                            r for r in transaction_create_results if r[0] == "fail"
                         ]
                         # Only delete temp file after both parsing and DB save are complete
                         os.unlink(temp_file_path)
