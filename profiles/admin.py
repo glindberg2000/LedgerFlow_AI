@@ -2040,7 +2040,7 @@ class StatementFileAdmin(admin.ModelAdmin):
                         if error_list:
                             logger.error(f"[SUMMARY] Errors: {error_list}")
                         result["transactions_created"] = sum(
-                            1 for r in transaction_create_results if r[0] == "success"
+                            1 for r in transaction_create_results if r[1] == "success"
                         )
                         result["transaction_errors"] = [
                             r for r in transaction_create_results if r[0] == "fail"
