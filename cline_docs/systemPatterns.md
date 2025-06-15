@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # System Patterns
 
 ## Architecture Overview
