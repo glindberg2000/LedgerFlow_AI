@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # Technical Context
 
 ## Technology Stack

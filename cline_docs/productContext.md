@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # LedgerFlow Product Context
 
 ## Product Overview

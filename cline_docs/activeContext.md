@@ -1,117 +1,44 @@
+[MEMORY BANK: ACTIVE]
+
 # Active Context
 
 ## Current Focus
-- Implementing and improving backup and restore functionality
-- Enhancing deployment pipeline
-- Setting up development and production environments
-- Implementing security measures
-- Documenting system architecture and processes
-- Creating comprehensive onboarding materials for new team members
-- Integrating MPC tools and dockerized development workflow
+- Ensuring all modular parsers are contract-compliant and integrated with the ingestion pipeline
+- Maintaining robust, production-ready ingestion and batch upload workflows
+- Supporting further parser integrations and production ingestion
+- Documenting debugging patterns and integration workflows for future reference
 
-**Critical Schema Issue:**
-- The `profiles_transactionclassification` table (for transaction classification history/audit) is missing from the database, even though the model and migrations exist and are marked as applied.
-- This is a global schema/migration drift problem, not just a data or legacy file issue.
-- Any admin action, cascade, or code that touches the classification history will fail for all clients, not just problematic files.
+## Recent Achievements
+- All tested parsers (Chase Checking, Capital One CSV, Wells Fargo Visa, First Republic Bank, Wells Fargo Checking CSV) are now contract-compliant and integrated.
+- The batch uploader creates transactions as expected, with correct reporting in the UI and no ingestion-blocking errors.
+- UI for "Transactions Created" now accurately reflects the number of transactions created.
+- NOT NULL constraint errors for fields like `classification_method` and `payee_extraction_method` were fixed by always setting safe defaults.
+- Debug logging, direct communication with parser developers, and careful git/environment management were essential for resolving integration issues.
+- The system is now ready for further parser integrations, with a clear workflow for identifying and fixing contract or integration issues.
 
-## Backup & Restore: Crucial Details
+## Debugging & Integration Summary
+- Persistent, contract-compliant parser entrypoints are critical for robust ingestion.
+- Debug logging, direct communication with parser developers, and careful git/environment management are essential for resolving integration issues.
+- The batch uploader was refactored to use dynamic parser selection, robust error handling, and per-file feedback.
+- Transactions are now saved to the DB immediately when "auto-parse" is enabled.
+- All date fields are normalized to `YYYY-MM-DD` and NaN values are replaced with `None` for valid JSON ingestion.
+- The UI and reporting logic now accurately reflect ingestion results.
 
-**Backup Storage Locations:**
-- **Primary (iCloud):**
-  - `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/`
-    - `dev/` (development backups)
-    - `prod/` (production backups)
-    - `test/` (test/restore)
-    - `logs/` (backup logs)
-    - `migrations/` (pre-migration backups)
-- **Docker Bind Mounts:**
-  - Dev: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev` → `/backups` in postgres/backup containers
-  - Prod: `/Users/greg/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups` → `/icloud_backups` in backup container
-
-**Backup Scripts & Automation:**
-- **Manual/CLI:**
-  - `make backup FILE=...` (see Makefile)
-  - `scripts/db/backup_dev_db.sh` (hourly DB backup, integrity check, retention)
-  - `scripts/db/backup_dev_full.sh` (daily full backup: DB, media, config, manifest)
-- **Cron Jobs:**
-  - Hourly DB: `0 * * * * /path/to/backup_dev_db.sh`
-  - Daily full: `0 2 * * * /path/to/backup_dev_full.sh`
-  - Logs: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev/logs/`
-  - Setup: `scripts/db/setup_backup_cron.sh` (installs jobs, test run in 5 min)
-
-**Restore Procedures:**
-- **Makefile:**
-  - `make restore FILE=...` (see Makefile for env/volume details)
-- **Manual:**
-  - `./restore_db_clean.sh -f path/to/backup.sql.gz` (see cline_docs/database_backup.md)
-- **Test Restore:**
-  - `make restore-test FILE=...` (restores to temp DB, verifies structure/data)
-
-**Docker Compose: Key Services, Ports, Volumes**
-- **Dev (docker-compose.dev.yml):**
-  - `django`: 9000:8000, media: ledgerflow_dev_media
-  - `postgres`: 5435:5432, data: ledgerflow_dev_postgres_data, backups: bind mount
-  - `redis`: 6379:6379
-  - `adminer`: 8082:8080
-  - `searxng`: 8888:8080 (localhost only)
-- **Prod (docker-compose.prod.yml):**
-  - `django`: 9002:8000, media/static: bind mounts
-  - `postgres`: 5436:5432, data: ledgerflow_postgres_data
-  - `backup`: iCloud backup bind mount
-
-**Volume Protection & Verification:**
-- Run `make check-volumes` or `./scripts/verify_volumes.sh` to verify Docker volumes and backup directories exist and are writable.
-- Key volumes: `ledgerflow_postgres_data`, `ledgerflow_media`, `searxng_data`, `redis_data`
-- Key bind mounts: see docker-compose files and verify_volumes.sh
-
-**Backup Integrity & Retention:**
-- Minimum backup size: 10KB (checked in scripts)
-- All backups are verified for size, structure, and test-restored to temp DB
-- Retention: 7 days for hourly/daily, auto-cleanup in scripts
-- iCloud sync: All backups/logs are synced automatically; check iCloud status if missing files
-
-**Environment Variables/Config:**
-- DB credentials: set in `.env.dev`/`.env.prod` and passed to containers
-- Backup scripts use Docker Compose service/container names (see Makefile/scripts)
-- SearXNG/Redis: see .env.dev and docker-compose for host/port config
-
-**Logs & Troubleshooting:**
-- Backup logs: `backups/dev/logs/` (iCloud)
-- Script output: check cron logs, script logs, and Docker logs for backup/restore containers
-- For errors: check backup size, permissions, iCloud sync, and container health
-
-**Full Details:**
-- See `cline_docs/database_backup.md` for a complete backup/restore reference, including safety, verification, and troubleshooting procedures.
-
-## What I'm Working On Now
-
-- Updating the batch uploader and parsing workflow to use a hybrid approach for account number:
-  - Account number is **optional** on upload (batch uploader).
-  - Account number is **mandatory** for parsing/processing (must be present before parsing, either by extraction or manual entry).
-- Ensuring UI and backend logic reflect this policy.
-
-## Recent Changes
-- Committed: Improved category mapping, sorting, and clickable subtotals in all reports.
-- IRS worksheet and all-categories reports now highlight unmapped business categories and allow direct navigation to filtered transactions.
-- **NEW:** Classification logic now always sets `transaction.category` to the mapped, allowed LLM `category_name` for all classification actions (single, batch, escalation). This prevents legacy or custom category values (e.g., 'Staging Expenses') from persisting and ensures only allowed business/IRS categories are used. Escalation and retry logic is in place to enforce strict mapping and flag for review if the LLM cannot comply.
-- Patched `normalize_parsed_data_df` to guarantee `source`, `file_path`, and `file_name` fields for all imports.
-- Verified First Republic parser and all modular parsers now work with Django import.
-- Cleaned up admin UI and removed legacy parser test utilities.
-- Added and migrated ParsingRun model for import logging.
-- Communicated with Extractor_Dev to coordinate and verify all parser/normalizer changes.
-- Analyzed the batch uploader code and identified that account number is not currently required or set in batch uploads.
-- Decided on hybrid approach for account number requirement after analysis and discussion.
+## Next Steps
+- Integrate additional parsers as needed
+- Monitor production ingestion for edge cases
+- Continue to document and refine debugging/integration workflows
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
 - This results in a disconnect between custom/user-defined categories and standardized IRS worksheet categories.
 
-## Next Steps / Recommendations
-- **Parent Mapping:** Use the `parent_category` field in `BusinessExpenseCategory` to explicitly map custom categories to IRS categories. This allows aggregation and reporting to roll up custom categories under the correct IRS line.
-- **Fuzzy Matching:** Implement a fuzzy string matching system to suggest or auto-map similar category names (e.g., 'Staging Expenses' → 'Staging'). This can be used as a fallback or for admin review.
-- **Schema Enforcement During Classification:** During transaction classification, enforce or suggest selection from a controlled vocabulary (IRS + business categories), possibly with auto-complete or admin override, to reduce drift.
-- **Admin UI for Mapping:** Build an admin interface to review, approve, and manage mappings between business and IRS categories, including suggestions for unmapped categories.
-- **Reporting Logic:** Update report aggregation to use the parent mapping or fuzzy match when rolling up subtotals for IRS worksheet lines.
+## Recommendations
+- Use the `parent_category` field in `BusinessExpenseCategory` to explicitly map custom categories to IRS categories.
+- Implement a fuzzy string matching system to suggest or auto-map similar category names.
+- Enforce or suggest selection from a controlled vocabulary during transaction classification.
+- Build an admin interface to review, approve, and manage mappings between business and IRS categories.
+- Update report aggregation to use the parent mapping or fuzzy match when rolling up subtotals for IRS worksheet lines.
 
 ## Action Item
 - Document and discuss the best approach for maintaining robust, user-friendly category mapping between custom business and IRS worksheet categories. Prioritize a solution that is maintainable and transparent for both admins and end users.
@@ -637,4 +564,62 @@ make <role>-session  # e.g., make reviewer-session
 - Backup script and location: `scripts/db/backup_dev_db.sh`, iCloud-synced backup folder.
 - Table missing: `profiles_transactionclassification` (required for classification history/audit).
 - All migrations for `profiles` are marked as applied, but the table is not present in the DB.
-- Next step: schema repair/reset, then restore data as needed. 
+- Next step: schema repair/reset, then restore data as needed.
+
+# Active Context (as of 2025-06-09)
+
+## Current State
+- The working database is now `ledgerflow_test_restore` (restored, fixed, and fully in sync with migrations).
+- All migration drift and missing tables have been resolved.
+- Admin bulk actions are enabled (DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000).
+- All backup scripts have been updated to use the new database.
+- Codebase and migrations are committed and pushed to remote.
+- No secrets or `.env*` files are in version control; these are backed up separately.
+
+## Backup/Restore Process
+- Use `scripts/db/backup_dev_db.sh` for database-only backups (now points to `ledgerflow_test_restore`).
+- Use `scripts/db/backup_dev_full.sh` for full backups (DB, media, config, state). If not using Dockerized Django, skip media/config container steps.
+- All backup files are stored in iCloud and are automatically synced.
+- After any major schema or data change, take a fresh backup and verify it.
+- To restore: create a new DB, gunzip and psql the backup, then run Django migrations if needed.
+
+## Commit/Version Control
+- All code, migrations, and scripts are committed to Git.
+- No secret files are committed; `.env*` and sensitive configs are only on the backup drive.
+
+## Next Steps
+- Continue using `ledgerflow_test_restore` as the main DB.
+- Back up `.env*` and secrets to backup drive after any change.
+- If switching to Dockerized Django, ensure config and volumes are in sync.
+- Do not delete the old database until the new process is proven over time.
+- Update this doc and README after any major process change. 
+
+## Current Mission
+Refactor the ingestion pipeline to consume the new ParserOutput contract from all parsers, standardizing how transaction data and statement metadata are processed throughout the system.
+
+- **Branch:** `refactor/parser-ingestion-contract`
+- **Status:** In progress
+
+## Next Steps
+1. Define and implement ParserOutput contract classes (ParserOutput, TransactionRecord, StatementMetadata)
+2. Identify and document all parser output consumption points
+3. Update one reference parser to implement ParserOutput
+4. Refactor ingestion pipeline to consume ParserOutput
+5. Update remaining parsers and documentation
+
+## Task Master Alignment
+- Task #13: Refactor Ingestion Pipeline for ParserOutput Contract
+  - Subtasks:
+    1. Define and implement ParserOutput contract classes
+    2. Identify and document all parser output consumption points
+    3. Update one reference parser to implement ParserOutput
+    4. Refactor ingestion pipeline to consume ParserOutput
+    5. Update remaining parsers and documentation
+
+## Notes
+- This is a critical architectural update for long-term maintainability and extensibility.
+- All code that processes parser output will be updated to use the new contract.
+- Documentation and team communication will be updated accordingly.
+
+---
+_Last updated: 2025-06-12_ 

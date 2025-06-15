@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # Project Progress
 
 ## Completed Features
@@ -29,6 +30,16 @@
 - [x] Search result ranking
 - [x] Search filters
 - [x] Search history
+
+### Ingestion Pipeline & Parser Contract
+- [x] All modular parsers migrated to contract-compliant `ParserOutput` (Pydantic model)
+- [x] Batch uploader refactored for robust error handling, dynamic parser selection, and per-file feedback
+- [x] Transactions are created and saved to the DB immediately when auto-parse is enabled
+- [x] UI for "Transactions Created" accurately reflects the number of transactions created
+- [x] NOT NULL constraint errors for fields like `classification_method` and `payee_extraction_method` are fixed by always setting safe defaults
+- [x] All date fields normalized to `YYYY-MM-DD` and NaN values replaced with `None` for valid JSON ingestion
+- [x] Debug logging, direct communication with parser developers, and careful git/environment management ensured successful integration
+- [x] System is ready for further parser integrations and production ingestion
 
 ## In Progress Features
 
