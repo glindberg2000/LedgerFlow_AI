@@ -103,3 +103,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Allow large admin bulk actions (default is 1000; increased to prevent TooManyFieldsSent errors)
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
+# Allow up to 1000 files per upload (fixes TooManyFilesSent error)
+DATA_UPLOAD_MAX_NUMBER_FILES = 1000
+
+# Media files (PDFs, CSVs, etc.)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
