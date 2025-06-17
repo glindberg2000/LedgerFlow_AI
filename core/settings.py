@@ -151,3 +151,6 @@ LOGGING = {
         },
     },
 }
+
+# Increase the maximum number of files allowed in a single upload
+DATA_UPLOAD_MAX_NUMBER_FILES = 1000

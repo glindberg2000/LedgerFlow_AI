@@ -881,7 +881,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "business_percentage",
         "confidence",
         "source",
-        "file_path",
+        "file_link_column",
         "account_number",
         "short_reasoning",  # Use icon if present
         "short_payee_reasoning",  # Use icon if present
@@ -977,6 +977,19 @@ class TransactionAdmin(admin.ModelAdmin):
         return ""
 
     short_payee_reasoning.short_description = "Payee Reasoning"
+
+    def file_link_column(self, obj):
+        # Always use StatementFile's file.url if available
+        if obj.statement_file and obj.statement_file.file:
+            filename = obj.statement_file.original_filename or os.path.basename(
+                obj.statement_file.file.name
+            )
+            url = obj.statement_file.file.url
+            return format_html('<a href="{}" target="_blank">{}</a>', url, filename)
+        return "-"
+
+    file_link_column.short_description = "Original File"
+    file_link_column.admin_order_field = "file_path"
 
     @admin.action(description="Batch set account number for selected transactions")
     def batch_set_account_number(self, request, queryset):
@@ -1602,7 +1615,7 @@ class StatementFileAdmin(admin.ModelAdmin):
     form = StatementFileAdminForm
     list_display = (
         "client",
-        "original_filename",
+        "original_filename_link",
         "file_type",
         "parser_module",
         "status",
@@ -1687,6 +1700,18 @@ class StatementFileAdmin(admin.ModelAdmin):
     actions = [
         "batch_set_account_number",
     ]
+
+    def original_filename_link(self, obj):
+        if obj.file:
+            return format_html(
+                '<a href="{}" target="_blank">{}</a>',
+                obj.file.url,
+                obj.original_filename,
+            )
+        return obj.original_filename or "-"
+
+    original_filename_link.short_description = "Original Filename"
+    original_filename_link.admin_order_field = "original_filename"
 
     def file_link(self, obj):
         if obj.file and hasattr(obj.file, "url"):

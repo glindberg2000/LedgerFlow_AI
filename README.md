@@ -50,6 +50,21 @@ The application will be available at:
 - Main application: http://localhost:9001
 - Adminer (database management): http://localhost:8082
 
+## Backup, Restore, and Migration Process (2025-06-09)
+
+- The working development database is now `ledgerflow_test_restore` (see cline_docs/activeContext.md for context).
+- All backup scripts (`scripts/db/backup_dev_db.sh` and `scripts/db/backup_dev_full.sh`) are updated to use this database.
+- To back up the database, run:
+  ```bash
+  bash scripts/db/backup_dev_db.sh
+  # or for a full backup (DB, media, config):
+  bash scripts/db/backup_dev_full.sh
+  ```
+- Backups are stored in iCloud and automatically synced.
+- To restore, create a new database, gunzip and psql the backup, then run Django migrations if needed.
+- No secret files (like `.env*`) are committed to version control; these are backed up separately.
+- For full details and the latest process, see `cline_docs/activeContext.md`.
+
 ## Development Commands
 
 - `make help` - Show available commands
