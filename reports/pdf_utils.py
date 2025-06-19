@@ -5,6 +5,16 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from decimal import Decimal
 from django.utils import timezone
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+
+
+def create_styled_paragraph(text, style, color=None, alignment=None):
+    """Helper function to create styled paragraphs."""
+    if color:
+        text = f'<font color="{color}">{text}</font>'
+    if alignment:
+        text = f'<para align="{alignment}">{text}</para>'
+    return Paragraph(text, style)
 
 
 def generate_interest_income_pdf(response, client, interest_transactions, total):
@@ -14,10 +24,10 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
     doc = SimpleDocTemplate(
         response,
         pagesize=letter,
-        rightMargin=72,
-        leftMargin=72,
-        topMargin=72,
-        bottomMargin=72,
+        rightMargin=0.75 * inch,
+        leftMargin=0.75 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
     )
 
     # Container for the 'Flowable' objects
@@ -25,77 +35,92 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
 
     # Get styles
     styles = getSampleStyleSheet()
-    title_style = styles["Heading1"]
-    subtitle_style = styles["Heading2"]
-    normal_style = styles["Normal"]
 
-    # Add custom header style
-    header_style = ParagraphStyle(
-        "CustomHeader", parent=styles["Heading2"], fontSize=10, spaceAfter=20
+    # Custom styles
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontSize=24,
+        spaceAfter=30,
+        textColor=colors.HexColor("#2C3E50"),  # Dark blue-gray
+        alignment=TA_CENTER,
     )
 
-    # Add title
-    elements.append(Paragraph("Interest Income Report", title_style))
-    elements.append(Spacer(1, 12))
+    header_info_style = ParagraphStyle(
+        "HeaderInfo",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#7F8C8D"),  # Gray
+        alignment=TA_RIGHT,
+        spaceAfter=20,
+    )
 
-    # Add business information
-    elements.append(Paragraph(f"Client ID: {client.client_id}", header_style))
-    if client.business_type:
-        elements.append(
-            Paragraph(f"Business Type: {client.business_type}", header_style)
-        )
-    if client.business_description:
-        elements.append(
-            Paragraph(
-                f"Business Description: {client.business_description}", header_style
-            )
-        )
+    contact_style = ParagraphStyle(
+        "ContactInfo",
+        parent=styles["Normal"],
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor("#2C3E50"),  # Dark blue-gray
+        alignment=TA_CENTER,
+        spaceAfter=30,
+    )
+
+    section_header_style = ParagraphStyle(
+        "SectionHeader",
+        parent=styles["Heading2"],
+        fontSize=14,
+        textColor=colors.HexColor("#2980B9"),  # Blue
+        spaceBefore=20,
+        spaceAfter=10,
+    )
+
+    account_info_style = ParagraphStyle(
+        "AccountInfo",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=colors.HexColor("#34495E"),  # Dark gray
+        leftIndent=20,
+        spaceAfter=10,
+    )
+
+    # Add title and metadata
+    elements.append(create_styled_paragraph("Interest Income Report", title_style))
+
+    # Add report metadata (client ID and date) in a subtle header
+    report_meta = (
+        f"Client ID: {client.client_id} &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f'Generated: {timezone.now().strftime("%Y-%m-%d %H:%M")}'
+    )
+    elements.append(create_styled_paragraph(report_meta, header_info_style))
+
+    # Add contact information
     if client.contact_info:
-        elements.append(
-            Paragraph(f"Contact Information: {client.contact_info}", header_style)
-        )
-    if client.location:
-        elements.append(Paragraph(f"Location: {client.location}", header_style))
-
-    elements.append(Spacer(1, 20))
-
-    # Add report generation timestamp
-    elements.append(
-        Paragraph(
-            f"Report Generated: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            normal_style,
-        )
-    )
-    elements.append(Spacer(1, 20))
+        elements.append(create_styled_paragraph(client.contact_info, contact_style))
 
     # Process each group of transactions
     for group in interest_transactions:
-        # Add group header
-        elements.append(Paragraph(f"{group['source']}", subtitle_style))
+        # Add group header with account info
+        header_text = f'{group["source"]}'
+        elements.append(create_styled_paragraph(header_text, section_header_style))
 
-        # Add account information
+        # Add account information in a clean format
+        account_info = []
         if group["account_info"].get("bank"):
-            elements.append(
-                Paragraph(f"Bank: {group['account_info']['bank']}", normal_style)
-            )
+            account_info.append(f'Bank: {group["account_info"]["bank"]}')
         if group["account_info"].get("account_number"):
-            elements.append(
-                Paragraph(
-                    f"Account: {group['account_info']['account_number']}", normal_style
-                )
-            )
+            account_info.append(f'Account: {group["account_info"]["account_number"]}')
         if group["account_info"].get("statement_type"):
+            account_info.append(f'Type: {group["account_info"]["statement_type"]}')
+
+        if account_info:
             elements.append(
-                Paragraph(
-                    f"Account Type: {group['account_info']['statement_type']}",
-                    normal_style,
+                create_styled_paragraph(
+                    " &nbsp;&nbsp;|&nbsp;&nbsp; ".join(account_info), account_info_style
                 )
             )
 
-        elements.append(Spacer(1, 12))
-
-        # Create transaction table
-        table_data = [["Date", "Description", "Source", "Amount", "Source File"]]
+        # Create transaction table with modern styling
+        table_data = [["Date", "Description", "Amount", "Source File"]]
 
         # Add transactions to table
         for tx in group["transactions"]:
@@ -103,30 +128,48 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
                 [
                     tx["transaction_date"].strftime("%Y-%m-%d"),
                     tx["description"],
-                    tx["source"] or "N/A",
                     f"${tx['amount']:.2f}",
                     tx["statement_file"]["file_name"] or "N/A",
                 ]
             )
 
         # Add subtotal row
-        table_data.append(["Subtotal", "", "", f"${group['subtotal']:.2f}", ""])
+        table_data.append(["", "Subtotal", f"${group['subtotal']:.2f}", ""])
 
-        # Create the table
-        table = Table(table_data, repeatRows=1)
+        # Create the table with modern styling
+        col_widths = [0.15, 0.45, 0.15, 0.25]  # Proportional widths
+        table = Table(
+            table_data, repeatRows=1, colWidths=[w * (7 * inch) for w in col_widths]
+        )
+
+        # Modern table styling
         table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    # Header row styling
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, 0), 10),
+                    ("TOPPADDING", (0, 0), (-1, 0), 12),
                     ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                    ("BACKGROUND", (0, -1), (-1, -1), colors.lightgrey),
+                    # Data rows
+                    ("FONTNAME", (0, 1), (-1, -2), "Helvetica"),
+                    ("FONTSIZE", (0, 1), (-1, -2), 9),
+                    ("TEXTCOLOR", (0, 1), (-1, -2), colors.HexColor("#2C3E50")),
+                    ("TOPPADDING", (0, 1), (-1, -2), 8),
+                    ("BOTTOMPADDING", (0, 1), (-1, -2), 8),
+                    # Subtotal row
                     ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                    ("GRID", (0, 0), (-1, -1), 1, colors.black),
-                    ("ALIGN", (3, 1), (3, -1), "RIGHT"),  # Right-align amounts
+                    ("TEXTCOLOR", (0, -1), (-1, -1), colors.HexColor("#2980B9")),
+                    ("TOPPADDING", (0, -1), (-1, -1), 12),
+                    ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+                    # Borders
+                    ("GRID", (0, 0), (-1, -2), 0.5, colors.HexColor("#BDC3C7")),
+                    ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#2980B9")),
+                    # Alignment
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("ALIGN", (2, 1), (2, -1), "RIGHT"),  # Amount column right-aligned
                 ]
             )
         )
@@ -134,8 +177,24 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
         elements.append(table)
         elements.append(Spacer(1, 20))
 
-    # Add total
-    elements.append(Paragraph(f"Total Interest Income: ${total:.2f}", subtitle_style))
+    # Add grand total with modern styling
+    total_table = Table(
+        [["Total Interest Income:", f"${total:.2f}"]], colWidths=[6 * inch, inch]
+    )
+    total_table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 12),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
+                ("ALIGN", (0, 0), (0, 0), "RIGHT"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("TOPPADDING", (0, 0), (-1, 0), 12),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+            ]
+        )
+    )
+    elements.append(total_table)
 
     # Build the PDF
     doc.build(elements)
