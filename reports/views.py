@@ -364,16 +364,15 @@ def interest_income_report(request):
             selected_client = None
 
     if selected_client:
-        # Query for interest transactions
+        # Query for interest transactions using Q objects for OR condition
         interest_txs = (
             Transaction.objects.filter(client=selected_client)
             .filter(
-                Q(description__icontains="INTEREST")
-                | Q(category__icontains="interest")
-                | Q(business_context__icontains="interest")
+                Q(description__icontains="INTEREST CREDIT")
+                | Q(description__icontains="INTEREST PAYMENT")
             )
             .order_by("transaction_date")
-            .select_related("statement_file")
+            .select_related("statement_file")  # Add this to optimize queries
         )
 
         # Calculate time frame if there are transactions
