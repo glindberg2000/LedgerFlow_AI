@@ -17,6 +17,14 @@ def create_styled_paragraph(text, style, color=None, alignment=None):
     return Paragraph(text, style)
 
 
+def format_contact_info(contact_info):
+    """Format contact info by replacing newlines with <br/>"""
+    if not contact_info:
+        return ""
+    # Replace any combination of \n, \r\n, or \r with <br/>
+    return contact_info.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>")
+
+
 def generate_interest_income_pdf(response, client, interest_transactions, total):
     """Generate a PDF report for interest income transactions."""
 
@@ -51,7 +59,7 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
         parent=styles["Normal"],
         fontSize=9,
         textColor=colors.HexColor("#7F8C8D"),  # Gray
-        alignment=TA_RIGHT,
+        alignment=TA_CENTER,
         spaceAfter=20,
     )
 
@@ -59,7 +67,7 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
         "ContactInfo",
         parent=styles["Normal"],
         fontSize=12,
-        leading=16,
+        leading=18,
         textColor=colors.HexColor("#2C3E50"),  # Dark blue-gray
         alignment=TA_CENTER,
         spaceAfter=30,
@@ -79,7 +87,7 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
         parent=styles["Normal"],
         fontSize=10,
         textColor=colors.HexColor("#34495E"),  # Dark gray
-        leftIndent=20,
+        alignment=TA_LEFT,
         spaceAfter=10,
     )
 
@@ -93,9 +101,10 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
     )
     elements.append(create_styled_paragraph(report_meta, header_info_style))
 
-    # Add contact information
+    # Add contact information with proper line breaks
     if client.contact_info:
-        elements.append(create_styled_paragraph(client.contact_info, contact_style))
+        formatted_contact = format_contact_info(client.contact_info)
+        elements.append(create_styled_paragraph(formatted_contact, contact_style))
 
     # Process each group of transactions
     for group in interest_transactions:
@@ -137,7 +146,7 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
         table_data.append(["", "Subtotal", f"${group['subtotal']:.2f}", ""])
 
         # Create the table with modern styling
-        col_widths = [0.15, 0.45, 0.15, 0.25]  # Proportional widths
+        col_widths = [0.15, 0.35, 0.15, 0.35]  # Adjusted proportional widths
         table = Table(
             table_data, repeatRows=1, colWidths=[w * (7 * inch) for w in col_widths]
         )
