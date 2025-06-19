@@ -94,10 +94,23 @@ def generate_interest_income_pdf(response, client, interest_transactions, total)
     # Add title and metadata
     elements.append(create_styled_paragraph("Interest Income Report", title_style))
 
-    # Add report metadata (client ID and date) in a subtle header
+    # Calculate time frame
+    if interest_transactions:
+        all_dates = []
+        for group in interest_transactions:
+            for tx in group["transactions"]:
+                all_dates.append(tx["transaction_date"])
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        time_frame = f"Tax Year {min_date.year}" if min_date.year == max_date.year else f"Tax Years {min_date.year}-{max_date.year}"
+    else:
+        time_frame = f"Tax Year {timezone.now().year}"
+
+    # Add report metadata (client ID, date, and time frame) in a subtle header
     report_meta = (
         f"Client ID: {client.client_id} &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f'Generated: {timezone.now().strftime("%Y-%m-%d %H:%M")}'
+        f'Generated: {timezone.now().strftime("%Y-%m-%d %H:%M")} &nbsp;&nbsp;|&nbsp;&nbsp; '
+        f"{time_frame}"
     )
     elements.append(create_styled_paragraph(report_meta, header_info_style))
 
@@ -285,10 +298,23 @@ def generate_donations_pdf(response, client, donation_transactions, total):
     # Add title and metadata
     elements.append(create_styled_paragraph("Charitable Donations Report", title_style))
 
-    # Add report metadata (client ID and date) in a subtle header
+    # Calculate time frame
+    if donation_transactions:
+        all_dates = []
+        for group in donation_transactions:
+            for tx in group["transactions"]:
+                all_dates.append(tx["transaction_date"])
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        time_frame = f"Tax Year {min_date.year}" if min_date.year == max_date.year else f"Tax Years {min_date.year}-{max_date.year}"
+    else:
+        time_frame = f"Tax Year {timezone.now().year}"
+
+    # Add report metadata (client ID, date, and time frame) in a subtle header
     report_meta = (
         f"Client ID: {client.client_id} &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f'Generated: {timezone.now().strftime("%Y-%m-%d %H:%M")}'
+        f'Generated: {timezone.now().strftime("%Y-%m-%d %H:%M")} &nbsp;&nbsp;|&nbsp;&nbsp; '
+        f"{time_frame}"
     )
     elements.append(create_styled_paragraph(report_meta, header_info_style))
 
