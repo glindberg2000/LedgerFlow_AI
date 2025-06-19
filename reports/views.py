@@ -12,7 +12,7 @@ from .forms import ClientSelectForm
 from django.db.models import Sum, Q
 import re
 from django.http import HttpResponse
-from .pdf_utils import generate_interest_income_pdf
+from .pdf_utils import generate_interest_income_pdf, generate_donations_pdf
 
 
 @staff_member_required
@@ -458,3 +458,103 @@ def interest_income_report(request):
     }
 
     return render(request, "reports/interest_income_report.html", context)
+
+
+@staff_member_required
+def donations_report(request):
+    client_id = request.GET.get("client")
+    form = (
+        request.form
+        if hasattr(request, "form")
+        else ClientSelectForm(request.GET or None)
+    )
+    selected_client = None
+    donation_transactions = []
+    total = 0
+
+    if client_id:
+        try:
+            selected_client = BusinessProfile.objects.get(client_id=client_id)
+        except BusinessProfile.DoesNotExist:
+            selected_client = None
+
+    if selected_client:
+        # Query for donation transactions
+        donation_txs = (
+            Transaction.objects.filter(client=selected_client)
+            .filter(
+                Q(description__icontains="DONATION")
+                | Q(description__icontains="CHARITABLE")
+                | Q(category__icontains="DONATION")
+                | Q(category__icontains="CHARITABLE")
+            )
+            .order_by("transaction_date")
+        )
+
+        # Group transactions by source/bank
+        grouped_transactions = {}
+        for tx in donation_txs:
+            source = tx.source or "Unknown Source"
+            bank = tx.statement_file.bank if tx.statement_file else "Unknown Bank"
+            account = (
+                tx.statement_file.account_number
+                if tx.statement_file
+                else "Unknown Account"
+            )
+
+            key = (source, bank, account)
+            if key not in grouped_transactions:
+                grouped_transactions[key] = {
+                    "source": source,
+                    "account_info": {
+                        "bank": bank,
+                        "account_number": account,
+                        "statement_type": (
+                            tx.statement_file.statement_type
+                            if tx.statement_file
+                            else None
+                        ),
+                    },
+                    "transactions": [],
+                    "subtotal": 0,
+                }
+
+            grouped_transactions[key]["transactions"].append(
+                {
+                    "transaction_date": tx.transaction_date,
+                    "description": tx.description,
+                    "amount": abs(tx.amount),  # Use absolute value for donations
+                    "statement_file": {
+                        "file_name": (
+                            tx.statement_file.file_name if tx.statement_file else None
+                        )
+                    },
+                    "source": source,
+                }
+            )
+            grouped_transactions[key]["subtotal"] += abs(tx.amount)
+            total += abs(tx.amount)
+
+        # Convert to list and sort by bank name and source
+        donation_transactions = sorted(
+            grouped_transactions.values(),
+            key=lambda x: (x["account_info"]["bank"], x["source"]),
+        )
+
+    context = {
+        "form": form,
+        "selected_client": selected_client,
+        "donation_transactions": donation_transactions,
+        "total": total,
+    }
+
+    # Handle PDF download
+    if request.GET.get("download") == "pdf":
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="donations_report_{client_id}.pdf"'
+        )
+        generate_donations_pdf(response, selected_client, donation_transactions, total)
+        return response
+
+    return render(request, "reports/donations_report.html", context)
