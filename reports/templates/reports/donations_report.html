@@ -13,25 +13,23 @@
 </form>
 {% if selected_client %}
 <div style="margin: 1em 0;">
-    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
+    <a href="?client={{ selected_client.client_id }}&pdf=1" class="button"
         style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
         <span style="margin-right: 5px;">📥</span> Download PDF Report
     </a>
 </div>
 <h3>Client: {{ selected_client.client_id }}</h3>
+{% if time_frame %}
+<h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
+{% endif %}
 <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
     {% for group in donation_transactions %}
     <tr>
         <th colspan="4" style="background-color: #f5f5f5;">
             {{ group.source }}
-            {% if group.account_info.bank %}
+            {% if group.account_info.account_number %}
             <br />
-            <span style="font-size: 0.9em;">
-                Bank: {{ group.account_info.bank }}
-                {% if group.account_info.account_number %}
-                | Account: {{ group.account_info.account_number }}
-                {% endif %}
-            </span>
+            <span style="font-size: 0.9em;">Account: {{ group.account_info.account_number }}</span>
             {% endif %}
         </th>
     </tr>
@@ -39,21 +37,16 @@
         <th>Date</th>
         <th>Description</th>
         <th>Amount</th>
-        <th>Source File</th>
+        <th>Source</th>
     </tr>
     {% for tx in group.transactions %}
     <tr>
         <td>{{ tx.transaction_date|date:"Y-m-d" }}</td>
         <td>{{ tx.description }}</td>
         <td style="text-align: right;">${{ tx.amount|floatformat:2 }}</td>
-        <td>{{ tx.statement_file.file_name|default:"N/A" }}</td>
+        <td>{{ group.source }}</td>
     </tr>
     {% endfor %}
-    <tr>
-        <td colspan="2" style="text-align: right;"><strong>Subtotal</strong></td>
-        <td style="text-align: right;"><strong>${{ group.subtotal|floatformat:2 }}</strong></td>
-        <td></td>
-    </tr>
     {% if not forloop.last %}
     <tr>
         <td colspan="4">&nbsp;</td>
