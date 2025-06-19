@@ -18,6 +18,9 @@
     </a>
 </div>
 <h3>Client: {{ selected_client.client_id }}</h3>
+{% if time_frame %}
+<h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
+{% endif %}
 <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
     <tr>
         <th>Source</th>

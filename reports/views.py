@@ -355,6 +355,7 @@ def interest_income_report(request):
     selected_client = None
     interest_transactions = []
     total = 0
+    time_frame = None
 
     if client_id:
         try:
@@ -363,16 +364,26 @@ def interest_income_report(request):
             selected_client = None
 
     if selected_client:
-        # Query for interest transactions using Q objects for OR condition
+        # Query for interest transactions
         interest_txs = (
             Transaction.objects.filter(client=selected_client)
             .filter(
-                Q(description__icontains="INTEREST CREDIT")
-                | Q(description__icontains="INTEREST PAYMENT")
+                Q(description__icontains="INTEREST")
+                | Q(category__icontains="interest")
+                | Q(business_context__icontains="interest")
             )
             .order_by("transaction_date")
-            .select_related("statement_file")  # Add this to optimize queries
+            .select_related("statement_file")
         )
+
+        # Calculate time frame if there are transactions
+        if interest_txs.exists():
+            min_date = interest_txs.earliest("transaction_date").transaction_date
+            max_date = interest_txs.latest("transaction_date").transaction_date
+            if min_date.year == max_date.year:
+                time_frame = f"Tax Year {min_date.year}"
+            else:
+                time_frame = f"Tax Years {min_date.year}-{max_date.year}"
 
         # Group transactions by source
         grouped_transactions = {}
@@ -456,6 +467,7 @@ def interest_income_report(request):
         "selected_client": selected_client,
         "interest_transactions": interest_transactions,
         "total": total,
+        "time_frame": time_frame,
     }
 
     return render(request, "reports/interest_income_report.html", context)
@@ -472,6 +484,7 @@ def donations_report(request):
     selected_client = None
     donation_transactions = []
     total = 0
+    time_frame = None
 
     if client_id:
         try:
@@ -500,6 +513,15 @@ def donations_report(request):
             .order_by("transaction_date")
             .select_related("statement_file")  # Add this to optimize queries
         )
+
+        # Calculate time frame if there are transactions
+        if donation_txs.exists():
+            min_date = donation_txs.earliest("transaction_date").transaction_date
+            max_date = donation_txs.latest("transaction_date").transaction_date
+            if min_date.year == max_date.year:
+                time_frame = f"Tax Year {min_date.year}"
+            else:
+                time_frame = f"Tax Years {min_date.year}-{max_date.year}"
 
         # Group transactions by source and account
         grouped_transactions = {}
@@ -573,6 +595,7 @@ def donations_report(request):
         "total": total,
         "title": "Donations Report",
         "year": datetime.now().year,
+        "time_frame": time_frame,
     }
 
     return render(request, "reports/donations_report.html", context)
