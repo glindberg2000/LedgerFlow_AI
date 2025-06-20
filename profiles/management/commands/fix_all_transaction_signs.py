@@ -42,38 +42,41 @@ class Command(BaseCommand):
         ]
 
         # Define keywords for transaction types that should always be positive
-        INCOME_TYPES = [
-            "credit",
-            "refund",
-            "return",
+        INCOME_TYPES = ["credit", "refund", "deposit", "return", "payment received"]
+        INCOME_KEYWORDS_DESC = [
+            "ach credit",
             "deposit",
-            "interest credit",
-            "interest payment",
-        ]
+            "refund",
+            "reversal",
+            "return",
+        ]  # Keywords to find in description
 
-        # --- Query for positive expenses ---
-        positive_expense_query = Q()
-        for t_type in EXPENSE_TYPES:
-            positive_expense_query |= Q(transaction_type__iexact=t_type)
+        # Build Q objects for querying
+        expense_q = Q()
+        for etype in EXPENSE_TYPES:
+            expense_q |= Q(transaction_type__iexact=etype)
 
-        transactions_to_fix_positive = Transaction.objects.filter(
-            positive_expense_query, amount__gt=0
-        )
+        income_q = Q()
+        for itype in INCOME_TYPES:
+            income_q |= Q(transaction_type__iexact=itype)
 
-        # --- Query for negative income ---
-        negative_income_query = Q()
-        for t_type in INCOME_TYPES:
-            negative_income_query |= Q(transaction_type__iexact=t_type)
+        # Add description keywords to the income query
+        for keyword in INCOME_KEYWORDS_DESC:
+            income_q |= Q(description__icontains=keyword)
 
-        transactions_to_fix_negative = Transaction.objects.filter(
-            negative_income_query, amount__lt=0
-        )
+        # Find positive expenses to fix
+        positive_expenses = Transaction.objects.filter(expense_q & Q(amount__gt=0))
+
+        # Find negative income/credits to fix
+        negative_income = Transaction.objects.filter(income_q & Q(amount__lt=0))
+
+        updated_transactions = []
 
         # --- Report and Fix Positive Expenses ---
         updated_count = 0
-        if transactions_to_fix_positive.exists():
+        if positive_expenses.exists():
             self.stdout.write(self.style.WARNING("\\nFound positive expenses to fix:"))
-            for tx in transactions_to_fix_positive:
+            for tx in positive_expenses:
                 new_amount = -tx.amount
                 self.stdout.write(
                     f"  - [WOULD CHANGE] ID: {tx.id}, Type: {tx.transaction_type}, "
@@ -83,11 +86,12 @@ class Command(BaseCommand):
                     tx.amount = new_amount
                     tx.save()
                     updated_count += 1
+                    updated_transactions.append(tx)
 
         # --- Report and Fix Negative Income ---
-        if transactions_to_fix_negative.exists():
+        if negative_income.exists():
             self.stdout.write(self.style.WARNING("\\nFound negative income to fix:"))
-            for tx in transactions_to_fix_negative:
+            for tx in negative_income:
                 new_amount = -tx.amount
                 self.stdout.write(
                     f"  - [WOULD CHANGE] ID: {tx.id}, Type: {tx.transaction_type}, "
@@ -97,12 +101,10 @@ class Command(BaseCommand):
                     tx.amount = new_amount
                     tx.save()
                     updated_count += 1
+                    updated_transactions.append(tx)
 
         if dry_run:
-            total_to_fix = (
-                transactions_to_fix_positive.count()
-                + transactions_to_fix_negative.count()
-            )
+            total_to_fix = positive_expenses.count() + negative_income.count()
             if total_to_fix > 0:
                 self.stdout.write(
                     self.style.SUCCESS(
