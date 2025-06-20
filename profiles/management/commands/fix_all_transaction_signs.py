@@ -35,6 +35,10 @@ class Command(BaseCommand):
             "charge",
             "payment",
             "service charge",
+            "service",
+            "merchandise",
+            "goods",
+            "order",
         ]
 
         # Define keywords for transaction types that should always be positive
