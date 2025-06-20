@@ -137,3 +137,5 @@ clients/*
 tests/*.log
 logs/
 *.log
+# Never commit or delete this file from disk; only untrack from git if needed
+.cursor/mcp.json

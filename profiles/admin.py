@@ -999,13 +999,10 @@ class TransactionAdmin(admin.ModelAdmin):
     short_payee_reasoning.short_description = "Payee Reasoning"
 
     def file_link_column(self, obj):
-        if obj.statement_file:
+        if obj.statement_file and obj.statement_file.file:
+            url = obj.statement_file.file.url
             filename = obj.statement_file.original_filename or os.path.basename(
                 obj.statement_file.file.name
-            )
-            # Use the new download view for all files to ensure consistency
-            url = reverse(
-                "reports:download_statement_file", args=[obj.statement_file.id]
             )
             return format_html('<a href="{}" target="_blank">{}</a>', url, filename)
         return "-"
