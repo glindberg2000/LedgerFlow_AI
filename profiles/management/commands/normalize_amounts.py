@@ -14,7 +14,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        dry_run = options["dry-run"]
+        dry_run = options["dry_run"]
         self.stdout.write(
             self.style.NOTICE("Starting transaction amount normalization...")
         )
