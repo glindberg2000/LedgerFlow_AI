@@ -979,12 +979,14 @@ class TransactionAdmin(admin.ModelAdmin):
     short_payee_reasoning.short_description = "Payee Reasoning"
 
     def file_link_column(self, obj):
-        # Always use StatementFile's file.url if available
-        if obj.statement_file and obj.statement_file.file:
+        if obj.statement_file:
             filename = obj.statement_file.original_filename or os.path.basename(
                 obj.statement_file.file.name
             )
-            url = obj.statement_file.file.url
+            # Use the new download view for all files to ensure consistency
+            url = reverse(
+                "reports:download_statement_file", args=[obj.statement_file.id]
+            )
             return format_html('<a href="{}" target="_blank">{}</a>', url, filename)
         return "-"
 
@@ -1614,7 +1616,7 @@ class BatchStatementFileUploadForm(forms.Form):
 class StatementFileAdmin(admin.ModelAdmin):
     form = StatementFileAdminForm
     list_display = (
-        "client",
+        "client_name_column",
         "original_filename_link",
         "file_type",
         "parser_module",
@@ -1631,6 +1633,7 @@ class StatementFileAdmin(admin.ModelAdmin):
         "statement_date",
         "year",
         "month",
+        "extra_metadata_column",
         "status_detail",
     )
     list_filter = (
@@ -1700,6 +1703,25 @@ class StatementFileAdmin(admin.ModelAdmin):
     actions = [
         "batch_set_account_number",
     ]
+
+    def client_name_column(self, obj):
+        return obj.client.client_id if obj.client else "-"
+
+    client_name_column.short_description = "Client"
+    client_name_column.admin_order_field = "client__client_id"
+
+    def extra_metadata_column(self, obj):
+        extra = obj.parsed_metadata or getattr(obj, "extra", None)
+        if extra and isinstance(extra, dict) and extra:
+            # Compact JSON for title attribute (browser tooltip)
+            tooltip = json.dumps(extra, separators=(",", ": "))
+            return format_html(
+                '<span title="{}" style="cursor:pointer;">&#9776;</span>', tooltip
+            )
+        return ""
+
+    extra_metadata_column.short_description = "Extra Metadata"
+    extra_metadata_column.allow_tags = True
 
     def original_filename_link(self, obj):
         if obj.file:
