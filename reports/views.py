@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.contrib.admin.views.decorators import staff_member_required
 from django.urls import reverse
 from profiles.models import (
@@ -7,13 +7,33 @@ from profiles.models import (
     IRSWorksheet,
     IRSExpenseCategory,
     BusinessExpenseCategory,
+    StatementFile,
 )
 from .forms import ClientSelectForm
 from django.db.models import Sum, Q
 import re
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from .pdf_utils import generate_interest_income_pdf, generate_donations_pdf
 from datetime import datetime
+from django.contrib.auth.decorators import login_required
+import os
+
+
+@login_required
+def download_statement_file(request, file_id):
+    statement_file = get_object_or_404(StatementFile, pk=file_id)
+    if not statement_file.file:
+        raise Http404("File not found")
+
+    file_path = statement_file.file.path
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as fh:
+            response = HttpResponse(fh.read(), content_type="application/octet-stream")
+            response["Content-Disposition"] = "inline; filename=" + os.path.basename(
+                file_path
+            )
+            return response
+    raise Http404
 
 
 @staff_member_required
