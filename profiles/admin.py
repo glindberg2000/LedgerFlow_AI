@@ -377,6 +377,26 @@ def call_agent(
     from openai import OpenAI
 
     logger = logging.getLogger(__name__)
+
+    # --- START: NEW GUARDRAIL ---
+    # For classification agents, if the amount is positive, it's income. No AI needed.
+    agent = Agent.objects.get(name=agent_name)
+    if "classification" in agent.purpose.lower() and transaction.amount > 0:
+        logger.info(
+            f"Transaction {transaction.id} has positive amount. Bypassing AI and auto-classifying as Income."
+        )
+        return {
+            "classification_type": "Income",
+            "worksheet": "Income",
+            "category_name": "Client Income",
+            "confidence": "high",
+            "reasoning": "Auto-classified as Income due to positive transaction amount.",
+            "business_percentage": 0,
+            "questions": "",
+            "proposed_category_name": "",
+        }
+    # --- END: NEW GUARDRAIL ---
+
     if model is None:
         model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
     logger.info(f"Using OpenAI model: {model}")
