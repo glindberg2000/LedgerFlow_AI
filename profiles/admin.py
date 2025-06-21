@@ -1639,7 +1639,7 @@ class StatementFileAdmin(admin.ModelAdmin):
         "client_name_column",
         "original_filename_link",
         "file_type",
-        "parser_module",
+        "source_column",
         "status",
         "upload_timestamp",
         "uploaded_by",
@@ -1659,6 +1659,7 @@ class StatementFileAdmin(admin.ModelAdmin):
     list_filter = (
         "client",
         "file_type",
+        "parser_module",
         "status",
         "year",
         "month",
@@ -1723,6 +1724,12 @@ class StatementFileAdmin(admin.ModelAdmin):
     actions = [
         "batch_set_account_number",
     ]
+
+    def source_column(self, obj):
+        return obj.parser_module
+
+    source_column.short_description = "Source"
+    source_column.admin_order_field = "parser_module"
 
     def client_name_column(self, obj):
         return obj.client.client_id if obj.client else "-"
@@ -1965,6 +1972,7 @@ class StatementFileAdmin(admin.ModelAdmin):
                             result["errors"] = parser_output.errors
                         if parser_output.warnings:
                             result["warnings"] = parser_output.warnings
+
                         # Create StatementFile using the temp file (open in binary mode)
                         try:
                             with open(temp_file_path, "rb") as temp_file_for_db:
@@ -2119,32 +2127,38 @@ class StatementFileAdmin(admin.ModelAdmin):
                         if temp_file_path and os.path.exists(temp_file_path):
                             os.unlink(temp_file_path)
                     results.append(result)
-                from django.urls import reverse
+
                 from django.contrib import messages
 
                 messages.success(
                     request, f"Processed {len(files)} files. See results below."
                 )
-                return render(
-                    request,
-                    "admin/batch_upload_statement_files.html",
+
+                # Add admin context before rendering results
+                context = self.admin_site.each_context(request)
+                context.update(
                     {
                         "form": form,
                         "results": results,
                         "title": "Batch Upload Statement Files",
-                    },
+                    }
+                )
+                return render(
+                    request, "admin/batch_upload_statement_files.html", context
                 )
         else:
             form = BatchStatementFileUploadForm()
-        return render(
-            request,
-            "admin/batch_upload_statement_files.html",
-            {"form": form, "title": "Batch Upload Statement Files"},
+
+        context = self.admin_site.each_context(request)
+        context.update(
+            {
+                "title": "Batch Upload Statement Files",
+                "form": form,
+            }
         )
+        return render(request, "admin/batch_upload_statement_files.html", context)
 
     def get_urls(self):
-        from django.urls import path
-
         urls = super().get_urls()
         custom_urls = [
             path(
