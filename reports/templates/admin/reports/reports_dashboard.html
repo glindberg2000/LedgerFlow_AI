@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static admin_urls %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .reports-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin: 20px 0;
+    }
+
+    .report-card {
+        background: var(--body-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 20px;
+        transition: all 0.2s ease;
+        display: block;
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .report-card.disabled {
+        background: var(--disabled-bg);
+        color: var(--disabled-fg);
+        pointer-events: none;
+    }
+
+    .report-card:not(.disabled):hover {
+        border-color: var(--link-fg);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .report-icon {
+        font-size: 2em;
+        margin-bottom: 10px;
+    }
+
+    .report-card:not(.disabled) .report-icon,
+    .report-card:not(.disabled) .report-title {
+        color: var(--link-fg);
+    }
+
+    .report-title {
+        font-size: 1.2em;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+
+    .report-description {
+        color: var(--body-quiet-color);
+        margin-bottom: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <div class="module">
+        <h1>{{ title }}</h1>
+
+        <form method="get" action="">
+            {{ form.as_p }}
+            <input type="submit" value="Select Client" />
+        </form>
+
+        {% if selected_client %}
+        <h2 style="margin-top: 20px;">Reports for {{ selected_client.client_id }}</h2>
+        {% else %}
+        <p style="color: var(--error-fg); margin-top: 20px;">Please select a client to view reports.</p>
+        {% endif %}
+
+        <div class="reports-grid">
+            {% for report in reports %}
+            <a href="{{ report.url }}" class="report-card {% if not selected_client %}disabled{% endif %}">
+                <div class="report-icon">{{ report.icon }}</div>
+                <div class="report-title">{{ report.title }}</div>
+                <div class="report-description">{{ report.description }}</div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

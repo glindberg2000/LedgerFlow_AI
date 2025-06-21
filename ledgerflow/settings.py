@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "profiles.apps.ProfilesConfig",
     "simple_classifications",
     "experimental_admin",
+    "reports",
     "profiles.parsers_utilities",
 ]
 

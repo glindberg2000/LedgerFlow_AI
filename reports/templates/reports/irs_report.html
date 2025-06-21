@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:reports_reportsproxy_changelist' %}">Reports</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+
+<h1>{{ title }}</h1>
+
+{% if selected_client %}
+<div style="margin: 1em 0;">
+    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
+        style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
+        <span style="margin-right: 5px;">📥</span> Download PDF Report
+    </a>
+</div>
+<h3>Client: {{ selected_client.client_id }}</h3>
+<h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
+
+{% for worksheet in worksheets %}
+<div class="module">
+    <h2><a
+            href="{% url 'admin:reports_reportsproxy_worksheet' name=worksheet.name %}?client={{ selected_client.client_id }}">{{
+            worksheet.name }}</a></h2>
+    <table style="width: 100%;">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th style="text-align: right;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, data in worksheet.categories.items %}
+            <tr>
+                <td>{{ category }}</td>
+                <td style="text-align: right;">${{ data.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 2px solid #ccc;">
+                <td style="font-weight: bold;">Worksheet Total</td>
+                <td style="text-align: right; font-weight: bold;">${{ worksheet.total|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endfor %}
+
+<div class="module" style="margin-top: 2em; background-color: #f0f0f0; padding: 15px;">
+    <h2 style="font-size: 1.5em;">Grand Total: ${{ grand_total|floatformat:2 }}</h2>
+</div>
+
+{% else %}
+<p>Please select a client from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports dashboard</a> to
+    view this report.</p>
+{% endif %}
+
+{% endblock %}
