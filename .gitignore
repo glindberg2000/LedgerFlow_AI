@@ -139,3 +139,6 @@ logs/
 *.log
 # Never commit or delete this file from disk; only untrack from git if needed
 .cursor/mcp.json
+
+# Sub-repositories
+/internal_chat_mcp/

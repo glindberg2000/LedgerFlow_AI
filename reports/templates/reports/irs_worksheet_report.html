@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>IRS Worksheet Report: {{ worksheet_name }}{% if worksheet %} - {{ worksheet.description }}{% endif %}</h2>
+<div style="margin-bottom: 1em;">
+    <a href="/reports/irs/" class="button">IRS 6A</a>
+    <a href="/reports/all_categories/" class="button">All Categories</a>
+</div>
+<form method="get">
+    {{ form.as_p }}
+    <input type="submit" value="Filter" />
+</form>
+{% if selected_client %}
+<h3>Client: {{ selected_client.client_id }}</h3>
+<table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
+    <tr>
+        <th style="width:10%">Line</th>
+        <th style="width:60%">Category</th>
+        <th style="width:30%">Subtotal</th>
+    </tr>
+    {% for cat in categories %}
+    <tr>
+        <td>{{ cat.line_number }}</td>
+        <td>{{ cat.name }}</td>
+        <td style="position:relative;">
+            <a href="{{ cat.tx_url }}" target="_blank" class="subtotal-link">${{ cat.subtotal|floatformat:2 }}</a>
+            <span class="link-preview"
+                style="display:none;position:absolute;left:100%;top:0;background:#fff;border:1px solid #ccc;padding:8px;z-index:10;min-width:220px;box-shadow:0 2px 8px #aaa;font-size:13px;">
+                <strong>Preview:</strong><br>{{ cat.tx_url }}<br><em>Click to open</em>
+            </span>
+        </td>
+    </tr>
+    {% endfor %}
+    <tr>
+        <td colspan="2"><strong>Total</strong></td>
+        <td><strong>${{ total|floatformat:2 }}</strong></td>
+    </tr>
+</table>
+{% if business_categories %}
+<h4 style="margin-top:2em;">Other Business Expense Categories (User-Defined)</h4>
+{% if unmapped_business_cats %}
+<p style="color: orange;">Note: Some business categories are not mapped to IRS categories and may not appear above.</p>
+{% endif %}
+<table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
+    <tr>
+        <th style="width:10%"></th>
+        <th style="width:60%">Category</th>
+        <th style="width:30%">Subtotal</th>
+    </tr>
+    {% for bcat in business_categories %}
+    <tr>
+        <td></td>
+        <td>{{ bcat.name }}</td>
+        <td style="position:relative;">
+            <a href="{{ bcat.tx_url }}" target="_blank" class="subtotal-link">${{ bcat.subtotal|floatformat:2 }}</a>
+            <span class="link-preview"
+                style="display:none;position:absolute;left:100%;top:0;background:#fff;border:1px solid #ccc;padding:8px;z-index:10;min-width:220px;box-shadow:0 2px 8px #aaa;font-size:13px;">
+                <strong>Preview:</strong><br>{{ bcat.tx_url }}<br><em>Click to open</em>
+            </span>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% elif client_id %}
+<p style="color:red;">Client not found.</p>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.subtotal-link').forEach(function (link) {
+            var preview = link.nextElementSibling;
+            link.addEventListener('mouseenter', function () {
+                preview.style.display = 'block';
+            });
+            link.addEventListener('mouseleave', function () {
+                preview.style.display = 'none';
+            });
+            preview.addEventListener('mouseenter', function () {
+                preview.style.display = 'block';
+            });
+            preview.addEventListener('mouseleave', function () {
+                preview.style.display = 'none';
+            });
+        });
+    });
+</script>
+{% endblock %}

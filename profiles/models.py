@@ -571,8 +571,21 @@ class StatementFile(models.Model):
             )
         ]
 
+    def get_source_display(self):
+        """Returns a user-friendly display name for the transaction source."""
+        parts = []
+        if self.bank:
+            parts.append(self.bank)
+        if self.account_number:
+            # Display last 4 digits for privacy
+            parts.append(f"....{self.account_number[-4:]}")
+        if self.statement_type:
+            parts.append(self.statement_type)
+
+        return " - ".join(parts) if parts else "Unknown Source"
+
     def __str__(self):
-        return f"{self.client} - {self.original_filename} ({self.status})"
+        return f"{self.client.client_id} - {self.original_filename}"
 
     def compute_statement_hash(self):
         """Compute SHA256 hash of the file contents."""
