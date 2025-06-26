@@ -263,4 +263,16 @@
 
 ## Progress Status
 
-- In progress: Implementing hybrid account number requirement (optional on upload, mandatory for parsing). 
+- In progress: Implementing hybrid account number requirement (optional on upload, mandatory for parsing).
+
+---
+[2025-06-26] Wells Fargo Mastercard parser bug resolved.
+- **Root cause:** Logger variable shadowing and legacy code in PDF-extractor submodule (`wellsfargo_mastercard_parser.py`).
+- **Symptoms:** 'cannot access local variable logger' error in admin UI, no stack trace in logs.
+- **Resolution:**
+  - All logger usage now consistent (`wellsFargo_logger`), no stray `logger` references.
+  - Debug prints and legacy code removed.
+  - Parser is contract-compliant, robust, and documented.
+  - No changes needed in main Django app.
+- **Troubleshooting tip:** If similar errors occur, check parser submodules for inconsistent logger usage, legacy code, or stale bytecode.
+--- 

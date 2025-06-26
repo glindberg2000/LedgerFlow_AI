@@ -622,4 +622,11 @@ Refactor the ingestion pipeline to consume the new ParserOutput contract from al
 - Documentation and team communication will be updated accordingly.
 
 ---
+[2025-06-26] Active Context Update
+- Wells Fargo Mastercard parser bug (logger scoping) resolved in PDF-extractor submodule. No main repo changes needed.
+- All logger usage now consistent, debug prints and legacy code removed, parser contract-compliant.
+- Next: Repo cleanup (remove logs, temp files, ensure no sensitive CSV/PDFs are committed).
+- After cleanup: Update Task Master tasks and proceed to UI review/cleanup.
+---
+
 _Last updated: 2025-06-12_ 
