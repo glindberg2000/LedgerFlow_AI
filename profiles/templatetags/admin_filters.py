@@ -8,24 +8,44 @@ register = template.Library()
 def get_admin_nav(context):
     app_list = context["available_apps"]
 
-    # Define the structure of the navigation
+    # Streamlined nav structure
     nav_structure = {
         "Core": {
-            "models": ["BusinessProfile", "Transaction", "StatementFile"],
+            "models": [
+                "BusinessProfile",
+                "Transaction",
+                "StatementFile",
+                "ProcessingTask",
+                "ParsingRun",
+            ],
             "icon": "💼",
         },
         "AI & Processing": {
-            "models": ["Agent", "LLMConfig", "ProcessingTask", "Tool"],
+            "models": [
+                "LLMConfig",
+                "Agent",
+                "Tool",
+            ],
             "icon": "🤖",
         },
-        "Configuration": {
-            "models": ["IRSWorksheet", "IRSExpenseCategory", "BusinessExpenseCategory"],
-            "icon": "⚙️",
+        "Taxonomy": {
+            "models": [
+                "IRSWorksheet",
+                "IRSExpenseCategory",
+                "BusinessExpenseCategory",
+            ],
+            "icon": "🧾",
         },
-        "System": {"models": ["User", "Group"], "icon": "👥"},
+        "Parsers Utilities": {
+            "models": ["ImportedParser"],
+            "icon": "🧩",
+        },
+        "System": {
+            "models": ["User", "Group"],
+            "icon": "👥",
+        },
     }
 
-    # Build the navigation list
     nav = []
     for section_name, section_data in nav_structure.items():
         section = {
@@ -42,7 +62,7 @@ def get_admin_nav(context):
         if section["models"]:
             nav.append(section)
 
-    # Add reports as a standalone link
+    # Add Reports as a standalone link at the end
     nav.append(
         {
             "name": "Reports",
@@ -50,5 +70,4 @@ def get_admin_nav(context):
             "icon": "📈",
         }
     )
-
     return nav
