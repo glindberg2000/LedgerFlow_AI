@@ -54,6 +54,7 @@ from django.core.exceptions import ValidationError
 import pandas as pd
 import tempfile
 from django.core.files import File
+from profiles.parsers_utilities.models import ImportedParser
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -2195,3 +2196,33 @@ class ParsingRunAdmin(admin.ModelAdmin):
         )
 
     short_error.short_description = "Error Message"
+
+
+# Custom admin index view for dashboard stats
+def custom_admin_index(request):
+    context = admin.site.each_context(request)
+    context.update(
+        {
+            "clients_count": BusinessProfile.objects.count(),
+            "transactions_count": Transaction.objects.count(),
+            "statement_files_count": StatementFile.objects.count(),
+            "imported_parsers_count": ImportedParser.objects.count(),
+            "business_profiles_count": BusinessProfile.objects.count(),
+        }
+    )
+    return render(request, "admin/index.html", context)
+
+
+# Patch admin URLs to use the custom index view
+old_get_urls = admin.site.get_urls
+
+
+def get_urls():
+    urls = old_get_urls()
+    custom_urls = [
+        path("", admin.site.admin_view(custom_admin_index), name="index"),
+    ]
+    return custom_urls + urls
+
+
+admin.site.get_urls = get_urls
