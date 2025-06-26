@@ -14,3 +14,16 @@ class ParserTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.bank or 'Any'}) [{self.type}]"
+
+
+class ImportedParser(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    last_imported = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Imported Parser"
+        verbose_name_plural = "Imported Parsers"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
