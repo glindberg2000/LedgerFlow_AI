@@ -1321,7 +1321,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "task_id",
         "task_type",
         "client",
-        "status",
+        "status_with_progress",
         "transaction_count",
         "processed_count",
         "error_count",
@@ -1566,6 +1566,34 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
                 "opts": self.model._meta,
             },
         )
+
+    def status_with_progress(self, obj):
+        # Status badge
+        status = obj.status
+        badge_map = {
+            "pending": ("⏳ Pending", "background:#f6c23e;color:#fff;"),
+            "processing": ("🔄 Processing", "background:#36b9cc;color:#fff;"),
+            "completed": ("✅ Completed", "background:#1cc88a;color:#fff;"),
+            "failed": ("❌ Failed", "background:#e74a3b;color:#fff;"),
+        }
+        label, style = badge_map.get(status, (status.title(), ""))
+        badge_html = f'<span style="font-weight:bold;padding:0.2em 0.7em;border-radius:1em;{style}font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;">{label}</span>'
+        # Progress bar for processing
+        progress_html = ""
+        if status == "processing":
+            processed = obj.processed_count or 0
+            total = obj.transaction_count or 0
+            percent = int((processed / total) * 100) if total > 0 else 0
+            progress_html = f"""
+                <div style="border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;height:20px;width:200px;margin-top:5px;">
+                  <div style="background:#79aec8;height:100%;width:{percent}%;transition:width 0.3s ease;"></div>
+                </div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">{processed} / {total}</div>
+            """
+        return mark_safe(badge_html + progress_html)
+
+    status_with_progress.short_description = "Status"
+    status_with_progress.allow_tags = True
 
 
 # Restore the original StatementFileAdminForm for single-file upload
