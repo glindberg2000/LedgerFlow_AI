@@ -1,121 +1,73 @@
 from django.contrib import admin
 from django.urls import path
-from django.shortcuts import render, redirect
-from django import forms
-from .models import ParserTemplate
-from django.contrib import messages
-from django.utils.safestring import mark_safe
-import importlib
-import traceback
-import pandas as pd
+from django.shortcuts import render
 import sys
 import os
+from .models import ImportedParser
 
 
-class ParserTestForm(forms.Form):
-    sample_file = forms.FileField(label="Sample Statement (PDF/CSV)")
-    parser = forms.ModelChoiceField(
-        queryset=ParserTemplate.objects.filter(is_active=True), label="Parser Template"
+# Read-only admin for ImportedParser
+@admin.register(ImportedParser)
+class ImportedParserAdmin(admin.ModelAdmin):
+    list_display = ("name", "last_imported")
+    search_fields = ("name",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# Custom admin view for showing registered parsers (function-based, not ModelAdmin)
+def registered_parsers_view(request):
+    # Patch sys.path for subrepo if needed
+    PDF_EXTRACTOR_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../PDF-extractor")
     )
-    notes = forms.CharField(required=False, widget=forms.Textarea, label="Notes")
+    if PDF_EXTRACTOR_PATH not in sys.path:
+        sys.path.insert(0, PDF_EXTRACTOR_PATH)
+    # Import and run autodiscover
+    try:
+        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
 
+        autodiscover_parsers()
+        from dataextractai.parsers_core.registry import ParserRegistry
 
-# Standalone parser test view for admin utility (importable in urls.py)
-def test_parser_view(request):
-    from django.contrib.admin.sites import site
-
-    # --- Patch sys.path for legacy parser imports ---
-    PARSERS_ROOT = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../dataextractai/parsers")
-    )
-    if PARSERS_ROOT not in sys.path:
-        sys.path.insert(0, PARSERS_ROOT)
-    # This allows imports like 'from dataextractai.utils.logging_config import configure_logging' to work
-    context = dict(site.each_context(request))
-    result = None
-    error = None
-    extracted_metadata = None
-    if request.method == "POST":
-        form = ParserTestForm(request.POST, request.FILES)
-        if form.is_valid():
-            sample_file = form.cleaned_data["sample_file"]
-            parser = form.cleaned_data["parser"]
-            notes = form.cleaned_data["notes"]
-            # Save sample
-            sample = SampleStatement.objects.create(
-                file=sample_file,
-                bank=parser.bank,
-                type=parser.type,
-                uploaded_by=request.user if request.user.is_authenticated else None,
-                notes=notes,
-            )
-            try:
-                # --- Dynamic parser execution ---
-                import_path = parser.template
-                if import_path.startswith("dataextractai.parsers.dataextractai."):
-                    import_path = import_path.replace(
-                        "dataextractai.parsers.dataextractai.",
-                        "dataextractai.parsers.",
-                        1,
-                    )
-                if import_path.startswith("dataextractai.parsers.parsers."):
-                    import_path = import_path.replace(
-                        "dataextractai.parsers.parsers.", "dataextractai.parsers.", 1
-                    )
-                module = importlib.import_module(import_path)
-                entrypoint = None
-                for fn_name in ["parse_pdf", "parse_file", "main", "run"]:
-                    if hasattr(module, fn_name):
-                        entrypoint = getattr(module, fn_name)
-                        break
-                if not entrypoint:
-                    raise Exception(
-                        f"Parser module {import_path} does not have a standard entrypoint (parse_pdf, parse_file, main, or run)"
-                    )
-                file_path = sample.file.path
-                output = entrypoint(file_path)
-                if isinstance(output, pd.DataFrame):
-                    output = output.to_dict(orient="records")
-                extracted_metadata = {
-                    "parser": parser.template,
-                    "file_name": sample.file.name,
-                    "notes": notes,
-                    "result": output,
-                }
-                ExtractionResult.objects.create(
-                    sample=sample,
-                    parser=parser,
-                    extracted_metadata=extracted_metadata,
-                    status="success",
-                )
-                result = "success"
-            except Exception as e:
-                ExtractionResult.objects.create(
-                    sample=sample,
-                    parser=parser,
-                    extracted_metadata=None,
-                    status="fail",
-                    error_message=traceback.format_exc(),
-                )
-                result = "fail"
-                error = f"{e}\nSee traceback in ExtractionResult."
+        parser_names = ParserRegistry.list_parsers()
+    except Exception as e:
+        parser_names = []
+        error = str(e)
     else:
-        form = ParserTestForm()
+        error = None
+    context = dict(admin.site.each_context(request))
     context.update(
         {
-            "form": form,
-            "result": result,
+            "title": "Registered Modular Parsers (Read-Only)",
+            "parser_names": parser_names,
             "error": error,
-            "extracted_metadata": extracted_metadata,
-            "title": "Parser Test Utility",
         }
     )
-    return render(request, "admin/parsers_utilities/test_parser.html", context)
+    return render(request, "admin/parsers_utilities/registered_parsers.html", context)
 
 
-@admin.register(ParserTemplate)
-class ParserTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "bank", "type", "is_active", "updated")
-    search_fields = ("name", "bank", "template")
-    list_filter = ("bank", "type", "is_active")
-    # For extensibility: add inline preview of template logic, test extraction, etc.
+# Patch admin URLs to add the custom view
+old_get_urls = admin.site.get_urls
+
+
+def get_urls():
+    urls = old_get_urls()
+    custom_urls = [
+        path(
+            "parsers_utilities/registered-parsers/",
+            admin.site.admin_view(registered_parsers_view),
+            name="registered_parsers",
+        ),
+    ]
+    return custom_urls + urls
+
+
+admin.site.get_urls = get_urls

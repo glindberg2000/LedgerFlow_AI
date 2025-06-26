@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "profiles",
+    "profiles.parsers_utilities",
     "simple_classifications",
 ]
 
