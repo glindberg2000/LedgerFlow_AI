@@ -54,7 +54,6 @@
     }
 </style>
 <div class="batch-upload-form">
-    <h1>Batch Upload Statement Files</h1>
     {% if messages %}
     <ul class="messagelist">
         {% for message in messages %}
@@ -65,9 +64,15 @@
     <form method="post" enctype="multipart/form-data" class="form-horizontal">
         {% csrf_token %}
         <fieldset class="module aligned">
-            {{ form.client }}<br>
+            <div class="form-row field-client">
+                <label for="id_client">Client ID:</label>
+                {{ form.client }}
+            </div>
             <div class="hidden-field">{{ form.file_type }}</div>
-            {{ form.parser_module }}<br>
+            <div class="form-row field-parser-module">
+                <label for="id_parser_module">Parser:</label>
+                {{ form.parser_module }}
+            </div>
             <div class="hidden-field">{{ form.account_number }}</div>
             <div class="form-row field-auto-parse">
                 {{ form.auto_parse }} {{ form.auto_parse.label_tag }}<br>
