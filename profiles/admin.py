@@ -2208,6 +2208,9 @@ def custom_admin_index(request):
             "statement_files_count": StatementFile.objects.count(),
             "imported_parsers_count": ImportedParser.objects.count(),
             "business_profiles_count": BusinessProfile.objects.count(),
+            "recent_processing_tasks": ProcessingTask.objects.order_by("-created_at")[
+                :5
+            ],
         }
     )
     return render(request, "admin/index.html", context)

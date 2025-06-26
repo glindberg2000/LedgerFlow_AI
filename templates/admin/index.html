@@ -32,6 +32,30 @@
             font-weight: bold;
             margin-bottom: 0.2rem;
         }
+        .dashboard-section {
+            margin-top: 3rem;
+        }
+        .batch-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .batch-table th, .batch-table td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid #eee;
+            text-align: left;
+        }
+        .batch-status {
+            font-weight: bold;
+            padding: 0.2em 0.7em;
+            border-radius: 1em;
+            color: #fff;
+            font-size: 0.95em;
+        }
+        .batch-status-pending { background: #f6c23e; }
+        .batch-status-processing { background: #36b9cc; }
+        .batch-status-completed { background: #1cc88a; }
+        .batch-status-failed { background: #e74a3b; }
     </style>
     <div class="dashboard-grid">
         <div class="dashboard-card">
@@ -59,6 +83,42 @@
             <div class="dashboard-value">{{ business_profiles_count|default:'--' }}</div>
             <div class="dashboard-label">Business Profiles</div>
         </div>
+    </div>
+    <div class="dashboard-section">
+        <h2>Recent Batch Processing Jobs</h2>
+        <table class="batch-table">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Client</th>
+                    <th>Processed</th>
+                    <th>Errors</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in recent_processing_tasks %}
+                <tr>
+                    <td>
+                        <span class="batch-status batch-status-{{ job.status }}">
+                            {% if job.status == 'pending' %}⏳ Pending{% endif %}
+                            {% if job.status == 'processing' %}🔄 Processing{% endif %}
+                            {% if job.status == 'completed' %}✅ Completed{% endif %}
+                            {% if job.status == 'failed' %}❌ Failed{% endif %}
+                        </span>
+                    </td>
+                    <td>{{ job.get_task_type_display }}</td>
+                    <td>{{ job.client.client_id }}</td>
+                    <td>{{ job.processed_count }}/{{ job.transaction_count }}</td>
+                    <td>{% if job.error_count > 0 %}<span style="color:#e74a3b;font-weight:bold;">{{ job.error_count }}</span>{% else %}0{% endif %}</td>
+                    <td>{{ job.created_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" style="color:#888;">No recent batch jobs found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
     {# TODO: Add recent events, wire up real counts #}
 {% endblock %} 
