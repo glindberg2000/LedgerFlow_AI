@@ -1,10 +1,64 @@
 {% extends "admin/base_site.html" %}
+{% load static %}
 {% block content %}
     {{ block.super }}
-    <div class="module">
-        <h2>Parser Utilities</h2>
-        <ul>
-            <li><a href="/admin/parsers_utilities/registered-parsers/">Registered Modular Parsers (Read-Only)</a></li>
-        </ul>
+    <style>
+        .dashboard-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        .dashboard-card {
+            flex: 1 1 200px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+            padding: 2rem 1.5rem;
+            text-align: center;
+            min-width: 200px;
+        }
+        .dashboard-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: #4e73df;
+        }
+        .dashboard-label {
+            font-size: 1.1rem;
+            color: #888;
+        }
+        .dashboard-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.2rem;
+        }
+    </style>
+    <div class="dashboard-grid">
+        <div class="dashboard-card">
+            <span class="dashboard-icon">👥</span>
+            <div class="dashboard-value">{{ clients_count|default:'--' }}</div>
+            <div class="dashboard-label">Clients</div>
+        </div>
+        <div class="dashboard-card">
+            <span class="dashboard-icon">💳</span>
+            <div class="dashboard-value">{{ transactions_count|default:'--' }}</div>
+            <div class="dashboard-label">Transactions</div>
+        </div>
+        <div class="dashboard-card">
+            <span class="dashboard-icon">📄</span>
+            <div class="dashboard-value">{{ statement_files_count|default:'--' }}</div>
+            <div class="dashboard-label">Statement Files</div>
+        </div>
+        <div class="dashboard-card">
+            <span class="dashboard-icon">🧩</span>
+            <div class="dashboard-value">{{ imported_parsers_count|default:'--' }}</div>
+            <div class="dashboard-label">Imported Parsers</div>
+        </div>
+        <div class="dashboard-card">
+            <span class="dashboard-icon">🏢</span>
+            <div class="dashboard-value">{{ business_profiles_count|default:'--' }}</div>
+            <div class="dashboard-label">Business Profiles</div>
+        </div>
     </div>
+    {# TODO: Add recent events, wire up real counts #}
 {% endblock %} 
