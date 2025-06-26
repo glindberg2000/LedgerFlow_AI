@@ -16,6 +16,14 @@
             padding: 2rem 1.5rem;
             text-align: center;
             min-width: 200px;
+            transition: box-shadow 0.2s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+        .dashboard-card:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+            background: #f8f9fc;
         }
         .dashboard-icon {
             font-size: 2.5rem;
@@ -57,31 +65,26 @@
         .batch-status-failed { background: #e74a3b; }
     </style>
     <div class="dashboard-grid">
-        <div class="dashboard-card">
-            <span class="dashboard-icon">👥</span>
-            <div class="dashboard-value">{{ clients_count|default:'--' }}</div>
-            <div class="dashboard-label">Clients</div>
-        </div>
-        <div class="dashboard-card">
+        <a class="dashboard-card" href="{% url 'admin:profiles_transaction_changelist' %}">
             <span class="dashboard-icon">💳</span>
             <div class="dashboard-value">{{ transactions_count|default:'--' }}</div>
             <div class="dashboard-label">Transactions</div>
-        </div>
-        <div class="dashboard-card">
+        </a>
+        <a class="dashboard-card" href="{% url 'admin:profiles_statementfile_changelist' %}">
             <span class="dashboard-icon">📄</span>
             <div class="dashboard-value">{{ statement_files_count|default:'--' }}</div>
             <div class="dashboard-label">Statement Files</div>
-        </div>
-        <div class="dashboard-card">
+        </a>
+        <a class="dashboard-card" href="{% url 'admin:parsers_utilities_importedparser_changelist' %}">
             <span class="dashboard-icon">🧩</span>
             <div class="dashboard-value">{{ imported_parsers_count|default:'--' }}</div>
             <div class="dashboard-label">Imported Parsers</div>
-        </div>
-        <div class="dashboard-card">
+        </a>
+        <a class="dashboard-card" href="{% url 'admin:profiles_businessprofile_changelist' %}">
             <span class="dashboard-icon">🏢</span>
             <div class="dashboard-value">{{ business_profiles_count|default:'--' }}</div>
             <div class="dashboard-label">Business Profiles</div>
-        </div>
+        </a>
     </div>
     <div class="dashboard-section">
         <h2>Recent Batch Processing Jobs</h2>
