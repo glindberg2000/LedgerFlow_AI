@@ -1,4 +1,9 @@
 from django.contrib import admin
+
+admin.site.site_header = "LedgerFlow Admin"
+admin.site.site_title = "LedgerFlow Admin"
+admin.site.index_title = "LedgerFlow Admin"
+
 from .models import (
     BusinessProfile,
     Transaction,
@@ -182,7 +187,14 @@ class BusinessProfileAdminForm(forms.ModelForm):
 @admin.register(BusinessProfile)
 class BusinessProfileAdmin(admin.ModelAdmin):
     form = BusinessProfileAdminForm
-    list_display = ("client_id", "business_type")
+    list_display = (
+        "client_id",
+        "business_type",
+        "statement_files_count",
+        "transactions_count",
+        "short_business_description",
+        "contact_info",
+    )
     search_fields = ("client_id", "business_description")
     fieldsets = (
         (
@@ -354,6 +366,22 @@ Do NOT include any explanation or text outside the JSON.
         from django.urls import reverse
 
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
+
+    def statement_files_count(self, obj):
+        return obj.statement_files.count()
+
+    statement_files_count.short_description = "Statement Files"
+
+    def transactions_count(self, obj):
+        return obj.transactions.count()
+
+    transactions_count.short_description = "Transactions"
+
+    def short_business_description(self, obj):
+        desc = obj.business_description or ""
+        return desc[:40] + ("..." if len(desc) > 40 else "")
+
+    short_business_description.short_description = "Business Description"
 
 
 class ClientFilter(admin.SimpleListFilter):
