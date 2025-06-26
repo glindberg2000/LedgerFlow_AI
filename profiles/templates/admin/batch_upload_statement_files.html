@@ -2,22 +2,73 @@
 {% load static %}
 
 {% block content %}
-<div class="app-profiles module">
-    <h1>{{ title }}</h1>
+<style>
+    .batch-upload-form {
+        max-width: 600px;
+        margin: 2rem auto;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        padding: 2rem 2.5rem 1.5rem 2.5rem;
+    }
+    .batch-upload-form h1 {
+        margin-top: 0;
+        font-size: 2rem;
+        text-align: center;
+    }
+    .form-row, .form-row.field-auto-parse, .form-row.field-files {
+        margin-bottom: 1.2rem;
+    }
+    .form-row label {
+        font-weight: 500;
+        margin-bottom: 0.3rem;
+        display: block;
+    }
+    .submit-row {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-end;
+        margin-top: 2rem;
+    }
+    .submit-row .default {
+        min-width: 120px;
+    }
+    .submit-row .button {
+        min-width: 120px;
+        background: #f8f9fc;
+        border: 1px solid #d1d3e2;
+        color: #4e73df;
+        border-radius: 4px;
+        padding: 8px 18px;
+        text-align: center;
+        text-decoration: none;
+        font-weight: 500;
+        transition: background 0.2s, color 0.2s;
+    }
+    .submit-row .button:hover {
+        background: #e2e6ea;
+        color: #224abe;
+    }
+    .hidden-field {
+        display: none;
+    }
+</style>
+<div class="batch-upload-form">
+    <h1>Batch Upload Statement Files</h1>
     {% if messages %}
     <ul class="messagelist">
         {% for message in messages %}
         <li{% if message.tags %} class="{{ message.tags }}" {% endif %}>{{ message }}</li>
-            {% endfor %}
+        {% endfor %}
     </ul>
     {% endif %}
     <form method="post" enctype="multipart/form-data" class="form-horizontal">
         {% csrf_token %}
         <fieldset class="module aligned">
             {{ form.client }}<br>
-            {{ form.file_type }}<br>
+            <div class="hidden-field">{{ form.file_type }}</div>
             {{ form.parser_module }}<br>
-            {{ form.account_number }}<br>
+            <div class="hidden-field">{{ form.account_number }}</div>
             <div class="form-row field-auto-parse">
                 {{ form.auto_parse }} {{ form.auto_parse.label_tag }}<br>
                 <span class="help">{{ form.auto_parse.help_text }}</span>
