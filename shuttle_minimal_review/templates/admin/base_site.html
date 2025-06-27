@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% load i18n admin_filters %}
+{% load i18n %}
 
 {% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
@@ -68,6 +68,7 @@
 {% endblock %}
 
 {% block nav-global %}
+{% comment %}
 {% get_admin_nav as nav %}
 <ul class="nav-menu">
     {% for item in nav %}
@@ -85,4 +86,5 @@
     {% endif %}
     {% endfor %}
 </ul>
+{% endcomment %}
 {% endblock %}

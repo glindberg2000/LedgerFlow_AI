@@ -223,7 +223,7 @@ class Transaction(models.Model):
     # New fields for full auditability
     statement_file = models.ForeignKey(
         "StatementFile", on_delete=models.CASCADE, null=True, blank=True
-    )
+    )  # One-way FK only (RecursionError fix, see o3_dev review)
     parser_name = models.CharField(max_length=64, null=True, blank=True)
 
     # New field for needs_account_number
@@ -462,9 +462,9 @@ class ProcessingTask(models.Model):
     error_count = models.IntegerField(default=0)
     error_details = models.JSONField(default=dict)
     task_metadata = models.JSONField(default=dict)  # For storing dynamic configuration
-    transactions = models.ManyToManyField(
-        "Transaction", related_name="processing_tasks"
-    )
+    # transactions = models.ManyToManyField(
+    #     "Transaction", related_name="processing_tasks"
+    # )  # Temporarily removed to fix Django admin RecursionError (see ticket #35694)
 
     def __str__(self):
         return f"{self.task_type} task for {self.client.client_id} ({self.status})"
@@ -529,9 +529,9 @@ class StatementFile(models.Model):
     year = models.IntegerField(blank=True, null=True)
     month = models.IntegerField(blank=True, null=True)
     parsed_metadata = models.JSONField(blank=True, null=True, default=dict)
-    transactions = models.ManyToManyField(
-        "Transaction", related_name="source_files", blank=True
-    )
+    # transactions = models.ManyToManyField(
+    #     "Transaction", related_name="source_files", blank=True
+    # )  # Removed to fix Django admin RecursionError (see ticket #35694)
     parser_module = models.CharField(
         max_length=100,
         blank=True,

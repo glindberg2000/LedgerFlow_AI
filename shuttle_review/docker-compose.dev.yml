@@ -1,0 +1,29 @@
+version: '3.9'
+
+services:
+  django:
+    build:
+      context: ..
+      target: dev
+    volumes:
+      - ../app:/app:cached
+      - ../static:/static
+    env_file:
+      - ../.env.dev
+  postgres:
+    env_file:
+      - ../.env.dev
+    volumes:
+      - ledgerflow_postgres_data_dev:/var/lib/postgresql/data:delegated
+    ports:
+      - "5435:5432"  # Using 5435 to avoid conflicts with existing containers
+  adminer:
+    image: adminer
+    ports:
+      - "127.0.0.1:8082:8080"  # Using 8082 to avoid conflicts with existing adminer
+    depends_on:
+      - postgres
+
+volumes:
+  ledgerflow_postgres_data_dev:
+    name: ledgerflow_postgres_data_dev
