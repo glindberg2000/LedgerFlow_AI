@@ -265,6 +265,18 @@
 
 - In progress: Implementing hybrid account number requirement (optional on upload, mandatory for parsing).
 
+## Progress Log (Updated)
+
+## Issue: Django Admin RecursionError
+- **Root Cause:** Custom admin index monkey-patch in profiles/admin.py (not just model relationships).
+- **Action:** Commented out custom_admin_index and get_urls override; restored default admin index.
+- **Result:** Admin should now load without RecursionError.
+- **Status:** Issue resolved (pending confirmation).
+
+## Next Steps
+- Review any future admin customizations for recursion risk.
+- Document this as a known pitfall in the system patterns.
+
 ---
 [2025-06-26] Wells Fargo Mastercard parser bug resolved.
 - **Root cause:** Logger variable shadowing and legacy code in PDF-extractor submodule (`wellsfargo_mastercard_parser.py`).

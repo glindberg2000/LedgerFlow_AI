@@ -7,7 +7,6 @@ from profiles.models import (
     IRSWorksheet,
     IRSExpenseCategory,
     BusinessExpenseCategory,
-    StatementFile,
 )
 from .forms import ClientSelectForm
 from django.db.models import Sum, Q
@@ -27,7 +26,7 @@ from decimal import Decimal
 
 @login_required
 def download_statement_file(request, file_id):
-    statement_file = get_object_or_404(StatementFile, pk=file_id)
+    # statement_file = get_object_or_404(UploadedFile, pk=file_id)
     if not statement_file.file:
         raise Http404("File not found")
 

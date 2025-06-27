@@ -1,33 +1,39 @@
 [MEMORY BANK: ACTIVE]
 
-# Active Context
+# Active Context (Updated)
 
 ## Current Focus
-- Ensuring all modular parsers are contract-compliant and integrated with the ingestion pipeline
-- Maintaining robust, production-ready ingestion and batch upload workflows
-- Supporting further parser integrations and production ingestion
-- Documenting debugging patterns and integration workflows for future reference
+- Debugging persistent RecursionError in Django admin.
 
-## Recent Achievements
-- All tested parsers (Chase Checking, Capital One CSV, Wells Fargo Visa, First Republic Bank, Wells Fargo Checking CSV) are now contract-compliant and integrated.
-- The batch uploader creates transactions as expected, with correct reporting in the UI and no ingestion-blocking errors.
-- UI for "Transactions Created" now accurately reflects the number of transactions created.
-- NOT NULL constraint errors for fields like `classification_method` and `payee_extraction_method` were fixed by always setting safe defaults.
-- Debug logging, direct communication with parser developers, and careful git/environment management were essential for resolving integration issues.
-- The system is now ready for further parser integrations, with a clear workflow for identifying and fixing contract or integration issues.
+## Key Developments
+- All model-level circular relationships (M2M, FK) were removed, but RecursionError persisted.
+- Error traced to a custom admin index monkey-patch in profiles/admin.py (custom_admin_index and get_urls override).
+- Commented out the custom admin index logic and restored the default Django admin index.
+- Next step: Confirm admin loads and document this as a known pitfall for future customizations.
 
-## Debugging & Integration Summary
-- Persistent, contract-compliant parser entrypoints are critical for robust ingestion.
-- Debug logging, direct communication with parser developers, and careful git/environment management are essential for resolving integration issues.
-- The batch uploader was refactored to use dynamic parser selection, robust error handling, and per-file feedback.
-- Transactions are now saved to the DB immediately when "auto-parse" is enabled.
-- All date fields are normalized to `YYYY-MM-DD` and NaN values are replaced with `None` for valid JSON ingestion.
-- The UI and reporting logic now accurately reflect ingestion results.
+## Key Findings
+- The error is not caused by admin customizations, relationships, or template tags.
+- The error is triggered by the mere presence of the `StatementFile`/`UploadedFile` model in the `profiles` app.
+- Database was never truly empty due to lingering objects, causing migration failures.
+- `.env.dev` is the authoritative source for the database connection.
+- Deleting all `profiles`-related files did not resolve the recursion error.
 
 ## Next Steps
-- Integrate additional parsers as needed
-- Monitor production ingestion for edge cases
-- Continue to document and refine debugging/integration workflows
+- Run Django migrations on the now truly empty `ledgerflow_fresh` database.
+- If error persists, further isolate by:
+  - Re-adding `profiles` app with only an empty `models.py` and no other files.
+  - Incrementally reintroduce models and admin files to pinpoint the trigger.
+  - Consider possible Django or Python environment corruption.
+- Update Task Master task list to reflect all attempted and excluded solutions.
+- Continue to log all new debugging actions and findings here.
+
+## Task Master
+- Ensure all steps and findings are tracked in Task Master and cline_docs/problem_report_20250627_admin_recursion.md.
+- Avoid repeating previous steps; document each isolation attempt.
+
+## Recent Changes
+- profiles app directory renamed to profiles_test and INSTALLED_APPS updated for isolation.
+- Next: Restart Django and test admin access.
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
@@ -566,7 +572,16 @@ make <role>-session  # e.g., make reviewer-session
 - All migrations for `profiles` are marked as applied, but the table is not present in the DB.
 - Next step: schema repair/reset, then restore data as needed.
 
-# Active Context (as of 2025-06-09)
+# Active Context (as of 2024-06-27)
+
+## Current Focus
+- Debugging persistent Django admin `RecursionError: maximum recursion depth exceeded`.
+
+## Latest Findings
+- Even with a minimal `app_list.html` (only extends and an empty content block), the RecursionError persists.
+- All circular references and template loader issues have been excluded.
+- This suggests a deeper Django template system bug or a project-specific misconfiguration.
+- Next steps may require external review or advanced debugging.
 
 ## Current State
 - The working database is now `ledgerflow_test_restore` (restored, fixed, and fully in sync with migrations).

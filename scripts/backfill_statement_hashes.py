@@ -18,10 +18,10 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ledgerflow.settings")
 django.setup()
 
-from profiles.models import StatementFile
+from profiles.models import UploadedFile
 
-print("Backfilling statement_hash for all StatementFile rows...")
-qs = StatementFile.objects.all()
+print("Backfilling statement_hash for all UploadedFile rows...")
+qs = UploadedFile.objects.all()
 updated = 0
 for sf in tqdm(qs, desc="Processing statement files"):
     if not sf.statement_hash and sf.file:

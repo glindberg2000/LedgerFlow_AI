@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  {% if error %}
+    <div style="color: red; font-weight: bold;">Error: {{ error }}</div>
+  {% endif %}
+  {% if parser_names %}
+    <table class="admin-table">
+      <thead>
+        <tr><th>Parser Name</th></tr>
+      </thead>
+      <tbody>
+        {% for name in parser_names %}
+          <tr><td>{{ name }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No modular parsers are currently registered.</p>
+  {% endif %}
+{% endblock %} 
