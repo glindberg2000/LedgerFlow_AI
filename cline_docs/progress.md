@@ -7,8 +7,13 @@
 - [x] Project setup and configuration
 - [x] Docker containerization
 - [x] Database setup and migrations
-- [x] Basic authentication system
-- [x] File storage configuration
+- [x] Python .venv environment standardized in project root
+- [x] Global Uvicorn removed, only venv version used
+- [x] Node/npm usage standardized to frontend directory
+- [x] Backend (FastAPI) and frontend (React/TypeScript) both running and accessible
+- [x] Navigation and placeholder pages functional
+- [x] All previous environment and path issues resolved
+- [x] Dashboard metrics (transaction count, client count, statement file count) completed and live, using real data from the legacy DB
 
 ### Document Management
 - [x] Document upload functionality
@@ -43,33 +48,16 @@
 
 ## In Progress Features
 
-### Document Processing
-- [ ] Advanced OCR integration
-- [ ] Automated data extraction
-- [ ] Document classification
-- [ ] Quality validation
-- [ ] Error handling improvements
+### Feature Development
+- [ ] Add more dashboard metrics and polish UI (next step)
+- [ ] Replace placeholder pages with real components (Uploads, Transactions, Accounts, Reports, Clients/Profiles, Admin, Help/Support)
+- [ ] Connect frontend to backend APIs
+- [ ] Implement core business logic in FastAPI
+- [ ] Add tests and documentation for new features
 
-### Workflow Automation
-- [ ] Workflow engine
-- [ ] Task management
-- [ ] Approval processes
-- [ ] Notification system
-- [ ] Audit logging
-
-### API Development
-- [ ] REST API endpoints
-- [ ] API authentication
-- [ ] Rate limiting
-- [ ] API documentation
-- [ ] Integration testing
-
-### Security Enhancements
-- [ ] Two-factor authentication
-- [ ] Advanced encryption
-- [ ] Security audit logging
-- [ ] Access control refinement
-- [ ] Vulnerability scanning
+## Next Steps
+- Begin feature development by implementing real pages and connecting frontend to backend.
+- Continue to update documentation and memory bank as features are built.
 
 ## Planned Features
 
@@ -146,29 +134,6 @@
 - Bug Resolution Rate: 85%
 - Technical Debt Score: 15%
 - Test Pass Rate: 95%
-
-## Next Steps
-
-### Short-term Goals
-1. Complete critical issue resolution
-2. Implement core API endpoints
-3. Enhance document processing
-4. Improve error handling
-5. Update documentation
-
-### Medium-term Goals
-1. Implement workflow automation
-2. Enhance security features
-3. Optimize performance
-4. Add analytics features
-5. Expand test coverage
-
-### Long-term Goals
-1. Scale infrastructure
-2. Add advanced features
-3. Implement integrations
-4. Enhance user experience
-5. Expand platform capabilities
 
 ## Timeline
 
@@ -252,18 +217,23 @@
 
 ## What Works
 
-- Batch uploader allows uploading statement files without account number.
+- Project structure and documentation are in place
+- Submodules (internal_chat_mcp, PDF-extractor) are cloned and available
+- Environment/config files (requirements, docker, .env) are set up
 
 ## What's Left to Build
 
-- Enforce account number as mandatory for parsing/processing.
-- Update parsing logic to raise error if account number is missing.
-- Provide UI/admin tools to add/edit account number before parsing if needed.
-- Test and verify the hybrid workflow.
+- Port core Django models, views, and admin logic to FastAPI
+- Integrate submodules into new architecture
+- Scaffold and connect React frontend
+- Write/port tests for FastAPI endpoints and background jobs
+- Validate feature parity with legacy system
+- Finalize Docker Compose deployment
 
 ## Progress Status
-
-- In progress: Implementing hybrid account number requirement (optional on upload, mandatory for parsing).
+- Migration planning and setup complete
+- Ready to begin core refactor and integration work
+- Documentation and Memory Bank are current
 
 ## Progress Log (Updated)
 

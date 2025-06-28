@@ -3,7 +3,20 @@
 # Active Context (Updated)
 
 ## Current Focus
-- Debugging persistent RecursionError in Django admin.
+- Dashboard backend and frontend are now fully integrated and working.
+- Tiles for transaction count, client count, and statement file count are live, using real data from the legacy database.
+- All backend models and queries are mapped to the correct legacy tables and columns.
+- Statement file count uses 'profiles_uploadedfile'.
+- All previous SQL errors are resolved.
+
+## Next Steps
+- Add more dashboard metrics as needed.
+- Polish UI and add data visualizations.
+- Connect additional backend data as required.
+
+## Recent Changes
+- Incremental integration milestone: dashboard metrics now live and accurate.
+- All previous environment, path, and SQL issues resolved.
 
 ## Key Developments
 - All model-level circular relationships (M2M, FK) were removed, but RecursionError persisted.
@@ -18,22 +31,9 @@
 - `.env.dev` is the authoritative source for the database connection.
 - Deleting all `profiles`-related files did not resolve the recursion error.
 
-## Next Steps
-- Run Django migrations on the now truly empty `ledgerflow_fresh` database.
-- If error persists, further isolate by:
-  - Re-adding `profiles` app with only an empty `models.py` and no other files.
-  - Incrementally reintroduce models and admin files to pinpoint the trigger.
-  - Consider possible Django or Python environment corruption.
-- Update Task Master task list to reflect all attempted and excluded solutions.
-- Continue to log all new debugging actions and findings here.
-
 ## Task Master
 - Ensure all steps and findings are tracked in Task Master and cline_docs/problem_report_20250627_admin_recursion.md.
 - Avoid repeating previous steps; document each isolation attempt.
-
-## Recent Changes
-- profiles app directory renamed to profiles_test and INSTALLED_APPS updated for isolation.
-- Next: Restart Django and test admin access.
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
@@ -85,406 +85,34 @@
 5. Documented project progress
 
 ## Current State
-- **Parser import pipeline is robust and production-ready.**
-    - All required fields (`source`, `file_path`, `file_name`) are now forcibly added to every row in every parser output, thanks to a patch in `normalize_parsed_data_df` (Extractor_Dev).
-    - No more KeyErrors or missing fields during Django import, even for new or updated parsers (e.g., First Republic Bank).
-- **Admin UI improvements:**
-    - Parser assignment is always visible in the StatementFile admin.
-    - Batch Parse and Normalize is blocked if no parser is assigned, with clear error messages.
-- **Legacy/unused admin parser utilities and models have been removed** for clarity and maintainability.
-- **ParsingRun model** logs all real parsing/import actions, including status, errors, and rows imported, for full audit/history.
-- **All code and database migrations are up to date and working.**
-- **All recent changes have been committed.**
+- Migrating legacy Django-based LedgerFlow to FastAPI (backend) and React (frontend)
+- Multi-user support, background processing, modular architecture
+- Submodules: internal_chat_mcp (chat microservice), PDF-extractor (PDF parsing)
+- Documentation and planning files are up to date
 
-### Working Features
-1. Basic Django application
-2. Docker containerization
-3. Database integration
-4. Development environment
-5. Backup system
-6. Dockerized development workflow
-7. MPC tools integration
+## Key Directories & Files
+- Project root: /Users/greg/repos/LedgerFlor_AI_FastAPI/
+- Backend: LedgerFlow_AI/ (app/, core/, etc.)
+- Legacy Django: _deprecated/, ledgerflow/, profiles/, reports/, templates/
+- Submodules: internal_chat_mcp/, PDF-extractor/
+- Docs: LedgerFlow_AI/docs/, LedgerFlow_AI/cline_docs/
+- Config: requirements/, docker/, .env, .cursor/mcp.json
 
-### Active Issues
-1. Path handling in backup/restore
-2. Environment configuration
-3. Deployment automation
-4. Security implementation
-5. Documentation completion
-6. MPC tools configuration optimization
+## Plan & Next Steps
+1. Refactor/migrate core Django functionality to FastAPI
+2. Integrate submodules (internal_chat_mcp, PDF-extractor)
+3. Scaffold and connect React frontend
+4. Maintain and update cline_docs/ and docs/
+5. Write/port tests and validate feature parity
+6. Use Docker Compose for deployment
 
-## Next Steps
-
-### Immediate Tasks
-1. Onboard new team members (PM, DB Manager, Full Stack Dev, Reviewer)
-2. Complete restore functionality
-3. Implement CI/CD pipeline
-4. Set up monitoring
-5. Configure TLS
-6. Finalize MPC tools integration
-
-### Short-term Goals
-1. Team training on Memory Bank and safety protocols
-2. Production deployment
-3. Security hardening
-4. Performance optimization
-5. Documentation updates
-6. Dockerized workflow refinement
-
-### Upcoming Features
-1. Advanced document processing
-2. Workflow automation
-3. API development
-4. Security enhancements
-5. Analytics implementation
-6. Expanded MPC tools integration
-
-## Technical Notes
-
-### Environment Setup
-- Development using docker-compose.dev.yml
-- Production using docker-compose.prod.yml
-- Environment variables in .env files
-- Separate database instances
-- Backup storage configuration
-- Dockerized role-specific environments
-- MPC tools configured for each role
-
-### Current Configuration
-- Python 3.11+
-- Django 5.2
-- PostgreSQL 15+
-- Docker/Docker Compose
-- Nginx (pending)
-- GitHub integration
-- Discord/Matrix integration
-- Task Manager integration
-
-### Development Status
-- Local development functional
-- Dockerized development functional
-- Testing environment pending
-- Staging environment pending
-- Production environment pending
-- CI/CD pipeline in progress
-- MPC tools integration in progress
-
-## Implementation Details
-
-### Backup System
-```python
-# Current backup implementation
-make backup FILE=path/to/backup.sql
-```
-
-### Restore System
-```python
-# Current restore implementation
-make restore FILE=path/to/backup.sql
-```
-
-### Deployment Process
-```bash
-# Development deployment
-docker-compose -f docker-compose.dev.yml up -d
-
-# Production deployment
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-### Dockerized Session Start
-```bash
-# Start role-specific dockerized session
-make <role>-session  # e.g., make reviewer-session
-```
-
-## Pending Decisions
-
-### Technical Decisions
-1. Cloud storage integration
-2. Redis implementation
-3. TLS configuration
-4. Monitoring solution
-5. Backup retention policy
-6. MPC tools scalability approach
-
-### Architecture Decisions
-1. Service scaling strategy
-2. Cache implementation
-3. Search optimization
-4. Security measures
-5. Integration patterns
-6. Dockerized environment standardization
-
-## Known Limitations
-
-### Current Limitations
-1. Local backup storage
-2. Manual deployment steps
-3. Basic error handling
-4. Limited monitoring
-5. Incomplete documentation
-6. Initial MPC tools configuration
-
-### Technical Debt
-1. Path handling improvements
-2. Error handling enhancement
-3. Configuration management
-4. Test coverage
-5. Documentation gaps
-6. Docker image optimization
-
-## Testing Status
-
-### Implemented Tests
-1. Basic unit tests
-2. Database connectivity
-3. Backup functionality
-4. Environment validation
-5. Configuration testing
-6. Docker environment testing
-
-### Pending Tests
-1. Integration tests
-2. Performance tests
-3. Security tests
-4. Load tests
-5. End-to-end tests
-6. MPC tools integration tests
-
-## Security Considerations
-
-### Implemented Security
-1. Basic authentication
-2. Environment isolation
-3. Database security
-4. Docker security
-5. Backup encryption
-6. Containerized role isolation
-
-### Pending Security
-1. TLS implementation
-2. Advanced authentication
-3. Access control
-4. Security monitoring
-5. Vulnerability scanning
-6. MPC tools security hardening
-
-## Documentation Status
-
-### Completed Documentation
-1. Product context
-2. System patterns
-3. Technical context
-4. Project progress
-5. Active context
-6. Onboarding documentation
-7. MPC tools integration guide
-
-### Pending Documentation
-1. API documentation
-2. Deployment guide
-3. Security guide
-4. Testing guide
-5. User manual
-6. Advanced MPC tools configuration
-
-## Resource Allocation
-
-### Current Resources
-1. Development environment
-2. Local testing
-3. Version control
-4. Documentation system
-5. Backup storage
-6. Dockerized environments
-7. MPC tools infrastructure
-
-### Required Resources
-1. Production servers
-2. Monitoring systems
-3. CI/CD pipeline
-4. Security tools
-5. Testing infrastructure
-6. Advanced MPC tools
-
-## Timeline
-
-### Current Week
-1. Onboard new team members
-2. Complete backup/restore
-3. Implement CI/CD
-4. Configure security
-5. Update documentation
-6. Finalize MPC tools integration
-
-### Next Week
-1. Team training on Memory Bank and safety protocols
-2. Production deployment
-3. Security hardening
-4. Performance testing
-5. Documentation review
-6. MPC tools optimization
-
-### Month Ahead
-1. Feature development
-2. System optimization
-3. Security auditing
-4. Integration testing
-5. User acceptance testing
-6. Advanced MPC tools implementation
-
-## 2024-04-25 Major Cleanup and Codebase Confirmation
-
-- Moved legacy/duplicate app folders (`app/ledgerflow`, `app/core`, `app/profiles`, `pdf_extractor_web`) to `deprecated/`.
-- Deleted SQL dumps, logs, and stray files from project root.
-- Moved all shell scripts to `scripts/`.
-- Confirmed live dev codebase is `core/` (via docker-compose.dev.yml) and prod is `ledgerflow/` (via docker-compose.prod.yml).
-- Restarted all containers (except vsc-ai-coder-bot) and verified site is up and data is available on port 9000.
-- No dependency on deprecated folders for live site.
-
-## 2024-05-04 Onboarding Documentation Creation
-
-- Created comprehensive onboarding documentation in `docs/onboarding/`
-- Added role-specific guides for Project Manager, Database Manager, Full Stack Developer, and Reviewer
-- Created guide explaining the Memory Bank system
-- Added documentation about credentials and secrets management
-- Prepared for onboarding new team members with Discord/Matrix communication
-
-## 2024-05-10 MPC Tools and Dockerized Development Integration
-
-- Added MPC tools integration (GitHub, Discord, Task Manager, PostgreSQL)
-- Implemented dockerized development environments for all team roles
-- Updated onboarding documentation to reflect new tools and workflows
-- Enhanced security protocols for containerized environments
-- Added role-specific environment configurations
-
-## Current State
-- Django app can run both outside Docker and inside Docker Compose.
-- SearXNG integration is robust: uses SEARXNG_HOST env var in both environments.
-- Cloud Postgres DB (Neon) is now the main dev database.
-
-## How to Start the App
-
-### Outside Docker (Local Dev)
-1. Ensure Docker containers for SearXNG and Redis are running:
-   - `docker compose -f docker-compose.dev.yml up -d searxng redis`
-2. In `ledgerflow/.env.dev`, set:
-   - `SEARXNG_HOST=http://localhost:8888`
-   - `DATABASE_URL=postgres://newuser:neonpassword2024@ep-floral-mode-aaxawm69-pooler.westus3.azure.neon.tech:5432/neondb?sslmode=require`
-3. Run:
-   - `source venv/bin/activate`
-   - `python manage.py runserver`
-
-### Inside Docker Compose
-1. In `docker-compose.yml`, Django service sets:
-   - `SEARXNG_HOST: http://searxng:8080`
-   - `DATABASE_URL` as needed (can use Neon or local Postgres)
-2. Start all services:
-   - `docker compose -f docker-compose.dev.yml up -d`
-
-## Cloud DB Migration (Neon)
-- All devs now use a shared Neon Postgres instance for development.
-- Migration steps:
-  1. Exported local DB and imported to Neon.
-  2. Updated all configs to use Neon connection string.
-  3. Granted privileges to dev user.
-- Benefits:
-  - All devs can connect from anywhere, any environment.
-  - DB manager can spin up isolated dev DBs for each dev or feature branch.
-  - No need to expose local DBs or manage local Postgres installs.
-  - Easy to grant/revoke access and manage DB lifecycle.
-
-## Next Steps
-- Document DB access policy for new devs.
-- Optionally automate per-dev DB provisioning for feature isolation.
-
-## SearXNG Multi-Environment Configuration
-- Always use the SEARXNG_HOST env var in code and config.
-- Supported values:
-  - Local dev (host): http://localhost:8888
-  - Docker Compose: http://searxng:8080
-  - Docker container accessing host: http://host.docker.internal:8888
-  - Cloud/remote: http://<public-ip>:8888
-- See onboarding docs and .env.dev for details and troubleshooting.
-
-## MIGRATION SNAPSHOT: End-of-Phase Summary (Pre-Repo Move)
-
-### Major Accomplishments
-- **Classification & Category Mapping:**
-  - Unified all transaction update logic (admin + batch) using a single DRY function (`get_update_fields_from_response`).
-  - LLM classification now strictly enforces allowed business/IRS categories; legacy/custom values are overwritten.
-  - Escalation and retry logic in place for LLM failures, with fallback to a more precise agent.
-  - Admin UI improvements: processed/unprocessed filter, reset action, and batch actions for classification/payee lookup.
-  - 6A and all-categories reports now highlight unmapped categories and allow direct navigation to filtered transactions.
-
-- **Batch Processing:**
-  - Batch jobs for classification and payee lookup now update the DB identically to admin actions.
-  - Real-time batch progress and log viewer in ProcessingTask detail page.
-  - Sidebar and action UX improvements for transaction admin.
-
-- **Memory Bank & Documentation:**
-  - All critical context, system, and technical docs are up to date in `cline_docs/`.
-  - Task-Master tasks reflect the current project state and priorities.
-
-### Outstanding Issues
-- **Data Quality:**
-  - Some legacy transactions and parser outputs have inconsistent or unmapped categories.
-  - Need to revisit parser integration and normalization to ensure clean, reliable data ingestion.
-
-- **Parser Integration:**
-  - Legacy PDF/CSV parsers (in subrepo) were partially integrated; some work in Django, others return blank results.
-  - Dynamic import logic and sys.path patching are in place, but environment and data format mismatches remain.
-  - Next step: Validate parsers in their original console environment, document their behavior, and plan robust re-integration.
-
-### Next Steps (Post-Migration)
-1. **Parser/Normalization Deep-Dive:**
-   - Test legacy parsers in their original environment with known-good samples.
-   - Document input/output, dependencies, and quirks for each parser.
-   - Compare with Django integration and resolve any discrepancies.
-   - Plan for robust, maintainable parser integration in the new repo.
-2. **Data Quality Audit:**
-   - Review and clean existing transaction/category data as needed.
-   - Implement improved normalization and mapping logic as required.
-3. **Continue Feature Development:**
-   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid.
-
-### Notes for Migration
-- This context snapshot should be preserved and imported into the new repo's memory bank before any further work.
-- All code, docs, and task-master tasks are up to date as of this snapshot.
-- Ready for a clean, focused start on parser/data normalization in the new environment.
-
-# Post-Migration Next Steps
-
-## Immediate Priorities
-- **Parser Integration:**
-  - Validate legacy PDF/CSV parsers in their original environment with known-good samples.
-  - Document input/output, dependencies, and quirks for each parser.
-  - Compare with Django integration and resolve discrepancies.
-  - Plan robust, maintainable parser integration in the new repo.
-- **Data Normalization:**
-  - Review and clean existing transaction/category data as needed.
-  - Implement improved normalization and mapping logic as required.
-- **Reporting Improvements:**
-  - Ensure all business/IRS category mapping is robust and transparent.
-  - Update reports to use new mapping/normalization logic.
-- **Batch Processing:**
-  - Confirm batch jobs for classification and payee lookup update the DB identically to admin actions.
-  - Monitor and improve batch progress/logging UX as needed.
-
-## Context
-- All classification, batch, and parser context is up to date as of the last migration snapshot.
-- The system now enforces strict category mapping and DRY update logic for transactions.
-- Outstanding issues: legacy data quality, parser integration, and normalization.
-
-## What to Build Next
-1. **Parser/Normalization Deep-Dive:**
-   - Test and document all legacy parsers.
-   - Build a robust ingestion pipeline.
-2. **Data Quality Audit:**
-   - Clean and normalize existing data.
-3. **Continue Feature Development:**
-   - Resume work on PDF upload, processing UI, and advanced reporting once parser foundation is solid.
+## Where to Find What
+- Overview/setup: README.md, docs/development_guide.md, docs/onboarding/
+- Current work: cline_docs/activeContext.md, cline_docs/progress.md
+- System/tech: cline_docs/systemPatterns.md, cline_docs/techContext.md
+- Legacy: _deprecated/, ledgerflow/, profiles/, reports/, templates/
+- Submodules: internal_chat_mcp/, PDF-extractor/
+- Config: .env, docker/, .cursor/mcp.json, requirements/
 
 ## Current Debugging Process: Parser/Normalizer Integration
 

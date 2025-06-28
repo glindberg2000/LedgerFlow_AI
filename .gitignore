@@ -140,10 +140,13 @@ logs/
 # Sub-repositories
 /internal_chat_mcp/
 
+# Added by Task Master AI
+
 # Task files
 # tasks.json
 # tasks/
 
 # Added by Task Master AI
 tasks.json
-tasks/ 
+tasks/ .venv/
+.venv/

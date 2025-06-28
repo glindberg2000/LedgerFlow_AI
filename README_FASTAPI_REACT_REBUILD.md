@@ -64,4 +64,69 @@ This branch is dedicated to rebuilding LedgerFlow as a modern, scalable, multi-u
 ---
 
 **Contact:**
-- For questions, context, or code samples, ping the main dev or spin up a direct agent chat. 
+- For questions, context, or code samples, ping the main dev or spin up a direct agent chat.
+
+# FastAPI/React Rebuild
+
+## Backend (FastAPI)
+- New backend in `fastapi_app/` (separate from legacy Django)
+- SQLAlchemy models and Pydantic schemas for User, Account, Transaction, Statement
+- Modular routers for users, accounts, statements, transactions, upload
+- JWT auth endpoints (barebones, in-memory for now)
+- File upload and parser integration stub
+- Requirements in `fastapi_app/requirements.txt`
+- Test suite in `fastapi_app/tests/` (run with `pytest`)
+
+### How to run backend:
+1. Activate the venv:
+   ```sh
+   source LedgerFlow_AI/cleanenv/bin/activate
+   ```
+2. Install requirements:
+   ```sh
+   pip install -r LedgerFlow_AI/fastapi_app/requirements.txt
+   ```
+3. Start the server:
+   ```sh
+   uvicorn fastapi_app.main:app --reload
+   ```
+
+## Frontend (React)
+- New frontend in `ledgerflow_frontend/`
+- Material UI, React Router, TypeScript
+- Persistent sidebar/topbar, light/dark mode
+- Main nav: Dashboard, Uploads, Transactions, Accounts, Reports, Clients/Profiles, Admin, Help/Support
+- Placeholder pages for all sections
+
+### How to run frontend:
+1. Open a new terminal and navigate to the frontend directory:
+   ```sh
+   cd ledgerflow_frontend
+   ```
+2. Install dependencies:
+   ```sh
+   npm install
+   ```
+3. Start the dev server:
+   ```sh
+   npm start
+   ```
+   (Runs at http://localhost:3000)
+
+**Important:**
+- Run `npm start` from inside `ledgerflow_frontend`, not the project root.
+- Backend and frontend can be run in parallel for full-stack development.
+
+## Current State
+- Both backend and frontend are scaffolded and ready for feature buildout
+- Auth endpoints and admin user creation are live (in-memory)
+- UI matches legacy workflows and user feedback
+
+## Next Steps
+- Implement real authentication and connect frontend to backend
+- Build out Uploads and Transactions features
+- Add user role/permission logic
+- Integrate PDF-extractor and real data flows
+
+---
+See also: `ledgerflow_frontend/README.md` and `fastapi_app/README.md` for more details. 

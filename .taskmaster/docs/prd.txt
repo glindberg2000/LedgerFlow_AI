@@ -1,58 +1,61 @@
-# PRD: Debugging Django Admin RecursionError in LedgerFlow_AI
+<context>
+# Overview
+LedgerFlow is a modern, scalable, multi-user web platform for financial statement management and reporting. It is a complete rebuild using FastAPI (Python) for the backend and React (TypeScript) for the frontend. The goal is to provide a robust, extensible, and user-friendly system for uploading, parsing, managing, and reporting on financial statements. The platform is designed for accountants, business administrators, and financial analysts who require efficient, auditable workflows and modern UI/UX.
 
-## Problem Statement
-The Django admin interface in the LedgerFlow_AI project fails with a `RecursionError: maximum recursion depth exceeded while calling a Python object`. The error is triggered by the presence of the `StatementFile` (now `UploadedFile`) model in `profiles/models.py`. All standard debugging, environment resets, and database resets have failed to resolve the issue.
+# Core Features
+- **User Authentication & Roles**: Secure login (JWT/OAuth2), role-based access (admin, user, agent)
+- **Statement Upload**: Drag-and-drop PDF/CSV upload, file validation, upload history
+- **Pluggable Parser Modules**: Modular Python parser registry for different statement formats, easy extension
+- **Transaction Management**: Search, filter, batch process, and edit transactions; AI/agent workflows for categorization
+- **Reporting & Dashboards**: 6A worksheet, exports (CSV/XLSX), stats, and custom reports
+- **Admin Panel**: Manage users, agents, parsers, business profiles
+- **Background Processing**: Celery/FastAPI tasks for long-running jobs (parsing, report generation)
+- **Legacy Data Compatibility**: Support for migration from legacy Django/Postgres DB schema
 
-## Environment
-- Django version: 5.2.3
-- Python version: 3.11
-- OS: macOS (darwin 24.5.0)
-- Virtualenvs: venv, cleanenv
-- Project: LedgerFlow_AI
+# User Experience
+- **Personas**: Accountants, business admins, financial analysts
+- **Key Flows**: Login → Upload statement → Parse & review transactions → Generate reports → Export/share
+- **UI/UX**: Modern, accessible, responsive design (Material UI/AntD/Tailwind); clear error handling; onboarding guides
+</context>
+<PRD>
+# Technical Architecture
+- **Backend**: FastAPI (Python), SQLAlchemy ORM, Celery (Redis/RabbitMQ), Postgres DB
+- **Frontend**: React (TypeScript), modern UI library
+- **Parser Integration**: Pluggable Python modules or microservices
+- **Reporting**: SQL queries, aggregation endpoints, export APIs
+- **Infrastructure**: Docker for local/dev/prod, background job queue, secure API endpoints
 
-## Steps Already Taken
-1. Disabled all custom admin templates and admin.py files. (done)
-2. Cleared Python bytecode caches. (done)
-3. Removed all custom apps from INSTALLED_APPS; admin worked with only built-ins. (done)
-4. Added apps back one by one; adding `profiles` brought back the RecursionError. (done)
-5. Renamed `profiles/models.py` to disable all models: error disappeared. (done)
-6. Uncommented models one by one: error only returns with `StatementFile`/`UploadedFile` present. (done)
-7. Restored full model, fixed NameError, error persists even with all admin/forms/template tag references commented out. (done)
-8. Commented out custom admin navigation: no effect. (done)
-9. Created clean virtualenv and minimal Django project: admin works fine. (done)
-10. Full database reset, new DB, dropped all tables/views/sequences, ran fresh migrations, created new superuser: error persists. (done)
+# Development Roadmap
+- **Phase 1: Backend Foundation**
+  - Scaffold FastAPI models/endpoints to match legacy schema
+  - Implement authentication/role management
+  - Set up Celery/FastAPI background jobs
+- **Phase 2: Frontend Foundation**
+  - Scaffold React app (auth, dashboard, upload flows)
+  - Integrate with FastAPI endpoints
+- **Phase 3: Parser & Transaction Workflows**
+  - Implement pluggable parser registry
+  - Transaction management UI/logic
+- **Phase 4: Reporting & Admin**
+  - Build reporting endpoints and dashboards
+  - Admin panel for user/agent/parser/business management
+- **Phase 5: Testing & Migration**
+  - Test with legacy data, iterate, and refine
+  - Provide migration scripts as needed
+- **Future Enhancements**
+  - Advanced AI/agent workflows, custom report builders, audit trails
 
-## Hypothesis
-The error is caused by a code-level recursion in Django's admin context generation, triggered by a bidirectional relationship between `UploadedFile` and `Transaction`:
-- `UploadedFile.transactions` is a ManyToManyField to `Transaction` (with related_name="source_files").
-- `Transaction.statement_file` is a ForeignKey back to `UploadedFile`.
-This creates a cycle in Django's model graph, which may cause infinite recursion in the admin's app-dictionary builder (see https://code.djangoproject.com/ticket/35694).
+# Logical Dependency Chain
+- Backend models/endpoints → Auth → Background jobs → Frontend scaffolding → Parser integration → Transaction workflows → Reporting → Admin features → Testing/migration
+- Prioritize getting a working upload→parse→review→report flow as early as possible
+- Each feature is atomic and can be improved iteratively
 
-## Goal
-Resolve the RecursionError and restore full Django admin functionality for all required models. Identify and document the root cause.
+# Risks and Mitigations
+- **Technical**: Legacy DB compatibility (mitigate with migration scripts, thorough testing)
+- **MVP Scope**: Focus on core upload→parse→report flow first
+- **Resource**: Modular design allows phased development and onboarding of contributors
 
-## Tasks
-1. Disabled all custom admin templates and admin.py files. (done)
-2. Cleared Python bytecode caches. (done)
-3. Removed all custom apps from INSTALLED_APPS; admin worked with only built-ins. (done)
-4. Added apps back one by one; adding `profiles` brought back the RecursionError. (done)
-5. Renamed `profiles/models.py` to disable all models: error disappeared. (done)
-6. Uncommented models one by one: error only returns with `StatementFile`/`UploadedFile` present. (done)
-7. Restored full model, fixed NameError, error persists even with all admin/forms/template tag references commented out. (done)
-8. Commented out custom admin navigation: no effect. (done)
-9. Created clean virtualenv and minimal Django project: admin works fine. (done)
-10. Full database reset, new DB, dropped all tables/views/sequences, ran fresh migrations, created new superuser: error persists. (done)
-11. Comment out the M2M field in UploadedFile and test admin.
-12. If error persists, comment out the FK field in Transaction and test admin.
-13. If error persists, try removing the related_name from the M2M and test admin.
-14. If error persists, try renaming the model everywhere and test admin.
-15. If error persists, check for circular imports or registry issues in all related files.
-16. If error persists, try a field-by-field reintroduction in a fresh clone of the repo, testing admin after each.
-17. If error persists, comment out all custom template tags and middleware, then test admin.
-18. If error persists, escalate to Django bug tracker with full reproduction steps and findings.
-
-## Success Criteria
-- Django admin loads without RecursionError.
-- All required models are present and functional in the admin interface.
-- Root cause is identified and documented.
-- All steps and results are logged for future reference.
+# Appendix
+- **Research**: See cline_docs/ for legacy system analysis, migration notes, and technical decisions
+- **Specs**: Refer to .taskmaster/templates/example_prd.txt for PRD structure
+</PRD>
