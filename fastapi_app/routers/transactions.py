@@ -5,6 +5,7 @@ from ..db import SessionLocal
 from ..schemas import Transaction as TransactionSchema
 from ..models import Transaction as TransactionModel
 from typing import Any, Optional
+from datetime import datetime
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -26,13 +27,18 @@ def list_transactions(
     search: Optional[str] = Query(None),
     sort_by: Optional[str] = Query("transaction_date"),
     sort: Optional[str] = Query("desc"),
+    year: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),  # YYYY-MM-DD
+    end_date: Optional[str] = Query(None),  # YYYY-MM-DD
 ) -> Any:
     """
-    List transactions with optional filtering, search, and sorting.
+    List transactions with optional filtering, search, sorting, and date filtering.
     - client_id: filter by client
     - search: filter by description or payee (case-insensitive, partial match)
     - sort_by: column to sort by (default: transaction_date)
     - sort: 'asc' or 'desc' (default: desc)
+    - year: filter by year (transaction_date)
+    - start_date, end_date: filter by date range (transaction_date)
     """
     query = db.query(TransactionModel)
 
@@ -49,6 +55,25 @@ def list_transactions(
                 TransactionModel.payee.ilike(like_str),
             )
         )
+
+    # Date filtering
+    if year:
+        query = query.filter(
+            TransactionModel.transaction_date >= datetime(year, 1, 1),
+            TransactionModel.transaction_date <= datetime(year, 12, 31),
+        )
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            query = query.filter(TransactionModel.transaction_date >= start_dt)
+        except Exception:
+            pass  # Ignore invalid date
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            query = query.filter(TransactionModel.transaction_date <= end_dt)
+        except Exception:
+            pass  # Ignore invalid date
 
     # Sorting
     valid_sort_columns = {
