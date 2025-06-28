@@ -5,6 +5,8 @@ from ..schemas import User
 from ..utils import auth
 from pydantic import EmailStr
 from typing import Dict
+from ..models import BusinessProfile as BusinessProfileModel
+from ..schemas import BusinessProfile as BusinessProfileSchema
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -47,8 +49,3 @@ def create_admin_user(user: User, db: Session = Depends(get_db)):
     user_dict["is_admin"] = True
     fake_users[user.email] = user_dict
     return User(**user_dict)
-
-
-@router.get("/all", response_model=list[User])
-def list_users():
-    return [User(**u) for u in fake_users.values()]

@@ -22,13 +22,15 @@ class Account(BaseModel):
 
 class Transaction(BaseModel):
     id: int
-    date: date
-    description: str
-    amount: float
-    category: Optional[str]
-    account_id: int
-    statement_id: Optional[int]
-    raw_text: Optional[str]
+    transaction_date: Optional[date] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    client_id: Optional[str] = None
+    account_number: Optional[str] = None
+    file_path: Optional[str] = None
+    transaction_id: Optional[str] = None
+    transaction_type: Optional[str] = None
 
 
 class StatementPeriod(BaseModel):
@@ -43,3 +45,23 @@ class Statement(BaseModel):
     transactions: List[Transaction] = []
     source: str
     parser_version: str
+
+
+class BusinessProfile(BaseModel):
+    """BusinessProfile represents a business client managed by the system (from profiles_businessprofile)."""
+
+    client_id: str
+    business_type: Optional[str] = None
+    business_description: Optional[str] = None
+    contact_info: Optional[str] = None
+    location: Optional[str] = None
+    created_at: Optional[date] = None
+    updated_at: Optional[date] = None
+
+
+class Agent(BaseModel):
+    id: int
+    name: str
+    purpose: Optional[str] = None
+    prompt: Optional[str] = None
+    llm_id: Optional[int] = None
