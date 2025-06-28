@@ -272,4 +272,7 @@ Refactor the ingestion pipeline to consume the new ParserOutput contract from al
 - After cleanup: Update Task Master tasks and proceed to UI review/cleanup.
 ---
 
+## PINNED FOR FUTURE REVIEW
+- Review the entire transaction/client/account hierarchy and relationships for referential integrity and best practices. Consider adding/enforcing ForeignKey constraints and improving logical associations in the FastAPI backend and database schema.
+
 _Last updated: 2025-06-12_ 

@@ -64,7 +64,7 @@ This branch is dedicated to rebuilding LedgerFlow as a modern, scalable, multi-u
 ---
 
 **Contact:**
-- For questions, context, or code samples, ping the main dev or spin up a direct agent chat.
+- For questions, context, or code samples, ping the main dev or spin up a direct agent chat. 
 
 # FastAPI/React Rebuild
 

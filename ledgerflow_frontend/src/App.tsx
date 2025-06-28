@@ -19,6 +19,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import BuildIcon from '@mui/icons-material/Build';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import ListAltIcon from '@mui/icons-material/ListAlt';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 import DashboardPage from './pages/DashboardPage';
 import ClientsPage from './pages/ClientsPage';
@@ -42,52 +44,54 @@ const navItems = [
 
 function App() {
     return (
-        <Router>
-            <Box sx={{ display: 'flex' }}>
-                <CssBaseline />
-                <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-                    <Toolbar>
-                        <Typography variant="h6" noWrap component="div">
-                            LedgerFlow Admin
-                        </Typography>
-                    </Toolbar>
-                </AppBar>
-                <Drawer
-                    variant="permanent"
-                    sx={{
-                        width: drawerWidth,
-                        flexShrink: 0,
-                        [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box' },
-                    }}
-                >
-                    <Toolbar />
-                    <Box sx={{ overflow: 'auto' }}>
-                        <List>
-                            {navItems.map((item) => (
-                                <ListItem key={item.text} disablePadding>
-                                    <ListItemButton component={Link} to={item.path}>
-                                        <ListItemIcon>{item.icon}</ListItemIcon>
-                                        <ListItemText primary={item.text} />
-                                    </ListItemButton>
-                                </ListItem>
-                            ))}
-                        </List>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <Router>
+                <Box sx={{ display: 'flex' }}>
+                    <CssBaseline />
+                    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+                        <Toolbar>
+                            <Typography variant="h6" noWrap component="div">
+                                LedgerFlow Admin
+                            </Typography>
+                        </Toolbar>
+                    </AppBar>
+                    <Drawer
+                        variant="permanent"
+                        sx={{
+                            width: drawerWidth,
+                            flexShrink: 0,
+                            [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box' },
+                        }}
+                    >
+                        <Toolbar />
+                        <Box sx={{ overflow: 'auto' }}>
+                            <List>
+                                {navItems.map((item) => (
+                                    <ListItem key={item.text} disablePadding>
+                                        <ListItemButton component={Link} to={item.path}>
+                                            <ListItemIcon>{item.icon}</ListItemIcon>
+                                            <ListItemText primary={item.text} />
+                                        </ListItemButton>
+                                    </ListItem>
+                                ))}
+                            </List>
+                        </Box>
+                    </Drawer>
+                    <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3 }}>
+                        <Toolbar />
+                        <Routes>
+                            <Route path="/" element={<DashboardPage />} />
+                            <Route path="/clients" element={<ClientsPage />} />
+                            <Route path="/transactions" element={<TransactionsPage />} />
+                            <Route path="/agents" element={<AgentsPage />} />
+                            <Route path="/tools" element={<ToolsPage />} />
+                            <Route path="/uploads" element={<UploadsPage />} />
+                            <Route path="/parsers" element={<ParsersPage />} />
+                        </Routes>
                     </Box>
-                </Drawer>
-                <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3 }}>
-                    <Toolbar />
-                    <Routes>
-                        <Route path="/" element={<DashboardPage />} />
-                        <Route path="/clients" element={<ClientsPage />} />
-                        <Route path="/transactions" element={<TransactionsPage />} />
-                        <Route path="/agents" element={<AgentsPage />} />
-                        <Route path="/tools" element={<ToolsPage />} />
-                        <Route path="/uploads" element={<UploadsPage />} />
-                        <Route path="/parsers" element={<ParsersPage />} />
-                    </Routes>
                 </Box>
-            </Box>
-        </Router>
+            </Router>
+        </LocalizationProvider>
     );
 }
 

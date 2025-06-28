@@ -144,8 +144,8 @@ const TransactionsPage: React.FC = () => {
         axios.get('/transactions/', {
             params: {
                 client_id: clientId,
-                page: 1,
-                page_size: 10000, // Large limit for year scan
+                offset: 0,
+                limit: 10000, // Large limit for year scan
             }
         }).then(res => {
             const items = res.data.items || res.data.results || res.data || [];
@@ -258,7 +258,7 @@ const TransactionsPage: React.FC = () => {
                         onChange={handleYearChange}
                     >
                         <MenuItem value=""><em>All Years</em></MenuItem>
-                        {availableYears.map(y => (
+                        {(availableYears.length > 0 ? availableYears : [2023, 2024, 2025]).map(y => (
                             <MenuItem key={y} value={y}>{y}</MenuItem>
                         ))}
                     </Select>
