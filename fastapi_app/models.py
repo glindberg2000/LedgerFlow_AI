@@ -107,4 +107,12 @@ class Tool(Base):
     updated_at = Column(DateTime, nullable=False)
 
 
+class LLMConfig(Base):
+    __tablename__ = "profiles_llmconfig"
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String(255), nullable=False)
+    model = Column(String(255), unique=True, nullable=False)
+    url = Column(String(255), nullable=True)
+
+
 # Account and Statement models are omitted for now, as dashboard metrics do not require them.
