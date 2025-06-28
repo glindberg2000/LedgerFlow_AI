@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal
 from ..models import Agent as AgentModel
 from ..schemas import Agent as AgentSchema
-from sqlalchemy import select
+from sqlalchemy import select, text
 from typing import List
 from ..models import Tool as ToolModel, LLMConfig as LLMConfigModel
 
@@ -22,21 +22,25 @@ def get_db():
 def list_agents(db: Session = Depends(get_db)):
     # Join Agent, LLMConfig, and tools
     agents = db.execute(
-        """
-        SELECT a.id, a.name, a.purpose, a.prompt, a.llm_id, l.model as llm_name
-        FROM profiles_agent a
-        LEFT JOIN profiles_llmconfig l ON a.llm_id = l.id
-        """
+        text(
+            """
+            SELECT a.id, a.name, a.purpose, a.prompt, a.llm_id, l.model as llm_name
+            FROM profiles_agent a
+            LEFT JOIN profiles_llmconfig l ON a.llm_id = l.id
+            """
+        )
     ).fetchall()
     agent_list = []
     for a in agents:
         # Get tool names for each agent
         tools_q = db.execute(
-            """
-            SELECT t.name FROM profiles_tool t
-            JOIN profiles_agent_tools at ON t.id = at.tool_id
-            WHERE at.agent_id = :agent_id
-            """,
+            text(
+                """
+                SELECT t.name FROM profiles_tool t
+                JOIN profiles_agent_tools at ON t.id = at.tool_id
+                WHERE at.agent_id = :agent_id
+                """
+            ),
             {"agent_id": a.id},
         )
         tool_names = [row[0] for row in tools_q]
