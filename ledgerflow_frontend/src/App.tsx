@@ -1,3 +1,4 @@
+// EDIT TEST: This comment was added by the AI to verify file editing.
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import AppBar from '@mui/material/AppBar';
@@ -6,6 +7,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import Drawer from '@mui/material/Drawer';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Toolbar from '@mui/material/Toolbar';
@@ -18,6 +20,14 @@ import BuildIcon from '@mui/icons-material/Build';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 
+import DashboardPage from './pages/DashboardPage';
+import ClientsPage from './pages/ClientsPage';
+import TransactionsPage from './pages/TransactionsPage';
+import AgentsPage from './pages/AgentsPage';
+import ToolsPage from './pages/ToolsPage';
+import UploadsPage from './pages/UploadsPage';
+import ParsersPage from './pages/ParsersPage';
+
 const drawerWidth = 220;
 
 const navItems = [
@@ -29,17 +39,6 @@ const navItems = [
     { text: 'Uploads', path: '/uploads', icon: <UploadFileIcon /> },
     { text: 'Parsers', path: '/parsers', icon: <ListAltIcon /> },
 ];
-
-function Placeholder({ title }: { title: string }) {
-    return (
-        <Box sx={{ p: 3 }}>
-            <Typography variant="h4">{title}</Typography>
-            <Typography variant="body1" sx={{ mt: 2 }}>
-                This page is under construction.
-            </Typography>
-        </Box>
-    );
-}
 
 function App() {
     return (
@@ -65,9 +64,11 @@ function App() {
                     <Box sx={{ overflow: 'auto' }}>
                         <List>
                             {navItems.map((item) => (
-                                <ListItem button key={item.text} component={Link} to={item.path}>
-                                    <ListItemIcon>{item.icon}</ListItemIcon>
-                                    <ListItemText primary={item.text} />
+                                <ListItem key={item.text} disablePadding>
+                                    <ListItemButton component={Link} to={item.path}>
+                                        <ListItemIcon>{item.icon}</ListItemIcon>
+                                        <ListItemText primary={item.text} />
+                                    </ListItemButton>
                                 </ListItem>
                             ))}
                         </List>
@@ -76,13 +77,13 @@ function App() {
                 <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3 }}>
                     <Toolbar />
                     <Routes>
-                        <Route path="/" element={<Placeholder title="Dashboard" />} />
-                        <Route path="/clients" element={<Placeholder title="Clients" />} />
-                        <Route path="/transactions" element={<Placeholder title="Transactions" />} />
-                        <Route path="/agents" element={<Placeholder title="Agents" />} />
-                        <Route path="/tools" element={<Placeholder title="Tools" />} />
-                        <Route path="/uploads" element={<Placeholder title="Uploads" />} />
-                        <Route path="/parsers" element={<Placeholder title="Parsers" />} />
+                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/clients" element={<ClientsPage />} />
+                        <Route path="/transactions" element={<TransactionsPage />} />
+                        <Route path="/agents" element={<AgentsPage />} />
+                        <Route path="/tools" element={<ToolsPage />} />
+                        <Route path="/uploads" element={<UploadsPage />} />
+                        <Route path="/parsers" element={<ParsersPage />} />
                     </Routes>
                 </Box>
             </Box>
