@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import {
-    Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, TablePagination, TextField, InputAdornment, IconButton, MenuItem, Select, FormControl, InputLabel, Box, CircularProgress, TableSortLabel, Tooltip, Divider
+    Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, TablePagination, TextField, InputAdornment, IconButton, MenuItem, Select, FormControl, InputLabel, Box, CircularProgress, TableSortLabel, Tooltip, Divider, Checkbox, Snackbar, Button, Alert
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -83,6 +83,11 @@ const TransactionsPage: React.FC = () => {
 
     const [showAllColumns, setShowAllColumns] = useState(false);
     const [availableYears, setAvailableYears] = useState<number[]>([]);
+    const [selected, setSelected] = useState<number[]>([]);
+    const [selectAll, setSelectAll] = useState(false);
+    const [selectAllAcrossPages, setSelectAllAcrossPages] = useState(false);
+    const [action, setAction] = useState('');
+    const [snackbar, setSnackbar] = useState<{ open: boolean, message: string }>({ open: false, message: '' });
 
     // Fetch clients for filter dropdown
     useEffect(() => {
@@ -214,12 +219,70 @@ const TransactionsPage: React.FC = () => {
 
     const visibleColumns = showAllColumns ? allColumns.filter(col => columns.includes(col)) : summaryColumns.filter(col => columns.includes(col));
 
+    // Handle row selection
+    const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.checked) {
+            setSelected(rows.map((row: any) => row.id));
+            setSelectAll(true);
+        } else {
+            setSelected([]);
+            setSelectAll(false);
+            setSelectAllAcrossPages(false);
+        }
+    };
+    const handleSelectRow = (id: number) => {
+        setSelected(prev => {
+            const newSelected = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            if (newSelected.length !== rows.length) setSelectAllAcrossPages(false);
+            return newSelected;
+        });
+    };
+    const handleSelectAllAcrossPages = () => {
+        setSelectAllAcrossPages(true);
+        setSelected([]); // Don't store all IDs, just the flag
+    };
+    const handleClearSelection = () => {
+        setSelectAll(false);
+        setSelectAllAcrossPages(false);
+        setSelected([]);
+    };
+
+    // Handle action
+    const handleActionChange = (event: any) => {
+        setAction(event.target.value);
+    };
+    const handleRunAction = () => {
+        if (selectAllAcrossPages) {
+            setSnackbar({ open: true, message: `Action: ${action}, ALL ${total} filtered transactions (across all pages)` });
+        } else {
+            setSnackbar({ open: true, message: `Action: ${action}, IDs: ${selected.join(', ')}` });
+        }
+        setAction('');
+    };
+
     if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px"><CircularProgress /></Box>;
     if (error) return <Typography color="error">{error}</Typography>;
 
     return (
-        <Paper sx={{ mt: 2, p: 2 }}>
+        <Box sx={{ maxWidth: '100%', mt: 2 }}>
+            {/* Filters + Action controls */}
             <Box display="flex" gap={2} mb={2} alignItems="center" flexWrap="wrap">
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Action</InputLabel>
+                    <Select value={action} label="Action" onChange={handleActionChange} disabled={!selectAllAcrossPages && selected.length === 0}>
+                        <MenuItem value="extract_payee">Extract Payee</MenuItem>
+                        <MenuItem value="classify">Classify</MenuItem>
+                        <MenuItem value="batch_extract_payee">Batch Extract Payee</MenuItem>
+                        <MenuItem value="batch_classify">Batch Classify</MenuItem>
+                        <MenuItem value="delete">Delete</MenuItem>
+                    </Select>
+                </FormControl>
+                <Button variant="contained" onClick={handleRunAction} disabled={!action || (!selectAllAcrossPages && selected.length === 0)}>Run</Button>
+                {(selectAllAcrossPages || selected.length > 0) && (
+                    <Typography color="primary">
+                        {selectAllAcrossPages ? `All ${total} selected` : `${selected.length} selected`}
+                    </Typography>
+                )}
                 <FormControl sx={{ minWidth: 200, mb: 1 }}>
                     <InputLabel id="client-select-label">Client</InputLabel>
                     <Select
@@ -278,34 +341,62 @@ const TransactionsPage: React.FC = () => {
                     minDate={startDate || undefined}
                 />
             </Box>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                <Typography variant="subtitle2">
+            {/* Summary, pagination, and showAllColumns toggle in a single row */}
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1} flexWrap="wrap" gap={2}>
+                <Typography variant="subtitle2" sx={{ minWidth: 200 }}>
                     Showing {rows.length} of {total} transactions
                     {clientId && ` for client ${clientId}`}
                     {year && ` in year ${year}`}
                     {(startDate || endDate) && ` in date range${startDate ? ` from ${startDate.format('YYYY-MM-DD')}` : ''}${endDate ? ` to ${endDate.format('YYYY-MM-DD')}` : ''}`}
                 </Typography>
-                <Box>
-                    <IconButton onClick={() => setShowAllColumns(v => !v)} size="small">
-                        {showAllColumns ? 'Summary view' : 'Show all columns'}
-                    </IconButton>
+                <Box display="flex" alignItems="center" gap={1}>
+                    <TablePagination
+                        component="div"
+                        count={total}
+                        page={page}
+                        onPageChange={handleChangePage}
+                        rowsPerPage={rowsPerPage}
+                        onRowsPerPageChange={handleChangeRowsPerPage}
+                        rowsPerPageOptions={[10, 25, 50, 100]}
+                        sx={{ minWidth: 300, background: '#fafafa', borderRadius: 1, ml: 2 }}
+                    />
+                    <Tooltip title={showAllColumns ? 'Summary view' : 'Show all columns'}>
+                        <IconButton onClick={() => setShowAllColumns(v => !v)} size="small">
+                            {showAllColumns ? 'Summary view' : 'Show all columns'}
+                        </IconButton>
+                    </Tooltip>
                 </Box>
             </Box>
+            {/* Select all banner logic */}
+            {!selectAllAcrossPages && selected.length === rows.length && total > rows.length && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    All {rows.length} rows on this page selected.{' '}
+                    <Button color="primary" size="small" onClick={handleSelectAllAcrossPages}>
+                        Select all {total} matching transactions
+                    </Button>
+                </Alert>
+            )}
+            {selectAllAcrossPages && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                    All {total} transactions selected.{' '}
+                    <Button color="inherit" size="small" onClick={handleClearSelection}>
+                        Clear selection
+                    </Button>
+                </Alert>
+            )}
             <Divider sx={{ mb: 1 }} />
-            <TableContainer>
-                <TablePagination
-                    component="div"
-                    count={total}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={[10, 25, 50, 100]}
-                    sx={{ borderBottom: 1, borderColor: 'divider', background: '#fafafa' }}
-                />
+            <TableContainer component={Paper}>
                 <Table size="small">
                     <TableHead>
-                        <TableRow sx={{ backgroundColor: theme => theme.palette.grey[200] }}>
+                        <TableRow>
+                            <TableCell padding="checkbox">
+                                <Checkbox
+                                    checked={selectAllAcrossPages || (rows.length > 0 && selected.length === rows.length)}
+                                    indeterminate={!selectAllAcrossPages && selected.length > 0 && selected.length < rows.length}
+                                    onChange={handleSelectAll}
+                                    inputProps={{ 'aria-label': 'select all transactions' }}
+                                />
+                            </TableCell>
                             {visibleColumns.map(col => (
                                 <TableCell
                                     key={col}
@@ -338,7 +429,14 @@ const TransactionsPage: React.FC = () => {
                     </TableHead>
                     <TableBody>
                         {rows.map((row, idx) => (
-                            <TableRow key={idx}>
+                            <TableRow key={row.id} selected={selected.includes(row.id) || selectAllAcrossPages}>
+                                <TableCell padding="checkbox">
+                                    <Checkbox
+                                        checked={selectAllAcrossPages || selected.includes(row.id)}
+                                        onChange={() => handleSelectRow(row.id)}
+                                        inputProps={{ 'aria-label': `select transaction ${row.id}` }}
+                                    />
+                                </TableCell>
                                 {visibleColumns.map(col => {
                                     const value = row[col];
                                     const isTruncated = truncatedColumns.includes(col) && typeof value === 'string' && value.length > TRUNCATE_LENGTH;
@@ -365,18 +463,14 @@ const TransactionsPage: React.FC = () => {
                         ))}
                     </TableBody>
                 </Table>
-                <TablePagination
-                    component="div"
-                    count={total}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={[10, 25, 50, 100]}
-                    sx={{ borderTop: 1, borderColor: 'divider', background: '#fafafa' }}
-                />
             </TableContainer>
-        </Paper>
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={3000}
+                onClose={() => setSnackbar({ open: false, message: '' })}
+                message={snackbar.message}
+            />
+        </Box>
     );
 };
 
