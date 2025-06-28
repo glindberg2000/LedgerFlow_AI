@@ -53,7 +53,13 @@ const TransactionsPage: React.FC = () => {
                     <TableBody>
                         {rows.map((row, idx) => (
                             <TableRow key={idx}>
-                                {columns.map(col => <TableCell key={col}>{row[col]}</TableCell>)}
+                                {columns.map(col => (
+                                    <TableCell key={col}>
+                                        {typeof row[col] === 'object' && row[col] !== null
+                                            ? JSON.stringify(row[col])
+                                            : row[col]}
+                                    </TableCell>
+                                ))}
                             </TableRow>
                         ))}
                     </TableBody>
