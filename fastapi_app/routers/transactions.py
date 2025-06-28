@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, desc, asc, text
 from ..db import SessionLocal
 from ..schemas import Transaction as TransactionSchema
 from ..models import Transaction as TransactionModel
-from typing import Any
+from typing import Any, Optional
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -21,15 +22,53 @@ def list_transactions(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    client_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("transaction_date"),
+    sort: Optional[str] = Query("desc"),
 ) -> Any:
-    total = db.query(TransactionModel).count()
-    transactions = (
-        db.query(TransactionModel)
-        .order_by(TransactionModel.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    """
+    List transactions with optional filtering, search, and sorting.
+    - client_id: filter by client
+    - search: filter by description or payee (case-insensitive, partial match)
+    - sort_by: column to sort by (default: transaction_date)
+    - sort: 'asc' or 'desc' (default: desc)
+    """
+    query = db.query(TransactionModel)
+
+    # Filtering by client_id
+    if client_id:
+        query = query.filter(TransactionModel.client_id == client_id)
+
+    # Search by description or payee
+    if search:
+        like_str = f"%{search}%"
+        query = query.filter(
+            or_(
+                TransactionModel.description.ilike(like_str),
+                TransactionModel.payee.ilike(like_str),
+            )
+        )
+
+    # Sorting
+    valid_sort_columns = {
+        "transaction_date": TransactionModel.transaction_date,
+        "amount": TransactionModel.amount,
+        "category": TransactionModel.category,
+        "source": TransactionModel.source,
+        "payee": TransactionModel.payee,
+        "parser_name": TransactionModel.parser_name,
+        "description": TransactionModel.description,
+        "account_number": TransactionModel.account_number,
+        "client_id": TransactionModel.client_id,
+        # Add more columns as needed
+    }
+    sort_col = valid_sort_columns.get(sort_by, TransactionModel.transaction_date)
+    sort_dir = desc if sort == "desc" else asc
+    query = query.order_by(sort_dir(sort_col))
+
+    total = query.count()
+    transactions = query.offset(offset).limit(limit).all()
     # Return all columns as dicts
     items = []
     for t in transactions:
