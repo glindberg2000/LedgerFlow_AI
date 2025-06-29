@@ -1011,6 +1011,8 @@ class TransactionAdmin(admin.ModelAdmin):
         "mark_as_business",
         "mark_as_unclassified",
         "batch_set_account_number",  # New batch action
+        "lookup_payee",  # Direct payee lookup action
+        "classify_transactions",  # Direct classify action
     ]
 
     def short_reasoning(self, obj):
@@ -1342,6 +1344,48 @@ class AgentAdmin(admin.ModelAdmin):
     list_display = ("name", "purpose", "llm")
     search_fields = ("name", "purpose", "llm__name")
     filter_horizontal = ("tools",)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:agent_id>/preview_prompt/",
+                self.admin_site.admin_view(self.preview_prompt_view),
+                name="profiles_agent_preview_prompt",
+            ),
+        ]
+        return custom_urls + urls
+
+    def preview_prompt_view(self, request, agent_id):
+        agent = get_object_or_404(Agent, pk=agent_id)
+        # Use a sample transaction and business profile for context
+        transaction = Transaction.objects.first()
+        business_profile = BusinessProfile.objects.first()
+        # Build the prompt as it would be at runtime
+        base_prompt = agent.prompt
+        injected_context = ""
+        if business_profile:
+            injected_context += f"\nBusiness Profile Context:\n{business_profile.business_description}\n"
+        if transaction:
+            injected_context += f"\nTransaction Description: {transaction.description}\nAmount: {transaction.amount}\n"
+        # Add tool instructions
+        tool_instructions = ""
+        for tool in agent.tools.all():
+            tool_instructions += f"\nTool: {tool.name} - {tool.description}"
+        final_prompt = f"{base_prompt}{injected_context}{tool_instructions}"
+        return render(
+            request,
+            "admin/agent_prompt_preview.html",
+            {
+                "agent": agent,
+                "final_prompt": final_prompt,
+            },
+        )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["preview_prompt_url"] = f"preview_prompt/"
+        return super().change_view(request, object_id, form_url, extra_context)
 
 
 @admin.register(Tool)

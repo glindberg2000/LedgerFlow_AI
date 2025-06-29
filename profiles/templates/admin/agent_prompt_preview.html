@@ -1,0 +1,6 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Prompt Preview for {{ agent.name }}</h1>
+<pre style="white-space: pre-wrap; background: #f8f8f8; padding: 1em; border-radius: 6px;">{{ final_prompt }}</pre>
+<a href="../">Back to Agent</a>
+{% endblock %} 
