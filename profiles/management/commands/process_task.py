@@ -98,7 +98,7 @@ class Command(BaseCommand):
             ):
                 try:
                     # Call the agent
-                    response = call_agent(agent.name, transaction)
+                    response, tool_usage = call_agent(agent.name, transaction)
 
                     # Map task_type to agent_type for robust method logic
                     if task.task_type == "payee_lookup":
@@ -108,7 +108,7 @@ class Command(BaseCommand):
                     else:
                         raise ValueError(f"Unknown task_type: {task.task_type}")
                     update_fields = get_update_fields_from_response(
-                        agent, response, agent_type
+                        agent, response, agent_type, tool_usage=tool_usage
                     )
 
                     # Update the transaction
