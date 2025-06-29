@@ -199,23 +199,12 @@ class Transaction(models.Model):
 
     # Processing method tracking
     payee_extraction_method = models.CharField(
-        max_length=20,
-        choices=[
-            ("AI", "AI Only"),
-            ("AI+Search", "AI with Search"),
-            ("Human", "Human Override"),
-            ("None", "Not Processed"),  # Added this choice
-        ],
+        max_length=128,
         default=None,  # Changed from "AI" to None
         help_text="Method used to extract the payee information",
     )
     classification_method = models.CharField(
-        max_length=20,
-        choices=[
-            ("AI", "AI Only"),
-            ("Human", "Human Override"),
-            ("None", "Not Processed"),
-        ],
+        max_length=128,
         default=None,
         help_text="Method used to classify the transaction",
     )

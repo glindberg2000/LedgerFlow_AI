@@ -22,13 +22,17 @@ TOOL_DIRS = [
 
 
 def discover_tools():
-    """Scan the tools directory for Python modules with callable tool functions."""
+    """Scan the tools directory for Python modules with callable tool functions. Returns list of dicts with name, description, module_path (dot notation)."""
     tool_defs = []
+    found_module_paths = set()
     for tool_dir in TOOL_DIRS:
         for root, dirs, files in os.walk(tool_dir):
             for file in files:
                 if file.endswith(".py") and not file.startswith("__"):
                     module_path = Path(root) / file
+                    rel_path = module_path.relative_to(settings.BASE_DIR)
+                    # Convert to dot notation for import
+                    dot_path = str(rel_path.with_suffix("")).replace(os.sep, ".")
                     module_name = module_path.stem
                     try:
                         spec = importlib.util.spec_from_file_location(
@@ -47,13 +51,17 @@ def discover_tools():
                                     {
                                         "name": module_name,
                                         "description": desc,
-                                        "module_path": str(
-                                            module_path.relative_to(settings.BASE_DIR)
-                                        ),
+                                        "module_path": dot_path,
                                     }
                                 )
+                                found_module_paths.add(dot_path)
                     except Exception as e:
                         continue  # Ignore broken modules
+    # Remove orphaned Tool DB entries
+    Tool = apps.get_model("profiles", "Tool")
+    for tool in Tool.objects.all():
+        if tool.module_path not in found_module_paths:
+            tool.delete()
     return tool_defs
 
 

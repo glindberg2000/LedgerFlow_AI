@@ -1,6 +1,9 @@
 import pdfplumber
 import re
 from django.db import connection
+import logging
+
+logger = logging.getLogger(__name__)
 
 # List of known banks for detection (expand as needed)
 KNOWN_BANKS = [
@@ -186,70 +189,65 @@ def extract_pdf_metadata(pdf_path):
 # For extensibility: if all fields are None or confidence is low, fallback to vision agent
 
 
-def get_update_fields_from_response(agent, response, task_type):
+def get_update_fields_from_response(agent, response, agent_type, tool_usage=None):
     """
     Map LLM agent response to transaction update fields for both classification and payee lookup.
-    Always uses category_name for category. Handles payee-only updates and personal expense logic.
+    agent_type: 'payee' or 'classification' (REQUIRED, explicit)
     """
-    update_fields = {
-        "normalized_description": response.get("normalized_description"),
-        "payee": response.get("payee"),
-        "confidence": response.get("confidence"),
-        "reasoning": response.get("reasoning"),
-        "payee_reasoning": (
-            response.get("reasoning")
-            if (
-                task_type == "payee_lookup"
-                or (hasattr(agent, "name") and "payee" in agent.name.lower())
-            )
-            else None
-        ),
-        "transaction_type": response.get("transaction_type"),
-        "questions": response.get("questions"),
-        "classification_type": response.get("classification_type"),
-        "worksheet": response.get("worksheet"),
-        "business_percentage": response.get("business_percentage"),
-        "payee_extraction_method": (
-            "AI+Search"
-            if (
-                task_type == "payee_lookup"
-                or (hasattr(agent, "name") and "payee" in agent.name.lower())
-            )
-            else "AI"
-        ),
-        "classification_method": ("AI" if task_type == "classification" else None),
-        "business_context": response.get("business_context"),
-        "category": response.get("category_name"),
-    }
-    update_fields = {k: v for k, v in update_fields.items() if v is not None}
-    # Payee lookup: only update payee-related fields
-    if task_type == "payee_lookup" or (
-        hasattr(agent, "name") and "payee" in agent.name.lower()
-    ):
-        update_fields = {
-            k: v
-            for k, v in update_fields.items()
-            if k
-            in [
-                "normalized_description",
-                "payee",
-                "confidence",
-                "payee_reasoning",
-                "transaction_type",
-                "questions",
-                "payee_extraction_method",
-            ]
-        }
+    if agent_type not in ("payee", "classification"):
+        raise ValueError(
+            f"agent_type must be 'payee' or 'classification', got {agent_type}"
+        )
+
+    # Build method strings
+    if tool_usage and any(tool_usage.values()):
+        tool_parts = []
+        for name, count in tool_usage.items():
+            label = name.replace("_", " ").replace("search", "search").title()
+            if count > 1:
+                tool_parts.append(f"{label} ({count}x)")
+            else:
+                tool_parts.append(label)
+        method_str = f"AI + {', '.join(tool_parts)}"
     else:
-        # For classification, ensure personal expenses have correct worksheet/category
-        if update_fields.get("classification_type") == "personal":
-            update_fields["worksheet"] = "Personal"
-            update_fields["category"] = "Personal"
-            if "reasoning" not in update_fields:
-                update_fields["reasoning"] = (
-                    "Transaction classified as personal expense based on description and amount"
-                )
-    return update_fields
+        method_str = "AI Only"
+
+    update_fields = dict(response)
+
+    if agent_type == "payee":
+        update_fields["payee_extraction_method"] = method_str
+        logger.info(
+            f"[Payee] Returning update_fields: {update_fields}, tool_usage: {tool_usage}"
+        )
+        allowed = [
+            "normalized_description",
+            "payee",
+            "confidence",
+            "payee_reasoning",
+            "transaction_type",
+            "questions",
+            "payee_extraction_method",
+        ]
+        update_fields = {k: v for k, v in update_fields.items() if k in allowed}
+        return update_fields
+    elif agent_type == "classification":
+        update_fields["classification_method"] = method_str
+        logger.info(
+            f"[Classification] Returning update_fields: {update_fields}, tool_usage: {tool_usage}"
+        )
+        # Only include fields that exist on the Transaction model. LLM prompt and model fields must always be kept in sync. Only model-backed fields are allowed.
+        allowed = [
+            "classification_type",
+            "worksheet",
+            "category",
+            "confidence",
+            "reasoning",
+            "business_percentage",
+            "questions",
+            "classification_method",
+        ]
+        update_fields = {k: v for k, v in update_fields.items() if k in allowed}
+        return update_fields
 
 
 def sync_transaction_id_sequence():
