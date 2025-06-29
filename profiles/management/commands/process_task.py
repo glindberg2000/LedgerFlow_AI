@@ -87,12 +87,15 @@ class Command(BaseCommand):
                 raise ValueError(f"No agent found for task type {task.task_type}")
 
             # Process each transaction
-            total = task.transactions.count()
+            transaction_ids = task.task_metadata.get("transaction_ids", [])
+            total = len(transaction_ids)
             success_count = 0
             error_count = 0
             error_details = {}
 
-            for idx, transaction in enumerate(task.transactions.all(), 1):
+            for idx, transaction in enumerate(
+                Transaction.objects.filter(id__in=transaction_ids), 1
+            ):
                 try:
                     # Call the agent
                     response = call_agent(agent.name, transaction)

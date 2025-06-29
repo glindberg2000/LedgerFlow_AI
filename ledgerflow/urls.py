@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 
 # from django.urls import include
 from django.contrib.admin.views.decorators import staff_member_required
@@ -8,7 +8,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    # path('reports/', include('reports.urls')),
+    path("reports/", include(("reports.urls", "reports"), namespace="reports")),
     # path('profiles/', include('profiles.urls')),
     # ... (comment out any other custom app URLs) ...
 ]
