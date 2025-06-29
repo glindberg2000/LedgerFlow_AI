@@ -1344,6 +1344,8 @@ class AgentAdmin(admin.ModelAdmin):
     list_display = ("name", "purpose", "llm")
     search_fields = ("name", "purpose", "llm__name")
     filter_horizontal = ("tools",)
+    readonly_fields = ("name",)  # Make name read-only to prevent breaking the app
+    change_form_template = "admin/agent_change_form.html"  # Use model-specific template
 
     def get_urls(self):
         urls = super().get_urls()
@@ -1384,7 +1386,9 @@ class AgentAdmin(admin.ModelAdmin):
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
-        extra_context["preview_prompt_url"] = f"preview_prompt/"
+        extra_context["preview_prompt_url"] = (
+            f"/admin/profiles/agent/{object_id}/preview_prompt/"
+        )
         return super().change_view(request, object_id, form_url, extra_context)
 
 

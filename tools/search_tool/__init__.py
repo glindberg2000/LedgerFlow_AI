@@ -4,7 +4,7 @@ Search Tool Package
 This package provides search functionality using SearXNG.
 """
 
-from .search_standalone import (
+from .searxng_search import (
     search_web,
     SafeSearchLevel,
     SearchResult,
