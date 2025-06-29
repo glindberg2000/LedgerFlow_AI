@@ -1028,16 +1028,14 @@ class TransactionAdmin(admin.ModelAdmin):
     short_payee_reasoning.short_description = "Payee Reasoning"
 
     def file_link_column(self, obj):
-        if obj.statement_file:
-            filename = obj.statement_file.original_filename or os.path.basename(
-                obj.statement_file.file.name
-            )
-            # Use the new download view for all files to ensure consistency
+        try:
             url = reverse(
-                "reports:download_statement_file", args=[obj.statement_file.id]
+                "reports:download_statement_file",
+                args=[obj.statement_file_id],
             )
-            return format_html('<a href="{}" target="_blank">{}</a>', url, filename)
-        return "-"
+            return format_html('<a href="{}">Download</a>', url)
+        except Exception as e:
+            return format_html('<span style="color:red;">Link unavailable</span>')
 
     file_link_column.short_description = "Original File"
     file_link_column.admin_order_field = "file_path"
@@ -1073,8 +1071,6 @@ class TransactionAdmin(admin.ModelAdmin):
         if not queryset:
             messages.error(request, "No transactions selected.")
             return
-
-        # Group transactions by client
         client_transactions = {}
         for transaction in queryset:
             if transaction.client_id not in client_transactions:
@@ -1089,8 +1085,6 @@ class TransactionAdmin(admin.ModelAdmin):
             client_transactions[transaction.client_id]["transaction_ids"].append(
                 transaction.id
             )
-
-        # Create a task for each client's transactions
         for client_id, data in client_transactions.items():
             with db_transaction.atomic():
                 task = ProcessingTask.objects.create(
@@ -1099,14 +1093,17 @@ class TransactionAdmin(admin.ModelAdmin):
                     transaction_count=len(data["transactions"]),
                     status="pending",
                     task_metadata={
-                        "description": f"Batch payee lookup for {len(data['transactions'])} transactions"
+                        "description": f"Batch payee lookup for {len(data['transactions'])} transactions",
+                        "transaction_ids": data["transaction_ids"],
                     },
                 )
-                task.transactions.add(*data["transaction_ids"])
                 messages.success(
                     request,
                     f"Created payee lookup task for client {client_id} with {len(data['transactions'])} transactions",
                 )
+        self.message_user(
+            request, f"Created payee lookup task for selected transactions."
+        )
 
     batch_payee_lookup.short_description = "Create batch payee lookup task"
 
@@ -1115,8 +1112,6 @@ class TransactionAdmin(admin.ModelAdmin):
         if not queryset:
             messages.error(request, "No transactions selected.")
             return
-
-        # Group transactions by client
         client_transactions = {}
         for transaction in queryset:
             if transaction.client_id not in client_transactions:
@@ -1131,8 +1126,6 @@ class TransactionAdmin(admin.ModelAdmin):
             client_transactions[transaction.client_id]["transaction_ids"].append(
                 transaction.id
             )
-
-        # Create a task for each client's transactions
         for client_id, data in client_transactions.items():
             with db_transaction.atomic():
                 task = ProcessingTask.objects.create(
@@ -1141,14 +1134,17 @@ class TransactionAdmin(admin.ModelAdmin):
                     transaction_count=len(data["transactions"]),
                     status="pending",
                     task_metadata={
-                        "description": f"Batch classification for {len(data['transactions'])} transactions"
+                        "description": f"Batch classification for {len(data['transactions'])} transactions",
+                        "transaction_ids": data["transaction_ids"],
                     },
                 )
-                task.transactions.add(*data["transaction_ids"])
                 messages.success(
                     request,
                     f"Created classification task for client {client_id} with {len(data['transactions'])} transactions",
                 )
+        self.message_user(
+            request, f"Created classification task for selected transactions."
+        )
 
     batch_classify.short_description = "Create batch classification task"
 
@@ -1291,6 +1287,46 @@ class TransactionAdmin(admin.ModelAdmin):
         extra_context["save_continue_label"] = "Save"
         return super().changeform_view(
             request, object_id, form_url, extra_context=extra_context
+        )
+
+    # --- Shared agent processing logic for direct and batch flows ---
+    def process_transactions_with_agent(self, agent_name, transaction_ids):
+        from .models import Transaction, Agent
+
+        agent = Agent.objects.get(name=agent_name)
+        results = []
+        for transaction in Transaction.objects.filter(id__in=transaction_ids):
+            response = call_agent(agent.name, transaction)
+            update_fields = get_update_fields_from_response(
+                agent,
+                response,
+                (
+                    getattr(agent, "purpose", "").lower()
+                    if hasattr(agent, "purpose")
+                    else "classification"
+                ),
+            )
+            Transaction.objects.filter(id=transaction.id).update(**update_fields)
+            results.append((transaction.id, update_fields))
+        return results
+
+    # --- Restore direct lookup/classify actions ---
+    @admin.action(description="Lookup payee for selected transactions")
+    def lookup_payee(self, modeladmin, request, queryset):
+        agent_name = "Payee Lookup Agent"
+        transaction_ids = list(queryset.values_list("id", flat=True))
+        self.process_transactions_with_agent(agent_name, transaction_ids)
+        messages.success(
+            request, f"Processed {len(transaction_ids)} transactions with {agent_name}"
+        )
+
+    @admin.action(description="Classify selected transactions")
+    def classify_transactions(self, modeladmin, request, queryset):
+        agent_name = "Classification Agent"
+        transaction_ids = list(queryset.values_list("id", flat=True))
+        self.process_transactions_with_agent(agent_name, transaction_ids)
+        messages.success(
+            request, f"Processed {len(transaction_ids)} transactions with {agent_name}"
         )
 
 
