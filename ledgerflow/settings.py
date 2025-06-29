@@ -1,3 +1,6 @@
+# WARNING: This is the ONLY settings.py used by the running Django site (see app/manage.py)
+# Do NOT edit core/settings.py; it is not used. Consider deleting or archiving it to avoid confusion.
+
 import os
 import environ
 from pathlib import Path
@@ -34,6 +37,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Project apps
     "profiles",
+    "profiles.parsers_utilities",
+    "simple_classifications",
+    "reports",
 ]
 
 MIDDLEWARE = [
