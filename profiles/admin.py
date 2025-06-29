@@ -537,7 +537,7 @@ def call_agent(
                 payee_context = ""
             system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
 
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
 
         # Prepare tools for the API call with proper schema
         tool_definitions = []
@@ -598,6 +598,7 @@ def call_agent(
                 tools = None
             max_tool_calls = 3
             tool_call_count = 0
+            tool_usage = {}  # Track tool name -> count
             while True:
                 payload = {
                     "model": agent.llm.model,
@@ -671,11 +672,12 @@ def call_agent(
                                 "content": json.dumps(tool_result),
                             }
                         )
+                        tool_usage[tool_name] = tool_usage.get(tool_name, 0) + 1
                         tool_call_count += 1
                     continue  # Loop again to get the next LLM response
                 # If the LLM returns a final content message, parse and return it
                 if msg.content:
-                    return json.loads(msg.content)
+                    return json.loads(msg.content), tool_usage
                 logger.error(
                     "LLM returned neither tool_calls nor content. Breaking loop."
                 )
@@ -689,6 +691,9 @@ def call_agent(
     except Exception as e:
         logger.error(f"Error in call_agent: {str(e)}")
         raise
+
+    # All other return paths (including guardrail):
+    return response, tool_usage
 
 
 def process_transactions(modeladmin, request, queryset):
@@ -717,7 +722,7 @@ def process_transactions(modeladmin, request, queryset):
     try:
         agent = Agent.objects.get(id=agent_id)
         for transaction in queryset:
-            response = call_agent(agent.name, transaction)
+            response, tool_usage = call_agent(agent.name, transaction)
             update_fields = get_update_fields_from_response(
                 agent,
                 response,
@@ -726,6 +731,7 @@ def process_transactions(modeladmin, request, queryset):
                     if hasattr(agent, "purpose")
                     else "classification"
                 ),
+                tool_usage=tool_usage,
             )
             logger.info(
                 f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -1239,16 +1245,14 @@ class TransactionAdmin(admin.ModelAdmin):
                     logger.info(
                         f"Processing transaction {transaction.id} with agent {agent.name}"
                     )
-                    response = call_agent(agent.name, transaction)
+                    response, tool_usage = call_agent(agent.name, transaction)
                     logger.info(f"Agent response: {response}")
+                    agent_type = _get_agent_type(agent)
                     update_fields = get_update_fields_from_response(
                         agent,
                         response,
-                        (
-                            getattr(agent, "purpose", "").lower()
-                            if hasattr(agent, "purpose")
-                            else "classification"
-                        ),
+                        agent_type=agent_type,
+                        tool_usage=tool_usage,
                     )
                     logger.info(
                         f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -1298,7 +1302,7 @@ class TransactionAdmin(admin.ModelAdmin):
         agent = Agent.objects.get(name=agent_name)
         results = []
         for transaction in Transaction.objects.filter(id__in=transaction_ids):
-            response = call_agent(agent.name, transaction)
+            response, tool_usage = call_agent(agent.name, transaction)
             update_fields = get_update_fields_from_response(
                 agent,
                 response,
@@ -1307,6 +1311,7 @@ class TransactionAdmin(admin.ModelAdmin):
                     if hasattr(agent, "purpose")
                     else "classification"
                 ),
+                tool_usage=tool_usage,
             )
             Transaction.objects.filter(id=transaction.id).update(**update_fields)
             results.append((transaction.id, update_fields))
@@ -1445,7 +1450,7 @@ class AgentAdmin(admin.ModelAdmin):
             else:
                 payee_context = ""
             system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
         admin_context = self.admin_site.each_context(request)
         log_message = f"Prompt generated using agent: {agent.name} (ID: {agent.id})"
         context = {
@@ -2430,3 +2435,12 @@ def custom_admin_index(request):
 
 
 # --- END PATCH ---
+
+
+def _get_agent_type(agent):
+    name = getattr(agent, "name", "").lower()
+    if "payee" in name:
+        return "payee"
+    if "classif" in name or "escalation" in name:
+        return "classification"
+    raise ValueError(f"Unknown agent type for agent name: {name}")
