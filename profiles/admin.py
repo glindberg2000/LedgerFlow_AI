@@ -1362,26 +1362,103 @@ class AgentAdmin(admin.ModelAdmin):
         agent = get_object_or_404(Agent, pk=agent_id)
         # Use a sample transaction and business profile for context
         transaction = Transaction.objects.first()
-        business_profile = BusinessProfile.objects.first()
-        # Build the prompt as it would be at runtime
-        base_prompt = agent.prompt
-        injected_context = ""
-        if business_profile:
-            injected_context += f"\nBusiness Profile Context:\n{business_profile.business_description}\n"
-        if transaction:
-            injected_context += f"\nTransaction Description: {transaction.description}\nAmount: {transaction.amount}\n"
-        # Add tool instructions
-        tool_instructions = ""
-        for tool in agent.tools.all():
-            tool_instructions += f"\nTool: {tool.name} - {tool.description}"
-        final_prompt = f"{base_prompt}{injected_context}{tool_instructions}"
+        business_profile = (
+            transaction.client if transaction else BusinessProfile.objects.first()
+        )
+        # Build prompt as in call_agent
+        if "payee" in agent.name.lower():
+            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
+            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 2-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (2-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
+        else:
+            from profiles.models import IRSExpenseCategory, BusinessExpenseCategory
+
+            # IRS categories (active, for all relevant worksheets)
+            irs_cats = IRSExpenseCategory.objects.filter(
+                is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
+            ).values("id", "name", "worksheet__name")
+            # Business categories for this client
+            biz_cats = (
+                BusinessExpenseCategory.objects.filter(
+                    is_active=True, business=business_profile
+                ).values("id", "category_name", "worksheet__name")
+                if business_profile
+                else []
+            )
+            allowed_categories = []
+            for cat in irs_cats:
+                allowed_categories.append(
+                    f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
+                )
+            for cat in biz_cats:
+                allowed_categories.append(
+                    f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
+                )
+            allowed_categories += ["Other", "Personal", "Review"]
+            # Build business profile context string
+            business_context_lines = []
+            if business_profile:
+                if business_profile.business_type:
+                    business_context_lines.append(
+                        f"Business Type: {business_profile.business_type}"
+                    )
+                if business_profile.business_description:
+                    business_context_lines.append(
+                        f"Business Description: {business_profile.business_description}"
+                    )
+                if business_profile.contact_info:
+                    business_context_lines.append(
+                        f"Contact Info: {business_profile.contact_info}"
+                    )
+                if business_profile.common_expenses:
+                    business_context_lines.append(
+                        f"Common Expenses: {business_profile.common_expenses}"
+                    )
+                if business_profile.custom_categories:
+                    business_context_lines.append(
+                        f"Custom Categories: {business_profile.custom_categories}"
+                    )
+                if business_profile.industry_keywords:
+                    business_context_lines.append(
+                        f"Industry Keywords: {business_profile.industry_keywords}"
+                    )
+                if business_profile.category_patterns:
+                    business_context_lines.append(
+                        f"Category Patterns: {business_profile.category_patterns}"
+                    )
+                if business_profile.business_rules:
+                    business_context_lines.append(
+                        f"Business Rules: {business_profile.business_rules}"
+                    )
+            business_context = "\n".join(business_context_lines)
+            if business_context:
+                business_context = f"Business Profile Context:\n{business_context}\n"
+            else:
+                business_context = ""
+            # Add payee reasoning if available
+            payee_reasoning = (
+                getattr(transaction, "payee_reasoning", None) if transaction else None
+            )
+            if payee_reasoning:
+                payee_context = (
+                    f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
+                )
+            else:
+                payee_context = ""
+            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+        admin_context = self.admin_site.each_context(request)
+        log_message = f"Prompt generated using agent: {agent.name} (ID: {agent.id})"
+        context = {
+            "agent": agent,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "log_message": log_message,
+        }
+        context.update(admin_context)
         return render(
             request,
             "admin/agent_prompt_preview.html",
-            {
-                "agent": agent,
-                "final_prompt": final_prompt,
-            },
+            context,
         )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
