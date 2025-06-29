@@ -2254,12 +2254,18 @@ class ParsingRunAdmin(admin.ModelAdmin):
     short_error.short_description = "Error Message"
 
 
-# --- RecursionError Patch: Remove custom admin index monkey-patch ---
-# def custom_admin_index(request):
-#     ...
-# old_get_urls = admin.site.get_urls
-# def get_urls():
-#     urls = old_get_urls()
-#     urls = [path("", admin.site.admin_view(custom_admin_index), name="index"), *urls]
-#     return urls
-# admin.site.get_urls = get_urls
+# --- PATCH: Add default app/model list to custom admin dashboard ---
+def custom_admin_index(request):
+    from django.contrib.admin.sites import site
+    from django.contrib.admin.views.main import get_app_list
+
+    context = site.each_context(request)
+    # Add the default app/model list to the context
+    app_list = get_app_list(site, request)
+    context["app_list"] = app_list
+    context["title"] = "LedgerFlow Admin Dashboard"
+    # TODO: Add real stats, batch job status, etc.
+    return render(request, "admin/index.html", context)
+
+
+# --- END PATCH ---
