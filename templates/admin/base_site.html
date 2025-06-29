@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% load i18n %}
+{% load i18n admin_filters %}
 
 {% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
@@ -60,15 +60,7 @@
 </style>
 {% endblock %}
 
-{% block branding %}
-<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
-{% if user.is_anonymous %}
-{% include "admin/color_theme_toggle.html" %}
-{% endif %}
-{% endblock %}
-
 {% block nav-global %}
-{% comment %}
 {% get_admin_nav as nav %}
 <ul class="nav-menu">
     {% for item in nav %}
@@ -86,5 +78,11 @@
     {% endif %}
     {% endfor %}
 </ul>
-{% endcomment %}
+{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_anonymous %}
+{% include "admin/color_theme_toggle.html" %}
+{% endif %}
 {% endblock %}
