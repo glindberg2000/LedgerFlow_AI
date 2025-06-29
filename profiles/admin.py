@@ -1037,11 +1037,18 @@ class TransactionAdmin(admin.ModelAdmin):
 
     def file_link_column(self, obj):
         try:
-            url = reverse(
-                "reports:download_statement_file",
-                args=[obj.statement_file_id],
-            )
-            return format_html('<a href="{}">Download</a>', url)
+            if obj.statement_file and obj.statement_file.original_filename:
+                url = reverse(
+                    "reports:download_statement_file",
+                    args=[obj.statement_file_id],
+                )
+                return format_html(
+                    '<a href="{}" target="_blank">{}</a>',
+                    url,
+                    obj.statement_file.original_filename,
+                )
+            else:
+                return "N/A"
         except Exception as e:
             return format_html('<span style="color:red;">Link unavailable</span>')
 
