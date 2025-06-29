@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "profiles",
     "profiles.parsers_utilities",
     "simple_classifications",
+    "reports",
 ]
 
 MIDDLEWARE = [

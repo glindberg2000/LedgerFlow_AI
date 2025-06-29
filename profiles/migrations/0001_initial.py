@@ -729,26 +729,28 @@ class Migration(migrations.Migration):
             model_name="transactionclassification",
             index=models.Index(
                 fields=["transaction", "created_at"],
-                name="profiles_tr_transac_002390_idx",
+                name="transactionclassification_transaction_createdat_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="transactionclassification",
             index=models.Index(
                 fields=["transaction", "is_active"],
-                name="profiles_tr_transac_a4259e_idx",
+                name="transactionclassification_transaction_isactive_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="transactionclassification",
             index=models.Index(
-                fields=["classification_type"], name="profiles_tr_classif_da697e_idx"
+                fields=["classification_type"],
+                name="transactionclassification_type_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="transactionclassification",
             index=models.Index(
-                fields=["worksheet"], name="profiles_tr_workshe_cd2bdb_idx"
+                fields=["worksheet"],
+                name="transactionclassification_worksheet_idx",
             ),
         ),
     ]

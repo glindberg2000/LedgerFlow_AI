@@ -644,4 +644,35 @@ Refactor the ingestion pipeline to consume the new ParserOutput contract from al
 - After cleanup: Update Task Master tasks and proceed to UI review/cleanup.
 ---
 
-_Last updated: 2025-06-12_ 
+_Last updated: 2025-06-12_
+
+# Migration Chain & DB Reset: Full Debug Log (2025-06-29)
+
+## What Was Fixed
+- Migration chain for `profiles_transactionclassification` was broken by index name mismatches between `0001_initial.py` and `0010_rename_transactionclassification_transaction_createdat_idx_profiles_tr_transac_002390_idx_and_more.py`.
+- Previous attempts failed due to leftover tables/indexes in the DB, even after faking migrations.
+
+## Solution Steps
+1. **Restored correct index names** in `0001_initial.py` to match the old names expected by `RenameIndex` in 0010.
+2. **Reset migration state** with `--fake profiles zero` (did not clear tables).
+3. **Dropped and recreated the `public` schema** in Postgres to fully clear all tables, indexes, and constraints.
+4. **Re-applied all migrations** from scratch. All succeeded with no errors.
+
+## Current State
+- **Django admin loads with no RecursionError** on a clean, empty DB.
+- **No data is present** (expected after full schema drop).
+- **Top navigation is missing**; admin is barebones but functional.
+
+## Open Questions
+- **Data Restoration:** Can we restore data from any backup, or are some tables (e.g., `profiles_statementfile`) missing from all available backups? If so, data loss is permanent for those tables.
+- **Top Nav:** Was the top nav removed in a recent commit, or is it missing due to the DB state? (Check git history for admin template changes.)
+- **Root Cause:** Was the RecursionError caused by DB/index corruption, or by a code/template/admin bug? (Current evidence: DB/index corruption was the main blocker, but nav issues may be unrelated.)
+
+## Next Steps
+- Attempt data restoration from latest backup (if available).
+- Investigate top nav disappearance (compare with previous commits).
+- If admin RecursionError is gone, focus on restoring UI and data.
+
+---
+
+**This log should be shared with DB_Guardian and stored in the project knowledge base.** 
