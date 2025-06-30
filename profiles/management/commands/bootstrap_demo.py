@@ -406,6 +406,21 @@ class Command(BaseCommand):
             self.stdout.write(f"  {k}: {v}")
         self.stdout.write(self.style.SUCCESS("Demo bootstrapping complete!"))
 
+        # Ensure sample_transactions.csv exists by copying from .example if needed
+        bootstrap_dir = os.path.join(os.path.dirname(__file__), "../../bootstrap")
+        bootstrap_dir = os.path.abspath(bootstrap_dir)
+        csv_path = os.path.join(bootstrap_dir, "sample_transactions.csv")
+        csv_example_path = os.path.join(
+            bootstrap_dir, "sample_transactions.csv.example"
+        )
+        if not os.path.exists(csv_path) and os.path.exists(csv_example_path):
+            shutil.copy(csv_example_path, csv_path)
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Copied sample_transactions.csv.example to sample_transactions.csv for demo import."
+                )
+            )
+
         # After config loading, import sample_transactions.csv as a StatementFile and process it
         sample_csv_path = bootstrap_dir / "sample_transactions.csv"
         if not sample_csv_path.exists():
