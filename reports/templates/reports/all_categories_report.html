@@ -2,36 +2,33 @@
 {% block content %}
 <h2>All Categories Report</h2>
 <div style="margin-bottom: 1em;">
-    <a href="/reports/irs/" class="button">IRS 6A</a>
-    <a href="/reports/all_categories/" class="button">All Categories</a>
+    <a href="/admin/reports/reportsproxy/" class="button">&larr; Back to Reports Dashboard</a>
 </div>
-<form method="get">
-    {{ form.as_p }}
-    <input type="submit" value="Filter" />
-</form>
 {% if selected_client %}
-<h3>Client: {{ selected_client.client_id }}</h3>
-<table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
-    <tr>
-        <th>Worksheet</th>
-        <th>Type</th>
-        <th>Category</th>
-        <th>Subtotal</th>
-    </tr>
-    {% for row in category_list %}
-    <tr>
-        <td>{{ row.worksheet }}</td>
-        <td>{{ row.classification_type }}</td>
-        <td>{{ row.category }}</td>
-        <td><a href="{{ row.tx_url }}" target="_blank">${{ row.subtotal|floatformat:2 }}</a></td>
-    </tr>
-    {% endfor %}
-    <tr>
-        <td colspan="3"><strong>Total</strong></td>
-        <td><strong>${{ total|floatformat:2 }}</strong></td>
-    </tr>
-</table>
+    <h3>Client: {{ selected_client.client_id }}</h3>
+    <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
+        <tr>
+            <th>Worksheet</th>
+            <th>Type</th>
+            <th>Category</th>
+            <th>Subtotal</th>
+        </tr>
+        {% for row in category_list %}
+        <tr>
+            <td>{{ row.worksheet }}</td>
+            <td>{{ row.classification_type }}</td>
+            <td>{{ row.category }}</td>
+            <td><a href="{{ row.tx_url }}" target="_blank">${{ row.subtotal|floatformat:2 }}</a></td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td colspan="3"><strong>Total</strong></td>
+            <td><strong>${{ total|floatformat:2 }}</strong></td>
+        </tr>
+    </table>
 {% elif client_id %}
-<p style="color:red;">Client not found.</p>
+    <p style="color:red;">Client not found.</p>
+{% else %}
+    <p>Please select a client from the <a href="/admin/reports/reportsproxy/">reports dashboard</a> to view this report.</p>
 {% endif %}
 {% endblock %}
