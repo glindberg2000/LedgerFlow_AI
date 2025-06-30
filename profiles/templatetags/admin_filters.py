@@ -6,7 +6,7 @@ register = template.Library()
 
 @register.simple_tag(takes_context=True)
 def get_admin_nav(context):
-    app_list = context["available_apps"]
+    app_list = context.get("available_apps", [])
 
     # Streamlined nav structure
     nav_structure = {

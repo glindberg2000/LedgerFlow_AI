@@ -10,6 +10,13 @@ def main():
         sys.exit("Refusing to run mgmt commands directly in prod container.")
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ledgerflow.settings")
+    print("[DIAGNOSTIC] CWD:", os.getcwd())
+    try:
+        from django.conf import settings
+
+        print("[DIAGNOSTIC] DB NAME:", settings.DATABASES["default"]["NAME"])
+    except Exception as e:
+        print("[DIAGNOSTIC] Could not get DB NAME:", e)
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

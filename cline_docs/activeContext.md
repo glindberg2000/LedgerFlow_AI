@@ -676,3 +676,58 @@ _Last updated: 2025-06-12_
 ---
 
 **This log should be shared with DB_Guardian and stored in the project knowledge base.** 
+
+# ACME Corp Demo Bootstrap Plan (Memory Bank)
+
+## Goal
+Create a fully automated, safe, and production-like demo environment for LedgerFlow using a generic ACME Corp profile. This enables zero-friction onboarding, robust testing, and reproducible development for both SQLite and Postgres.
+
+---
+
+## Key Steps
+
+1. **Config Scaffolding**
+   - All demo config/data files live in `profiles/bootstrap/`:
+     - `agents.json` (agent definitions, prompts, model names)
+     - `business_profile.json` (ACME Corp)
+     - `worksheets.json` (IRS 6A worksheet)
+     - `categories_6A.json` (official IRS 6A categories)
+     - `business_expense_categories.json` (sample company-specific categories)
+     - `sample_transactions.csv` (realistic demo transactions)
+     - `field_mapping.json` (LLM-to-model field mapping)
+
+2. **Management Command: `bootstrap_demo`**
+   - Safely wipes or checks the DB (with explicit DB name confirmation and dry-run support).
+   - Loads all config files and creates demo objects (business profile, worksheet, categories, agents).
+   - Copies the sample CSV to the media directory and creates a `StatementFile`.
+   - Invokes the real batch upload/import logic to process the CSV as if uploaded by a user.
+   - Prints a summary and next steps for the user.
+
+3. **Safety & Best Practices**
+   - Prints the exact DB connection string and loaded `.env` file before any destructive action.
+   - Requires the user to type the DB name to confirm wipes.
+   - Supports a `--dry-run` mode for safe preview.
+
+4. **Onboarding & Usage**
+   - README instructions for both SQLite (default, zero-infra) and Postgres (advanced/dev/prod).
+   - One command to bootstrap the demo: `python manage.py bootstrap_demo --force`
+   - All demo data is loaded via the real ingestion pipeline for true end-to-end testing.
+
+5. **Testing & Validation**
+   - After setup, ACME Corp is present with:
+     - IRS 6A worksheet and categories
+     - Business expense categories
+     - Sample transactions linked to a statement file
+   - All admin and user flows work as in production.
+
+---
+
+## Why This Matters
+- **Zero-friction onboarding** for new users and devs
+- **Safe, explicit DB handling** to prevent accidental data loss
+- **Production-like demo** for robust testing and confidence
+- **Easily repeatable** for CI, dev, and onboarding
+
+---
+
+*This plan is now saved in the memory bank as the reference for the current ACME Corp demo bootstrap implementation and onboarding workflow.* 
