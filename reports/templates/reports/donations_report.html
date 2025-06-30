@@ -38,7 +38,7 @@
                         <th style="width: 15%;">Date</th>
                         <th style="width: 45%;">Payee</th>
                         <th style="width: 15%; text-align: right;">Amount</th>
-                        <th style="width: 25%;">Source File</th>
+                        <th style="width: 25%;">Source File <!-- Now a download link to the original statement file --></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -47,7 +47,13 @@
                         <td>{{ tx.transaction_date|date:"Y-m-d" }}</td>
                         <td>{{ tx.payee|default:tx.description }}</td>
                         <td style="text-align: right;">${{ tx.amount|floatformat:2 }}</td>
-                        <td>{{ tx.statement_file.original_filename|default:"N/A" }}</td>
+                        <td>
+                            {% if tx.statement_file %}
+                                <a href="{% url 'reports:download_statement_file' tx.statement_file.id %}" target="_blank">{{ tx.statement_file.original_filename }}</a>
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

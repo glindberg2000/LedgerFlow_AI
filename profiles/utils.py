@@ -215,6 +215,9 @@ def get_update_fields_from_response(agent, response, agent_type, tool_usage=None
     update_fields = dict(response)
 
     if agent_type == "payee":
+        # Map 'reasoning' to 'payee_reasoning' for model update
+        if "reasoning" in update_fields:
+            update_fields["payee_reasoning"] = update_fields.pop("reasoning")
         update_fields["payee_extraction_method"] = method_str
         logger.info(
             f"[Payee] Returning update_fields: {update_fields}, tool_usage: {tool_usage}"
