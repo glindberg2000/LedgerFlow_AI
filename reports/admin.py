@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.contrib.admin.views.decorators import staff_member_required
 from django.utils.html import format_html
 from django.db import models
-from profiles.models import BusinessProfile
+from profiles.models import BusinessProfile, TaxChecklistItem
 from .forms import ClientSelectForm
 from .views import (
     irs_report,
@@ -12,6 +12,7 @@ from .views import (
     interest_income_report,
     donations_report,
 )
+from django.utils.safestring import mark_safe
 
 
 class ReportsProxy(models.Model):
@@ -82,6 +83,7 @@ class ReportsAdmin(admin.ModelAdmin):
         form = ClientSelectForm(request.GET or None)
         selected_client = None
         client_id = request.GET.get("client")
+        tax_year = request.GET.get("tax_year")  # Optionally support year filter
         if client_id:
             try:
                 selected_client = BusinessProfile.objects.get(client_id=client_id)
@@ -114,6 +116,24 @@ class ReportsAdmin(admin.ModelAdmin):
                 "description": "Track charitable donations and contributions",
             },
         ]
+
+        # Add Tax Checklist link if client is selected
+        if selected_client:
+            checklist_url = (
+                reverse("admin:profiles_taxchecklistitem_changelist")
+                + f"?business_profile__id__exact={selected_client.id}"
+            )
+            if tax_year:
+                checklist_url += f"&tax_year__exact={tax_year}"
+            reports_list.append(
+                {
+                    "title": "Tax Checklist",
+                    "url_name": None,
+                    "url": checklist_url,
+                    "icon": "✅",
+                    "description": "View and manage the tax checklist for this client.",
+                }
+            )
 
         # Add client_id to report URLs if a client is selected
         for report in reports_list:

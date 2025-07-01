@@ -53,6 +53,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Ensure all model imports are available in this scope
+        from profiles.models import (
+            BusinessProfile,
+            IRSWorksheet,
+            IRSExpenseCategory,
+            BusinessExpenseCategory,
+        )
+
         force = options["force"]
         dry_run = options["dry_run"]
         quickstart = options["quickstart"]
@@ -194,7 +202,8 @@ class Command(BaseCommand):
                     )
                 )
         # TODO: Load config files, create demo data, run batch upload
-        bootstrap_dir = Path(settings.BASE_DIR) / "profiles" / "bootstrap"
+        bootstrap_dir = Path(os.path.dirname(__file__)) / "../../bootstrap"
+        bootstrap_dir = bootstrap_dir.resolve()
         created = {}
 
         def filter_fields(data, model):
@@ -243,6 +252,9 @@ class Command(BaseCommand):
             # Map 'address' to 'location' if present
             if "address" in bp_data:
                 bp_data["location"] = bp_data.pop("address")
+            # Ensure company_name is always set
+            if "company_name" not in bp_data or not bp_data["company_name"]:
+                bp_data["company_name"] = "ACME Corp"
             bp_data_filtered, bp_ignored = filter_fields(bp_data, BusinessProfile)
             if bp_ignored:
                 self.stdout.write(
@@ -334,13 +346,27 @@ class Command(BaseCommand):
                             f"Ignored fields in business_expense_categories.json: {list(bec_ignored.keys())}"
                         )
                     )
-                obj, _ = BusinessExpenseCategory.objects.get_or_create(
-                    business=bp_obj,
-                    worksheet=worksheet,
-                    parent_category=parent_category,
-                    **bec_filtered,
+                # DEBUG: Print all keys/values before creation
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f"Creating BusinessExpenseCategory: business={bp_obj.client_id}, worksheet={worksheet}, parent_category={parent_category}, data={bec_filtered}"
+                    )
                 )
-                bec_objs.append(obj.category_name)
+                try:
+                    obj, _ = BusinessExpenseCategory.objects.get_or_create(
+                        business=bp_obj,
+                        worksheet=worksheet,
+                        parent_category=parent_category,
+                        **bec_filtered,
+                    )
+                    bec_objs.append(obj.category_name)
+                except Exception as e:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"Error creating BusinessExpenseCategory: {e}\n  business={bp_obj.client_id}, worksheet={worksheet}, parent_category={parent_category}, data={bec_filtered}"
+                        )
+                    )
+                    raise
             created["Business Expense Categories"] = bec_objs
 
             # Load agents.json
@@ -407,8 +433,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Demo bootstrapping complete!"))
 
         # Ensure sample_transactions.csv exists by copying from .example if needed
-        bootstrap_dir = os.path.join(os.path.dirname(__file__), "../../bootstrap")
-        bootstrap_dir = os.path.abspath(bootstrap_dir)
+        bootstrap_dir = Path(os.path.dirname(__file__)) / "../../bootstrap"
+        bootstrap_dir = bootstrap_dir.resolve()
         csv_path = os.path.join(bootstrap_dir, "sample_transactions.csv")
         csv_example_path = os.path.join(
             bootstrap_dir, "sample_transactions.csv.example"

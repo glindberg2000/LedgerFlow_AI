@@ -127,3 +127,59 @@ ledgerflow/
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Demo Bootstrap & Quickstart
+
+LedgerFlow provides a fully automated demo environment for onboarding, testing, and development. All demo data and config files are in `profiles/bootstrap/`.
+
+**To bootstrap the demo environment:**
+
+- **Quickstart (recommended for local/dev):**
+  ```bash
+  python manage.py bootstrap_demo --quickstart
+  ```
+  - Uses a new SQLite DB (`demo_bootstrap.sqlite3`), runs all migrations, and loads demo data with no prompts.
+
+- **Force wipe and reload demo data:**
+  ```bash
+  python manage.py bootstrap_demo --force
+  ```
+  - Wipes all data in the current DB (asks for DB name confirmation), then loads demo data.
+
+- **Other options:**
+  - `--sqlite`: Always use a new SQLite DB for demo, regardless of settings.
+  - `--dry-run`: Show what would be done, but make no changes.
+  - `--i-understand-danger`: (DANGEROUS) Allow destructive actions on non-SQLite DBs.
+
+**Demo superuser credentials:**
+- Username: `demo`
+- Password: `demo1234`
+- **Change this password immediately in any real deployment!**
+
+**Required files in `profiles/bootstrap/`:**
+- `business_profile.json`
+- `worksheets.json`
+- `categories_6A.json`
+- `business_expense_categories.json`
+- `agents.json`
+- `field_mapping.json`
+- `sample_transactions.csv.example`
+- `tax_checklist_index.json`
+
+**What the bootstrap command does:**
+- Loads all demo config/data from `profiles/bootstrap/`
+- Creates demo objects: business profile, worksheets, categories, agents, and demo transactions
+- Creates a demo superuser (`demo`/`demo1234`)
+- Prints a summary of what was created
+
+**Typical usage patterns:**
+
+| Flag                   | What it does                                                                                      |
+|------------------------|---------------------------------------------------------------------------------------------------|
+| `--force`              | Wipes all data and reloads demo config. Requires DB name confirmation unless used with `--quickstart`. |
+| `--quickstart`/`--yes` | Zero-friction: skips all prompts, uses defaults, and auto-creates a new SQLite DB if needed.      |
+| `--sqlite`             | Forces use of a new SQLite DB for demo onboarding, regardless of current settings.                |
+| `--dry-run`            | Shows what would be done, but makes no changes.                                                   |
+| `--i-understand-danger`| (DANGEROUS) Allows destructive actions on non-SQLite DBs. Use only if you are 100% sure.          |
+
+After bootstrapping, you can log in and explore the app with realistic demo data. For more details, see the code in `profiles/management/commands/bootstrap_demo.py`.
