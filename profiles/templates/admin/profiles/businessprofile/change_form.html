@@ -1,0 +1,20 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block content %}
+  {{ block.super }}
+{% endblock %}
+
+{% block after_related_objects %}
+  {% if bottom_checklist_ui %}
+    {{ bottom_checklist_ui|safe }}
+  {% endif %}
+{% endblock %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    #checklist-controls { display: flex; align-items: center; gap: 1em; }
+    #tax_year_select { min-width: 80px; }
+  </style>
+{% endblock %} 

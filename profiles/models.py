@@ -9,6 +9,8 @@ import hashlib
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
+from django.conf import settings
+import re
 
 # Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
 CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
@@ -19,7 +21,22 @@ PAYEE_EXTRACTION_METHOD_UNPROCESSED = "None"
 
 
 class BusinessProfile(models.Model):
-    client_id = models.CharField(max_length=255, primary_key=True)
+    # Default 'id' integer PK is used
+    client_id = models.CharField(
+        max_length=64,
+        unique=True,
+        editable=False,
+        blank=False,
+        null=False,
+        help_text="Unique, URL-safe identifier for this client. Used for lookups and URLs, but not the primary key.",
+    )
+    company_name = models.CharField(
+        max_length=255,
+        blank=False,
+        null=False,
+        default="ACME Corp",
+        help_text="Human-friendly business name. Editable.",
+    )
     business_type = models.TextField(blank=True, null=True)
     business_description = models.TextField(blank=True, null=True)
     contact_info = models.TextField(blank=True, null=True)
@@ -38,7 +55,16 @@ class BusinessProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Business Profile for client {self.client_id}"
+        return self.company_name
+
+    def clean(self):
+        # Ensure client_id is URL-safe
+        if not re.match(r"^[a-zA-Z0-9_-]+$", self.client_id):
+            raise ValidationError(
+                {
+                    "client_id": "Client ID must be URL-safe (letters, numbers, underscores, hyphens only)."
+                }
+            )
 
 
 class ClientExpenseCategory(models.Model):
@@ -629,3 +655,45 @@ class ParsingRun(models.Model):
 def delete_statementfile_file(sender, instance, **kwargs):
     if instance.file:
         instance.file.delete(save=False)
+
+
+class TaxChecklistItem(models.Model):
+    STATUS_CHOICES = [
+        ("not_started", "Not Started"),
+        ("in_progress", "In Progress"),
+        ("complete", "Complete"),
+        ("needs_review", "Needs Review"),
+    ]
+
+    business_profile = models.ForeignKey(
+        BusinessProfile, on_delete=models.CASCADE, related_name="tax_checklist_items"
+    )
+    tax_year = models.CharField(
+        max_length=8
+    )  # e.g., "2023"; change to FK if you have a TaxYear model
+    form_code = models.CharField(max_length=10)
+    enabled = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="not_started"
+    )
+    notes = models.TextField(blank=True, null=True)
+    attachments = models.FileField(
+        upload_to="tax_checklist_attachments/", blank=True, null=True
+    )
+    current_year_value = models.TextField(blank=True, null=True)
+    date_modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("business_profile", "tax_year", "form_code")
+        verbose_name = "Tax Checklist Item"
+        verbose_name_plural = "Tax Checklist Items"
+        ordering = ["business_profile", "tax_year", "form_code"]
+
+    def __str__(self):
+        return f"{self.business_profile} - {self.tax_year} - {self.form_code} ({self.get_status_display()})"
+
+    @classmethod
+    def enabled_for_client_year(cls, business_profile, tax_year):
+        return cls.objects.filter(
+            business_profile=business_profile, tax_year=tax_year, enabled=True
+        )

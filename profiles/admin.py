@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.template.loader import render_to_string
 
 admin.site.site_header = "LedgerFlow Admin"
 admin.site.site_title = "LedgerFlow Admin"
@@ -20,6 +21,7 @@ from .models import (
     CLASSIFICATION_METHOD_UNCLASSIFIED,
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
+    TaxChecklistItem,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -60,6 +62,8 @@ import pandas as pd
 import tempfile
 from django.core.files import File
 from profiles.parsers_utilities.models import ImportedParser
+from .bootstrap import load_canonical_tax_checklist_index
+import urllib.parse
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -80,76 +84,10 @@ logger.addHandler(handler)
 
 
 class BusinessProfileAdminForm(forms.ModelForm):
-    business_description = forms.CharField(
-        required=True,
-        widget=forms.Textarea(attrs={"rows": 3, "cols": 60}),
-        help_text="Describe your business in your own words. The AI will generate the rest of your business profile.",
-    )
-    contact_info = forms.CharField(
-        required=False,
-        widget=forms.Textarea(attrs={"rows": 2, "cols": 60}),
-        help_text="Contact information for the business (optional).",
-    )
-    common_expenses = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    custom_categories = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    industry_keywords = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    category_patterns = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    business_rules = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-
     class Meta:
         model = BusinessProfile
         fields = [
-            "client_id",
+            "company_name",
             "contact_info",
             "business_description",
             "common_expenses",
@@ -161,33 +99,97 @@ class BusinessProfileAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field in [
-            "common_expenses",
-            "custom_categories",
-            "industry_keywords",
-            "category_patterns",
-            "business_rules",
-        ]:
-            val = getattr(self.instance, field, None)
-            if val:
-                if isinstance(val, dict):
-                    val = ", ".join(f"{k}: {v}" for k, v in val.items())
-                elif isinstance(val, list):
-                    val = ", ".join(str(x) for x in val)
-                elif isinstance(val, str):
-                    val = val.replace("{", "").replace("}", "")
-                    val = ", ".join([v.strip() for v in val.split(",") if v.strip()])
-                # Ensure only one space after each comma (UI formatting)
-                val = re.sub(r",\s*", ", ", val)
-            else:
-                val = ""
-            self.fields[field].initial = val
+        # client_id is not editable, but we can show it as a readonly/display field in the admin if needed
+
+
+class TaxChecklistItemInline(admin.TabularInline):
+    model = TaxChecklistItem
+    extra = 0
+    can_delete = False
+    show_change_link = False
+    fields = (
+        "form_code",
+        "tax_year",
+        "description",
+        "entry_type",
+        "enabled",
+        "status",
+        "notes",
+    )
+    readonly_fields = ("form_code", "tax_year", "description", "entry_type")
+
+    verbose_name = "Tracked Form"
+    verbose_name_plural = "Tracked Forms"
+
+    def has_add_permission(self, request, obj=None):
+        # Remove the default 'Add another Tracked Form' button
+        return False
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        year = request.GET.get("tax_year")
+        show_all = request.GET.get("show_all") == "1"
+        if not year:
+            year = str(datetime.now().year - 1)
+        qs = qs.filter(tax_year=year)
+        if not show_all:
+            qs = qs.filter(enabled=True)
+        return qs
+
+    def formfield_for_dbfield(self, db_field, **kwargs):
+        field = super().formfield_for_dbfield(db_field, **kwargs)
+        if db_field.name == "enabled":
+            field.label = "Tracked"
+        return field
+
+    def description(self, obj):
+        canonical = load_canonical_tax_checklist_index()
+        meta = canonical.get(obj.form_code, {})
+        return meta.get("label", "")
+
+    def entry_type(self, obj):
+        canonical = load_canonical_tax_checklist_index()
+        meta = canonical.get(obj.form_code, {})
+        return meta.get("entry_type", "manual_entry")
+
+    # Add select all/deselect all actions (render as custom HTML above the inline)
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        # Inject custom JS or HTML for select all/deselect all if needed
+        return formset
+
+
+@admin.register(TaxChecklistItem)
+class TaxChecklistItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_profile",
+        "tax_year",
+        "form_code",
+        "enabled",
+        "status",
+        "date_modified",
+    )
+    list_filter = ("tax_year", "enabled", "status")
+    search_fields = ("form_code", "notes")
+    autocomplete_fields = ("business_profile",)
+    ordering = ("business_profile", "tax_year", "form_code")
+    # Placeholder for custom action/dropdown to add forms from canonical checklist
+
+
+class AddFormToChecklistForm(forms.Form):
+    form_code = forms.ChoiceField(label="Add Form to Checklist")
+
+    def __init__(self, *args, **kwargs):
+        available_forms = kwargs.pop("available_forms", [])
+        super().__init__(*args, **kwargs)
+        self.fields["form_code"].choices = available_forms
 
 
 @admin.register(BusinessProfile)
 class BusinessProfileAdmin(admin.ModelAdmin):
     form = BusinessProfileAdminForm
     list_display = (
+        "company_name",
         "client_id",
         "business_type",
         "statement_files_count",
@@ -195,13 +197,17 @@ class BusinessProfileAdmin(admin.ModelAdmin):
         "short_business_description",
         "contact_info",
     )
-    search_fields = ("client_id", "business_description")
+    search_fields = ("company_name", "client_id", "business_description")
     fieldsets = (
         (
             "User-Defined Profile",
             {
-                "fields": ("client_id", "contact_info", "business_description"),
-                "description": "Enter the client ID, contact info, and a business description. The AI will generate the rest.",
+                "fields": (
+                    "company_name",
+                    "contact_info",
+                    "business_description",
+                ),
+                "description": "Client ID is a non-editable, URL-safe identifier. Company name is editable. Enter contact info and a business description. The AI will generate the rest.",
             },
         ),
         (
@@ -218,6 +224,8 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             },
         ),
     )
+    readonly_fields = ("client_id",)
+    inlines = [TaxChecklistItemInline]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -226,6 +234,16 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 "<path:object_id>/generate_ai/",
                 self.admin_site.admin_view(self.generate_ai_profile_view),
                 name="profiles_businessprofile_generate_ai",
+            ),
+            path(
+                "<path:object_id>/add_checklist_form/",
+                self.admin_site.admin_view(self.add_checklist_form_view),
+                name="profiles_businessprofile_add_checklist_form",
+            ),
+            path(
+                "<path:object_id>/init_checklist/<str:year>/",
+                self.admin_site.admin_view(self.init_checklist_view),
+                name="init_checklist",
             ),
         ]
         return custom_urls + urls
@@ -367,6 +385,64 @@ Do NOT include any explanation or text outside the JSON.
 
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
 
+    def add_checklist_form_view(self, request, object_id):
+        business_profile = self.get_object(request, object_id)
+        tax_year = request.GET.get("tax_year") or "2023"  # Default year logic
+        canonical = load_canonical_tax_checklist_index()
+        existing_codes = set(
+            TaxChecklistItem.objects.filter(
+                business_profile=business_profile, tax_year=tax_year
+            ).values_list("form_code", flat=True)
+        )
+        available_forms = [
+            (code, f"{code}: {meta['label']}")
+            for code, meta in canonical.items()
+            if code not in existing_codes
+        ]
+        if request.method == "POST":
+            form = AddFormToChecklistForm(request.POST, available_forms=available_forms)
+            if form.is_valid():
+                form_code = form.cleaned_data["form_code"]
+                meta = canonical[form_code]
+                TaxChecklistItem.objects.create(
+                    business_profile=business_profile,
+                    tax_year=tax_year,
+                    form_code=form_code,
+                    enabled=True,
+                    status="not_started",
+                    notes=f"{meta.get('label', '')} | Topic: {meta.get('topic', '')} | Entry type: {meta.get('entry_type', '')}",
+                )
+                messages.success(request, f"Form {form_code} added to checklist.")
+                return redirect(f"../../{object_id}/change/?tax_year={tax_year}")
+        else:
+            form = AddFormToChecklistForm(available_forms=available_forms)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            business_profile=business_profile,
+            tax_year=tax_year,
+        )
+        return TemplateResponse(request, "admin/add_checklist_form.html", context)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Auto-initialize checklist for this client/year if not present
+        tax_year = request.GET.get("tax_year") or "2023"
+        if not TaxChecklistItem.objects.filter(
+            business_profile=obj, tax_year=tax_year
+        ).exists():
+            canonical = load_canonical_tax_checklist_index()
+            for code, meta in canonical.items():
+                enabled = True if code == "6A" else False
+                TaxChecklistItem.objects.create(
+                    business_profile=obj,
+                    tax_year=tax_year,
+                    form_code=code,
+                    enabled=enabled,
+                    status="not_started",
+                    notes=f"{meta.get('label', '')} | Topic: {meta.get('topic', '')} | Entry type: {meta.get('entry_type', '')}",
+                )
+
     def statement_files_count(self, obj):
         return obj.statement_files.count()
 
@@ -382,6 +458,107 @@ Do NOT include any explanation or text outside the JSON.
         return desc[:40] + ("..." if len(desc) > 40 else "")
 
     short_business_description.short_description = "Business Description"
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        year = request.GET.get("tax_year")
+        current_year = datetime.now().year
+        if not year:
+            year = str(current_year - 1)
+        allowed_years = [str(current_year - i) for i in range(4)]
+        if year not in allowed_years:
+            allowed_years.append(year)
+        allowed_years = sorted(set(allowed_years), reverse=True)
+        extra_context = extra_context or {}
+        extra_context["tax_year"] = year
+        extra_context["tax_years"] = allowed_years
+        # Checklist init/reset button logic
+        checklist_qs = TaxChecklistItem.objects.filter(
+            business_profile_id=object_id, tax_year=year
+        )
+        show_init = not checklist_qs.exists()
+        extra_context["show_init_checklist"] = show_init
+        extra_context["show_reset_checklist"] = checklist_qs.exists()
+        extra_context["init_checklist_url"] = reverse(
+            "admin:init_checklist", args=[object_id, year]
+        )
+        # Add form dropdown logic
+        profile = BusinessProfile.objects.get(pk=object_id)
+        tracked_codes = set(
+            TaxChecklistItem.objects.filter(
+                business_profile=profile, tax_year=year, enabled=True
+            ).values_list("form_code", flat=True)
+        )
+        canonical = load_canonical_tax_checklist_index()
+        available_forms = [
+            (code, f"{code}: {meta.get('label', '')}")
+            for code, meta in canonical.items()
+            if code not in tracked_codes
+        ]
+        add_form = AddFormToChecklistForm(available_forms=available_forms)
+        if request.method == "POST" and "add_checklist_form" in request.POST:
+            add_form = AddFormToChecklistForm(
+                request.POST, available_forms=available_forms
+            )
+            if add_form.is_valid():
+                form_code = add_form.cleaned_data["form_code"]
+                TaxChecklistItem.objects.update_or_create(
+                    business_profile=profile,
+                    tax_year=year,
+                    form_code=form_code,
+                    defaults={"enabled": True, "status": "not_started"},
+                )
+                return redirect(f"{request.path}?tax_year={year}")
+        extra_context["add_checklist_form"] = add_form
+        # Instead of building checklist_html as a string, render a template partial
+        checklist_context = {
+            "add_checklist_form": add_form,
+            "tax_years": allowed_years,
+            "tax_year": year,
+            "show_all": request.GET.get("show_all", "0"),
+            "init_checklist_url": reverse(
+                "admin:init_checklist", args=[object_id, year]
+            ),
+            "show_init_checklist": show_init,
+            "show_reset_checklist": checklist_qs.exists(),
+        }
+        checklist_html = render_to_string(
+            "admin/profiles/businessprofile/_checklist_controls.html",
+            checklist_context,
+            request=request,
+        )
+        extra_context["bottom_checklist_ui"] = checklist_html
+        return super().change_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
+
+    def init_checklist_view(self, request, object_id, year):
+        profile = get_object_or_404(BusinessProfile, pk=object_id)
+        # Delete existing items for this year
+        TaxChecklistItem.objects.filter(
+            business_profile=profile, tax_year=year
+        ).delete()
+        canonical = load_canonical_tax_checklist_index()
+        items = []
+        for form_code in canonical:
+            enabled = form_code == "6A"
+            items.append(
+                TaxChecklistItem(
+                    business_profile=profile,
+                    tax_year=year,
+                    form_code=form_code,
+                    enabled=enabled,
+                    status="not_started",
+                )
+            )
+        TaxChecklistItem.objects.bulk_create(items)
+        messages.success(
+            request, f"Checklist for year {year} has been initialized/reset."
+        )
+        url = (
+            reverse("admin:profiles_businessprofile_change", args=[object_id])
+            + f"?tax_year={year}"
+        )
+        return HttpResponseRedirect(url)
 
 
 class ClientFilter(admin.SimpleListFilter):
@@ -1473,11 +1650,32 @@ class AgentAdmin(admin.ModelAdmin):
         )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
+        # Decode object_id to get client_id
+        client_id = urllib.parse.unquote(object_id).replace("_5F", "_")
+        year = request.GET.get("tax_year")
+        if not year:
+            year = str(datetime.now().year - 1)
+        profile = BusinessProfile.objects.get(pk=client_id)
+        allowed_years = [str(datetime.now().year - i) for i in range(4)]
+        if year not in allowed_years:
+            allowed_years.append(year)
+        allowed_years = sorted(set(allowed_years), reverse=True)
         extra_context = extra_context or {}
-        extra_context["preview_prompt_url"] = (
-            f"/admin/profiles/agent/{object_id}/preview_prompt/"
+        extra_context["tax_year"] = year
+        extra_context["tax_years"] = allowed_years
+        # Checklist init/reset button logic
+        checklist_qs = TaxChecklistItem.objects.filter(
+            business_profile_id=client_id, tax_year=year
         )
-        return super().change_view(request, object_id, form_url, extra_context)
+        show_init = not checklist_qs.exists()
+        extra_context["show_init_checklist"] = show_init
+        extra_context["show_reset_checklist"] = checklist_qs.exists()
+        extra_context["init_checklist_url"] = reverse(
+            "admin:init_checklist", args=[client_id, year]
+        )
+        return super().change_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
 
 
 @admin.register(Tool)
@@ -1556,6 +1754,30 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
     )
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
 
+    @admin.display(description="Status")
+    def status_with_progress(self, obj):
+        status = obj.status
+        badge_map = {
+            "pending": ("⏳ Pending", "background:#f6c23e;color:#fff;"),
+            "processing": ("🔄 Processing", "background:#36b9cc;color:#fff;"),
+            "completed": ("✅ Completed", "background:#1cc88a;color:#fff;"),
+            "failed": ("❌ Failed", "background:#e74a3b;color:#fff;"),
+        }
+        label, style = badge_map.get(status, (status.title(), ""))
+        badge_html = f'<span style="font-weight:bold;padding:0.2em 0.7em;border-radius:1em;{style}font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;">{label}</span>'
+        progress_html = ""
+        if status == "processing":
+            processed = getattr(obj, "processed_count", 0) or 0
+            total = getattr(obj, "transaction_count", 0) or 0
+            percent = int((processed / total) * 100) if total > 0 else 0
+            progress_html = f"""
+                <div style="border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;height:20px;width:200px;margin-top:5px;">
+                  <div style="background:#79aec8;height:100%;width:{percent}%;transition:width 0.3s ease;"></div>
+                </div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">{processed} / {total}</div>
+            """
+        return mark_safe(badge_html + progress_html)
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         task = self.get_object(request, object_id)
@@ -1591,862 +1813,3 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         return super().change_view(
             request, object_id, form_url, extra_context=extra_context
         )
-
-    def run_task(self, request, queryset):
-        """Execute the selected task and show progress."""
-        if queryset.count() > 1:
-            messages.error(request, "Please select only one task to run at a time.")
-            return
-
-        task = queryset.first()
-        if task.status != "pending":
-            messages.error(request, f"Task {task.task_id} is not in pending state.")
-            return
-
-        # Create log file first
-        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
-        log_file.parent.mkdir(exist_ok=True)
-        with open(log_file, "w") as f:
-            f.write(f"[{timezone.now()}] [INFO] Starting task {task.task_id}\n")
-
-        try:
-            # Verify the task exists and is in pending state
-            task.refresh_from_db()
-            if task.status != "pending":
-                messages.error(request, f"Task {task.task_id} is not in pending state.")
-                return
-
-            # Update task status to processing and commit it
-            with db_transaction.atomic():
-                task.status = "processing"
-                task.started_at = timezone.now()
-                task.save(force_update=True)
-
-            # Start the task processing command
-            python_executable = sys.executable
-            # Always use the manage.py in the LedgerFlow project root
-            manage_py = str(Path(settings.BASE_DIR) / "manage.py")
-            cmd = [
-                python_executable,
-                manage_py,
-                "process_task",
-                str(task.task_id),
-                "--log-file",
-                str(log_file),
-            ]
-
-            # Set up environment variables
-            env = os.environ.copy()
-            project_root = str(Path(settings.BASE_DIR).parent)
-            env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
-            env["DJANGO_SETTINGS_MODULE"] = "ledgerflow.settings"
-
-            # Start the process in the background
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                cwd=str(settings.BASE_DIR),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                start_new_session=True,
-                bufsize=1,
-            )
-
-            # Log the process start
-            logger.info(f"Started task {task.task_id} with PID {process.pid}")
-            self.message_user(request, f"Started task {task.task_id}")
-
-            # Start a thread to read the output
-            def read_output():
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        logger.info(output.strip())
-                        with open(log_file, "a") as f:
-                            f.write(output)
-
-            import threading
-
-            output_thread = threading.Thread(target=read_output)
-            output_thread.daemon = True
-            output_thread.start()
-
-            # Start a thread to read errors
-            def read_errors():
-                while True:
-                    error = process.stderr.readline()
-                    if error == "" and process.poll() is not None:
-                        break
-                    if error:
-                        logger.error(error.strip())
-                        with open(log_file, "a") as f:
-                            f.write(f"[ERROR] {error}")
-
-            error_thread = threading.Thread(target=read_errors)
-            error_thread.daemon = True
-            error_thread.start()
-
-            # Wait for the process to complete
-            def wait_for_process():
-                process.wait()
-                if process.returncode != 0:
-                    logger.error(
-                        f"Task {task.task_id} failed with return code {process.returncode}"
-                    )
-                    # Update task status to failed if the process failed
-                    task.refresh_from_db()
-                    if task.status == "processing":
-                        task.status = "failed"
-                        task.error_details = {
-                            "error": f"Process failed with return code {process.returncode}"
-                        }
-                        task.save(force_update=True)
-
-            # Start the wait thread
-            wait_thread = threading.Thread(target=wait_for_process)
-            wait_thread.daemon = True
-            wait_thread.start()
-
-        except Exception as e:
-            logger.error(f"Failed to start task {task.task_id}: {str(e)}")
-            task.status = "failed"
-            task.error_details = {"error": str(e)}
-            task.save(force_update=True)
-            self.message_user(
-                request, f"Failed to start task: {str(e)}", level=messages.ERROR
-            )
-
-    run_task.short_description = "Run selected task"
-
-    def retry_failed_tasks(self, request, queryset):
-        """Retry failed processing tasks."""
-        for task in queryset.filter(status="failed"):
-            task.status = "pending"
-            task.error_count = 0
-            task.error_details = {}
-            task.save()
-            messages.success(request, f"Retrying task {task.task_id}")
-        messages.success(
-            request, f"Retried {queryset.filter(status='failed').count()} failed tasks"
-        )
-
-    retry_failed_tasks.short_description = "Retry failed tasks"
-
-    def cancel_tasks(self, request, queryset):
-        """Cancel selected processing tasks."""
-        for task in queryset.filter(status__in=["pending", "processing"]):
-            task.status = "failed"
-            task.error_details = {
-                "cancelled": True,
-                "cancelled_at": str(datetime.now()),
-            }
-            task.save()
-            messages.success(request, f"Cancelled task {task.task_id}")
-        messages.success(
-            request,
-            f"Cancelled {queryset.filter(status__in=['pending', 'processing']).count()} tasks",
-        )
-
-    cancel_tasks.short_description = "Cancel selected tasks"
-
-    def view_task_transactions(self, request, task_id):
-        """View transactions associated with a processing task."""
-        task = get_object_or_404(ProcessingTask, task_id=task_id)
-        transactions = task.transactions.all()
-        return render(
-            request,
-            "admin/processing_task_transactions.html",
-            context={
-                "task": task,
-                "transactions": transactions,
-                "title": f"Transactions for Task {task_id}",
-                "opts": self.model._meta,
-            },
-        )
-
-    def status_with_progress(self, obj):
-        # Status badge
-        status = obj.status
-        badge_map = {
-            "pending": ("⏳ Pending", "background:#f6c23e;color:#fff;"),
-            "processing": ("🔄 Processing", "background:#36b9cc;color:#fff;"),
-            "completed": ("✅ Completed", "background:#1cc88a;color:#fff;"),
-            "failed": ("❌ Failed", "background:#e74a3b;color:#fff;"),
-        }
-        label, style = badge_map.get(status, (status.title(), ""))
-        badge_html = f'<span style="font-weight:bold;padding:0.2em 0.7em;border-radius:1em;{style}font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;">{label}</span>'
-        # Progress bar for processing
-        progress_html = ""
-        if status == "processing":
-            processed = obj.processed_count or 0
-            total = obj.transaction_count or 0
-            percent = int((processed / total) * 100) if total > 0 else 0
-            progress_html = f"""
-                <div style="border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;height:20px;width:200px;margin-top:5px;">
-                  <div style="background:#79aec8;height:100%;width:{percent}%;transition:width 0.3s ease;"></div>
-                </div>
-                <div style="font-size:12px;color:#666;margin-top:2px;">{processed} / {total}</div>
-            """
-        return mark_safe(badge_html + progress_html)
-
-    status_with_progress.short_description = "Status"
-    status_with_progress.allow_tags = True
-
-
-# Restore the original StatementFileAdminForm for single-file upload
-class StatementFileAdminForm(forms.ModelForm):
-    file = forms.FileField(
-        widget=forms.ClearableFileInput(), required=True, label="Upload File"
-    )
-
-    class Meta:
-        model = StatementFile
-        fields = [
-            "client",
-            "file",
-            "file_type",
-            "bank",
-            "account_number",
-            "year",
-            "month",
-            "status",
-            "status_detail",
-        ]
-
-
-def get_parser_module_choices():
-    try:
-        sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
-        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
-
-        autodiscover_parsers()
-        registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
-        registry = getattr(registry_mod, "ParserRegistry")
-        parser_names = list(getattr(registry, "_parsers", {}).keys())
-        # Add 'autodetect' as the default option
-        return [("autodetect", "Autodetect (Recommended)")] + [
-            (name, name) for name in parser_names
-        ]
-    except Exception as e:
-        print(f"[DEBUG] Exception in get_parser_module_choices: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return [("autodetect", "Autodetect (Recommended)")]
-
-
-# Restore the batch uploader form (no multiple=True in widget)
-class BatchStatementFileUploadForm(forms.Form):
-    client = forms.ModelChoiceField(
-        queryset=BusinessProfile.objects.all(), required=True
-    )
-    file_type = forms.ChoiceField(
-        choices=StatementFile._meta.get_field("file_type").choices, required=True
-    )
-    parser_module = forms.ChoiceField(
-        choices=[], required=False, label="Parser Module (optional)"
-    )
-    account_number = forms.CharField(label="Account Number (optional)", required=False)
-    auto_parse = forms.BooleanField(
-        label="Auto-parse and create transactions on upload",
-        required=False,
-        initial=True,
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["parser_module"].choices = get_parser_module_choices()
-
-
-@admin.register(StatementFile)
-class StatementFileAdmin(admin.ModelAdmin):
-    form = StatementFileAdminForm
-    list_display = (
-        "client_name_column",
-        "original_filename_link",
-        "file_type",
-        "source_column",
-        "status",
-        "upload_timestamp",
-        "uploaded_by",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "account_type",
-        "statement_period_start",
-        "statement_period_end",
-        "statement_date",
-        "year",
-        "month",
-        "extra_metadata_column",
-        "status_detail",
-    )
-    list_filter = (
-        "client",
-        "file_type",
-        "parser_module",
-        "status",
-        "year",
-        "month",
-        "bank",
-        NeedsAccountNumberFilter,
-    )
-    search_fields = (
-        "original_filename",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "status_detail",
-    )
-    readonly_fields = (
-        "upload_timestamp",
-        "uploaded_by",
-        "parsed_metadata",
-        "parser_module",
-        "file_link",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "account_type",
-        "statement_period_start",
-        "statement_period_end",
-        "statement_date",
-        "year",
-        "month",
-        "status_detail",
-    )
-    fieldsets = (
-        (
-            None,
-            {
-                "fields": [
-                    "client",
-                    "file",
-                    "file_type",
-                    "parser_module",
-                    "status",
-                    "status_detail",
-                    "bank",
-                    "account_number",
-                    "account_holder_name",
-                    "address",
-                    "account_type",
-                    "statement_period_start",
-                    "statement_period_end",
-                    "statement_date",
-                    "year",
-                    "month",
-                    "upload_timestamp",
-                    "uploaded_by",
-                    "parsed_metadata",
-                    "file_link",
-                ]
-            },
-        ),
-    )
-    actions = [
-        "batch_set_account_number",
-    ]
-
-    def source_column(self, obj):
-        return obj.parser_module
-
-    source_column.short_description = "Source"
-    source_column.admin_order_field = "parser_module"
-
-    def client_name_column(self, obj):
-        return obj.client.client_id if obj.client else "-"
-
-    client_name_column.short_description = "Client"
-    client_name_column.admin_order_field = "client__client_id"
-
-    def extra_metadata_column(self, obj):
-        extra = obj.parsed_metadata or getattr(obj, "extra", None)
-        if extra and isinstance(extra, dict) and extra:
-            # Compact JSON for title attribute (browser tooltip)
-            tooltip = json.dumps(extra, separators=(",", ": "))
-            return format_html(
-                '<span title="{}" style="cursor:pointer;">&#9776;</span>', tooltip
-            )
-        return ""
-
-    extra_metadata_column.short_description = "Extra Metadata"
-    extra_metadata_column.allow_tags = True
-
-    def original_filename_link(self, obj):
-        if obj.file:
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>',
-                obj.file.url,
-                obj.original_filename,
-            )
-        return obj.original_filename or "-"
-
-    original_filename_link.short_description = "Original Filename"
-    original_filename_link.admin_order_field = "original_filename"
-
-    def file_link(self, obj):
-        if obj.file and hasattr(obj.file, "url"):
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>', obj.file.url, obj.file.name
-            )
-        return "No file uploaded"
-
-    file_link.short_description = "File Download Link"
-
-    @admin.action(description="Batch set account number for selected statement files")
-    def batch_set_account_number(self, request, queryset):
-        from django import forms
-
-        class AccountNumberForm(forms.Form):
-            account_number = forms.CharField(label="Account Number", required=True)
-
-        if "apply" in request.POST:
-            form = AccountNumberForm(request.POST)
-            if form.is_valid():
-                account_number = form.cleaned_data["account_number"]
-                updated = queryset.update(
-                    account_number=account_number, needs_account_number=False
-                )
-                self.message_user(
-                    request, f"Set account number for {updated} statement files."
-                )
-                return
-        else:
-            form = AccountNumberForm()
-        return render(
-            request,
-            "admin/batch_set_account_number.html",
-            {"form": form, "queryset": queryset},
-        )
-
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        from django.urls import reverse
-
-        extra_context["batch_upload_url"] = reverse(
-            "admin:profiles_statementfile_batch_upload"
-        )
-        return super().changelist_view(request, extra_context=extra_context)
-
-    def batch_upload_view(self, request):
-        if request.method == "POST":
-            form = BatchStatementFileUploadForm(request.POST, request.FILES)
-            if form.is_valid():
-                client = form.cleaned_data["client"]
-                file_type = form.cleaned_data["file_type"]
-                parser_module = form.cleaned_data["parser_module"]
-                account_number = form.cleaned_data["account_number"]
-                auto_parse = form.cleaned_data["auto_parse"]
-                files = request.FILES.getlist("files")
-                uploaded_by = request.user if request.user.is_authenticated else None
-                results = []
-                import sys
-
-                sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
-                from dataextractai.parsers_core.autodiscover import autodiscover_parsers
-
-                autodiscover_parsers()
-                import importlib
-
-                registry_mod = importlib.import_module(
-                    "dataextractai.parsers_core.registry"
-                )
-                registry = getattr(registry_mod, "ParserRegistry")
-                for f in files:
-                    result = {"file": f.name}
-                    temp_file_path = None
-                    try:
-                        import tempfile, os
-
-                        # Save uploaded file to a temp file
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=os.path.splitext(f.name)[1]
-                        ) as temp_file:
-                            for chunk in f.chunks():
-                                temp_file.write(chunk)
-                            temp_file_path = temp_file.name
-                        # Always close and flush temp file before using
-                        # Detect parser if needed
-                        used_parser = parser_module
-                        autodetect_debug = ""
-                        if parser_module == "autodetect" or not parser_module:
-                            from dataextractai.parsers.detect import (
-                                detect_parser_for_file,
-                            )
-
-                            detected = detect_parser_for_file(temp_file_path)
-                            autodetect_debug = (
-                                f"detect_parser_for_file({f.name}) => {detected}"
-                            )
-                            if detected:
-                                used_parser = detected
-                            else:
-                                result["error"] = "No compatible parser found."
-                                result["autodetect_debug"] = autodetect_debug
-                                results.append(result)
-                                os.unlink(temp_file_path)
-                                continue
-                        result["parser"] = (
-                            used_parser  # Always show which parser was used
-                        )
-                        result["autodetect_debug"] = autodetect_debug
-                        # Registry mapping debug
-                        registry_mapping = getattr(registry, "_parsers", {})
-                        result["registry_mapping"] = str(
-                            registry_mapping.get(used_parser)
-                        )
-                        # Log temp file info before calling parser
-                        try:
-                            temp_file_size = os.path.getsize(temp_file_path)
-                            with open(temp_file_path, "rb") as tf_dbg:
-                                temp_file_head = tf_dbg.read(256)
-                            result["temp_file_path"] = temp_file_path
-                            result["temp_file_size"] = temp_file_size
-                            result["temp_file_head"] = temp_file_head.hex()
-                        except Exception as e:
-                            result["temp_file_debug_error"] = (
-                                f"Failed to read temp file info: {e}"
-                            )
-                        # Import parser module and call main() with positional argument
-                        try:
-                            parser_mod_name = (
-                                f"dataextractai.parsers.{used_parser}_parser"
-                            )
-                            try:
-                                parser_mod = importlib.import_module(parser_mod_name)
-                                parser_main = getattr(parser_mod, "main", None)
-                                result["parser_module"] = parser_mod_name
-                                result["main_func"] = str(parser_main)
-                            except ImportError:
-                                parser_mod_name = f"dataextractai.parsers.{used_parser}"
-                                parser_mod = importlib.import_module(parser_mod_name)
-                                parser_main = getattr(parser_mod, "main", None)
-                                result["parser_module"] = parser_mod_name
-                                result["main_func"] = str(parser_main)
-                            if not parser_main:
-                                result["error"] = (
-                                    f"Parser module '{parser_mod_name}' has no main() function."
-                                )
-                                results.append(result)
-                                os.unlink(temp_file_path)
-                                continue
-                            print(
-                                f"[DEBUG] Calling {parser_mod_name}.main for file {f.name}"
-                            )
-                            parser_output = parser_main(
-                                temp_file_path
-                            )  # Positional argument only
-                            # Debug: print parser_output as dict
-                            try:
-                                from dataextractai.parsers_core.models import (
-                                    ParserOutput,
-                                )
-
-                                if isinstance(parser_output, ParserOutput):
-                                    print(
-                                        f"[DEBUG] parser_output.dict(): {parser_output.dict()}"
-                                    )
-                                else:
-                                    print(
-                                        f"[DEBUG] parser_output (not ParserOutput): {parser_output}"
-                                    )
-                            except Exception as e:
-                                print(f"[DEBUG] Exception printing parser_output: {e}")
-                        except Exception as e:
-                            import traceback
-
-                            tb = traceback.format_exc()
-                            result["error"] = f"Parser error: {e}\n{tb}"
-                            results.append(result)
-                            os.unlink(temp_file_path)
-                            continue
-                        # Validate ParserOutput
-                        try:
-                            from dataextractai.parsers_core.models import ParserOutput
-
-                            if not isinstance(parser_output, ParserOutput):
-                                result["error"] = (
-                                    f"Parser did not return ParserOutput. Got: {type(parser_output)}"
-                                )
-                                results.append(result)
-                                os.unlink(temp_file_path)
-                                continue
-                        except Exception as e:
-                            result["error"] = f"ParserOutput validation error: {e}"
-                            results.append(result)
-                            os.unlink(temp_file_path)
-                            continue
-                        # Extract metadata and transactions
-                        metadata = (
-                            parser_output.metadata.dict()
-                            if parser_output.metadata
-                            else {}
-                        )
-                        transactions = (
-                            [t.dict() for t in parser_output.transactions]
-                            if parser_output.transactions
-                            else []
-                        )
-                        result["normalized"] = True
-                        result["metadata"] = metadata
-                        result["transaction_count"] = len(transactions)
-                        if parser_output.errors:
-                            result["errors"] = parser_output.errors
-                        if parser_output.warnings:
-                            result["warnings"] = parser_output.warnings
-
-                        # Create StatementFile using the temp file (open in binary mode)
-                        try:
-                            with open(temp_file_path, "rb") as temp_file_for_db:
-                                django_file = File(temp_file_for_db, name=f.name)
-                                statement_file = StatementFile.objects.create(
-                                    client=client,
-                                    file=django_file,  # Use Django File wrapper for DB save
-                                    file_type=file_type,
-                                    account_number=metadata.get(
-                                        "account_number", account_number
-                                    ),
-                                    original_filename=f.name,
-                                    uploaded_by=uploaded_by,
-                                    status="uploaded",
-                                    bank=metadata.get("bank_name"),
-                                    year=metadata.get("year"),
-                                    month=metadata.get("month"),
-                                    parser_module=used_parser,
-                                    account_holder_name=metadata.get(
-                                        "account_holder_name"
-                                    ),
-                                    address=metadata.get("address"),
-                                    account_type=metadata.get("account_type"),
-                                    statement_period_start=metadata.get(
-                                        "statement_period_start"
-                                    ),
-                                    statement_period_end=metadata.get(
-                                        "statement_period_end"
-                                    ),
-                                    statement_date=metadata.get("statement_date"),
-                                    parsed_metadata=metadata,
-                                )
-                            result["statement_file"] = statement_file.id
-                        except Exception as e:
-                            result["error"] = f"StatementFile creation failed: {e}"
-                            results.append(result)
-                            os.unlink(temp_file_path)
-                            continue
-                        # Restore: Always create transactions for all parsers
-                        transaction_create_results = []
-                        success_count = 0
-                        fail_count = 0
-                        error_list = []
-                        for idx, tx_data in enumerate(transactions):
-                            import logging, traceback
-
-                            logger = logging.getLogger("batch_upload")
-                            logger.warning(
-                                f"[DEBUG] Creating transaction idx={idx} raw tx_data={tx_data}"
-                            )
-                            try:
-                                from profiles.models import Transaction
-
-                                tx_fields = {
-                                    "client": client,
-                                    "transaction_date": tx_data.get("transaction_date"),
-                                    "amount": tx_data.get("amount"),
-                                    "description": tx_data.get("description"),
-                                    "category": tx_data.get("category") or "",
-                                    "parsed_data": tx_data,
-                                    "file_path": tx_data.get("file_path")
-                                    or statement_file.file.name,
-                                    "source": tx_data.get("source") or used_parser,
-                                    "transaction_type": tx_data.get("transaction_type")
-                                    or "",
-                                    "normalized_amount": tx_data.get(
-                                        "normalized_amount"
-                                    ),
-                                    "statement_start_date": tx_data.get(
-                                        "statement_start_date"
-                                    )
-                                    or metadata.get("statement_period_start"),
-                                    "statement_end_date": tx_data.get(
-                                        "statement_end_date"
-                                    )
-                                    or metadata.get("statement_period_end"),
-                                    "account_number": tx_data.get("account_number")
-                                    or metadata.get("account_number"),
-                                    "transaction_id": tx_data.get("transaction_id"),
-                                    "normalized_description": tx_data.get(
-                                        "normalized_description"
-                                    ),
-                                    "payee": tx_data.get("payee") or "",
-                                    "confidence": tx_data.get("confidence") or "",
-                                    "reasoning": tx_data.get("reasoning") or "",
-                                    "payee_reasoning": tx_data.get("payee_reasoning")
-                                    or "",
-                                    "business_context": tx_data.get("business_context")
-                                    or "",
-                                    "questions": tx_data.get("questions") or "",
-                                    "classification_type": tx_data.get(
-                                        "classification_type"
-                                    )
-                                    or "None",
-                                    "worksheet": tx_data.get("worksheet") or "",
-                                    "business_percentage": tx_data.get(
-                                        "business_percentage"
-                                    )
-                                    or 100,
-                                    "payee_extraction_method": tx_data.get(
-                                        "payee_extraction_method"
-                                    )
-                                    or "None",
-                                    "classification_method": tx_data.get(
-                                        "classification_method"
-                                    )
-                                    or "None",
-                                    "statement_file": statement_file,
-                                    "parser_name": used_parser,
-                                    "needs_account_number": tx_data.get(
-                                        "needs_account_number", False
-                                    ),
-                                }
-                                logger.warning(
-                                    f"[DEBUG] idx={idx} tx_fields before creation: {tx_fields}"
-                                )
-                                logger.warning(
-                                    f"[DEBUG] idx={idx} transaction_date type: {type(tx_fields.get('transaction_date'))} value: {tx_fields.get('transaction_date')}"
-                                )
-                                tx = Transaction(**tx_fields)
-                                tx.save()
-                                logger.warning(
-                                    f"[SUCCESS] idx={idx} Transaction saved with id={tx.id}"
-                                )
-                                success_count += 1
-                                transaction_create_results.append(
-                                    (idx, "success", tx.id)
-                                )
-                            except Exception as e:
-                                tb = traceback.format_exc()
-                                logger.error(
-                                    f"[ERROR] Failed to create transaction idx={idx}: {e}\n{tb}\nData: {tx_data}"
-                                )
-                                fail_count += 1
-                                error_list.append((idx, str(e), tb, tx_data))
-                                transaction_create_results.append((idx, "fail", str(e)))
-                        logger.warning(
-                            f"[SUMMARY] Transaction creation: attempted={len(transactions)}, succeeded={success_count}, failed={fail_count}"
-                        )
-                        if error_list:
-                            logger.error(f"[SUMMARY] Errors: {error_list}")
-                        result["transactions_created"] = sum(
-                            1 for r in transaction_create_results if r[1] == "success"
-                        )
-                        result["transaction_errors"] = [
-                            r for r in transaction_create_results if r[0] == "fail"
-                        ]
-                        # Only delete temp file after both parsing and DB save are complete
-                        os.unlink(temp_file_path)
-                    except Exception as e:
-                        result["error"] = str(e)
-                        if temp_file_path and os.path.exists(temp_file_path):
-                            os.unlink(temp_file_path)
-                    results.append(result)
-
-                from django.contrib import messages
-
-                messages.success(
-                    request, f"Processed {len(files)} files. See results below."
-                )
-
-                # Add admin context before rendering results
-                context = self.admin_site.each_context(request)
-                context.update(
-                    {
-                        "form": form,
-                        "results": results,
-                        "title": "Batch Upload Statement Files",
-                    }
-                )
-                return render(
-                    request, "admin/batch_upload_statement_files.html", context
-                )
-        else:
-            form = BatchStatementFileUploadForm()
-
-        context = self.admin_site.each_context(request)
-        context.update(
-            {
-                "title": "Batch Upload Statement Files",
-                "form": form,
-            }
-        )
-        return render(request, "admin/batch_upload_statement_files.html", context)
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "batch-upload/",
-                self.admin_site.admin_view(self.batch_upload_view),
-                name="profiles_statementfile_batch_upload",
-            ),
-        ]
-        return custom_urls + urls  # CUSTOM URLS FIRST
-
-
-@admin.register(ParsingRun)
-class ParsingRunAdmin(admin.ModelAdmin):
-    list_display = (
-        "statement_file",
-        "parser_module",
-        "status",
-        "rows_imported",
-        "short_error",
-        "created",
-    )
-    search_fields = (
-        "statement_file__original_filename",
-        "parser_module",
-        "error_message",
-    )
-    list_filter = ("status", "parser_module", "created")
-
-    def short_error(self, obj):
-        return (
-            (obj.error_message[:60] + "...")
-            if obj.error_message and len(obj.error_message) > 60
-            else obj.error_message
-        )
-
-    short_error.short_description = "Error Message"
-
-
-# --- PATCH: Add default app/model list to custom admin dashboard ---
-def custom_admin_index(request):
-    from django.contrib.admin.sites import site
-    from django.contrib.admin.views.main import get_app_list
-
-    context = site.each_context(request)
-    # Add the default app/model list to the context
-    app_list = get_app_list(site, request)
-    context["app_list"] = app_list
-    context["title"] = "LedgerFlow Admin Dashboard"
-    # TODO: Add real stats, batch job status, etc.
-    return render(request, "admin/index.html", context)
-
-
-# --- END PATCH ---
-
-
-def _get_agent_type(agent):
-    name = getattr(agent, "name", "").lower()
-    if "payee" in name:
-        return "payee"
-    if "classif" in name or "escalation" in name:
-        return "classification"
-    raise ValueError(f"Unknown agent type for agent name: {name}")
