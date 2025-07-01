@@ -677,9 +677,6 @@ class TaxChecklistItem(models.Model):
         max_length=20, choices=STATUS_CHOICES, default="not_started"
     )
     notes = models.TextField(blank=True, null=True)
-    attachments = models.FileField(
-        upload_to="tax_checklist_attachments/", blank=True, null=True
-    )
     current_year_value = models.TextField(blank=True, null=True)
     date_modified = models.DateTimeField(auto_now=True)
 
@@ -697,3 +694,20 @@ class TaxChecklistItem(models.Model):
         return cls.objects.filter(
             business_profile=business_profile, tax_year=tax_year, enabled=True
         )
+
+
+class ChecklistAttachment(models.Model):
+    checklist_item = models.ForeignKey(
+        "TaxChecklistItem",
+        on_delete=models.CASCADE,
+        related_name="checklist_attachments",
+    )
+    file = models.FileField(upload_to="tax_checklist_attachments/")
+    tag = models.CharField(
+        max_length=100,
+        help_text="Type or description of the document (e.g., W-2, 1099, Receipt)",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.tag} ({self.file.name})"
