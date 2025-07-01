@@ -22,6 +22,7 @@ from .models import (
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
     TaxChecklistItem,
+    ChecklistAttachment,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -117,12 +118,10 @@ class TaxChecklistItemInline(admin.TabularInline):
         "notes",
     )
     readonly_fields = ("form_code", "tax_year", "description", "entry_type")
-
     verbose_name = "Tracked Form"
     verbose_name_plural = "Tracked Forms"
 
     def has_add_permission(self, request, obj=None):
-        # Remove the default 'Add another Tracked Form' button
         return False
 
     def get_queryset(self, request):
@@ -152,37 +151,26 @@ class TaxChecklistItemInline(admin.TabularInline):
         meta = canonical.get(obj.form_code, {})
         return meta.get("entry_type", "manual_entry")
 
-    # Add select all/deselect all actions (render as custom HTML above the inline)
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        # Inject custom JS or HTML for select all/deselect all if needed
         return formset
 
 
-@admin.register(TaxChecklistItem)
-class TaxChecklistItemAdmin(admin.ModelAdmin):
-    list_display = (
-        "business_profile",
-        "tax_year",
-        "form_code",
-        "enabled",
-        "status",
-        "date_modified",
-    )
-    list_filter = ("tax_year", "enabled", "status")
-    search_fields = ("form_code", "notes")
-    autocomplete_fields = ("business_profile",)
-    ordering = ("business_profile", "tax_year", "form_code")
-    # Placeholder for custom action/dropdown to add forms from canonical checklist
+class ChecklistAttachmentInline(admin.TabularInline):
+    model = ChecklistAttachment
+    extra = 0
+    fields = ("file", "tag", "uploaded_at")
+    readonly_fields = ("uploaded_at",)
+    verbose_name = "Attachment"
+    verbose_name_plural = "Attachments"
+    can_delete = True
+    show_change_link = False
 
-
-class AddFormToChecklistForm(forms.Form):
-    form_code = forms.ChoiceField(label="Add Form to Checklist")
-
-    def __init__(self, *args, **kwargs):
-        available_forms = kwargs.pop("available_forms", [])
-        super().__init__(*args, **kwargs)
-        self.fields["form_code"].choices = available_forms
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        form = formset.form
+        form.base_fields["tag"].help_text = "Edit the tag and save to update."
+        return formset
 
 
 @admin.register(BusinessProfile)
@@ -227,6 +215,22 @@ class BusinessProfileAdmin(admin.ModelAdmin):
     readonly_fields = ("client_id",)
     inlines = [TaxChecklistItemInline]
 
+    def statement_files_count(self, obj):
+        return obj.statement_files.count()
+
+    statement_files_count.short_description = "Statement Files"
+
+    def transactions_count(self, obj):
+        return obj.transactions.count()
+
+    transactions_count.short_description = "Transactions"
+
+    def short_business_description(self, obj):
+        desc = obj.business_description or ""
+        return desc[:40] + ("..." if len(desc) > 40 else "")
+
+    short_business_description.short_description = "Business Description"
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -235,25 +239,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.generate_ai_profile_view),
                 name="profiles_businessprofile_generate_ai",
             ),
-            path(
-                "<path:object_id>/add_checklist_form/",
-                self.admin_site.admin_view(self.add_checklist_form_view),
-                name="profiles_businessprofile_add_checklist_form",
-            ),
-            path(
-                "<path:object_id>/init_checklist/<str:year>/",
-                self.admin_site.admin_view(self.init_checklist_view),
-                name="init_checklist",
-            ),
         ]
         return custom_urls + urls
 
     def render_change_form(self, request, context, *args, **kwargs):
         obj = context.get("original")
         if obj:
-            from django.urls import reverse
-            from django.utils.html import format_html
-
             generate_url = reverse(
                 "admin:profiles_businessprofile_generate_ai", args=[obj.pk]
             )
@@ -268,16 +259,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
     def generate_ai_profile_view(self, request, object_id):
         obj = self.get_object(request, object_id)
         if not obj:
-            from django.contrib import messages
+            messages.error(request, "BusinessProfile not found.")
             from django.shortcuts import redirect
 
-            messages.error(request, "BusinessProfile not found.")
             return redirect("..")
         try:
             from openai import OpenAI
-            import os
-            import json
-            from django.urls import reverse
 
             # Always use the Agent with purpose containing 'Business Profile Generator'
             agent = None
@@ -286,11 +273,9 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             try:
                 from .models import Agent
 
-                # Prefer a dedicated Business Profile Generator agent
                 agent = Agent.objects.filter(
                     purpose__icontains="business profile generator"
                 ).first()
-                # Fallback: any agent with an LLMConfig
                 if not agent:
                     agent = Agent.objects.exclude(llm=None).first()
                 if agent and agent.llm and agent.llm.model:
@@ -301,7 +286,6 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             if not model:
                 model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
             api_key = os.environ.get("OPENAI_API_KEY")
-            # Use the LLMConfig.url as base_url if set, for multi-provider support
             if base_url:
                 client = OpenAI(api_key=api_key, base_url=base_url)
             else:
@@ -332,22 +316,18 @@ Do NOT include any explanation or text outside the JSON.
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
-            print(f"Raw LLM response: {content}")
             try:
                 data = json.loads(content)
             except Exception as e:
-                from django.contrib import messages
-                from django.shortcuts import redirect
-
                 messages.error(
                     request, f"LLM did not return valid JSON. Raw response: {content}"
                 )
+                from django.shortcuts import redirect
+
                 return redirect(
                     reverse("admin:profiles_businessprofile_change", args=[obj.pk])
                 )
             if not isinstance(data, dict) or not any(data.values()):
-                from django.contrib import messages
-
                 messages.warning(
                     request,
                     f"AI response was empty or missing fields. Raw response: {content}. If this persists, check the prompt and schema format sent to OpenAI.",
@@ -367,8 +347,6 @@ Do NOT include any explanation or text outside the JSON.
                         value = ", ".join(str(x) for x in value)
                 setattr(obj, field, value)
             obj.save()
-            from django.contrib import messages
-
             messages.success(
                 request,
                 "AI-generated profile fields have been filled in. Review and save to persist.",
@@ -377,188 +355,57 @@ Do NOT include any explanation or text outside the JSON.
             import logging
 
             logging.exception("Error generating AI profile")
-            from django.contrib import messages
-
             messages.error(request, f"Error generating AI profile: {e}")
         from django.shortcuts import redirect
-        from django.urls import reverse
 
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
 
-    def add_checklist_form_view(self, request, object_id):
-        business_profile = self.get_object(request, object_id)
-        tax_year = request.GET.get("tax_year") or "2023"  # Default year logic
-        canonical = load_canonical_tax_checklist_index()
-        existing_codes = set(
-            TaxChecklistItem.objects.filter(
-                business_profile=business_profile, tax_year=tax_year
-            ).values_list("form_code", flat=True)
-        )
-        available_forms = [
-            (code, f"{code}: {meta['label']}")
-            for code, meta in canonical.items()
-            if code not in existing_codes
-        ]
-        if request.method == "POST":
-            form = AddFormToChecklistForm(request.POST, available_forms=available_forms)
-            if form.is_valid():
-                form_code = form.cleaned_data["form_code"]
-                meta = canonical[form_code]
-                TaxChecklistItem.objects.create(
-                    business_profile=business_profile,
-                    tax_year=tax_year,
-                    form_code=form_code,
-                    enabled=True,
-                    status="not_started",
-                    notes=f"{meta.get('label', '')} | Topic: {meta.get('topic', '')} | Entry type: {meta.get('entry_type', '')}",
-                )
-                messages.success(request, f"Form {form_code} added to checklist.")
-                return redirect(f"../../{object_id}/change/?tax_year={tax_year}")
-        else:
-            form = AddFormToChecklistForm(available_forms=available_forms)
-        context = dict(
-            self.admin_site.each_context(request),
-            form=form,
-            business_profile=business_profile,
-            tax_year=tax_year,
-        )
-        return TemplateResponse(request, "admin/add_checklist_form.html", context)
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        # Auto-initialize checklist for this client/year if not present
-        tax_year = request.GET.get("tax_year") or "2023"
-        if not TaxChecklistItem.objects.filter(
-            business_profile=obj, tax_year=tax_year
-        ).exists():
-            canonical = load_canonical_tax_checklist_index()
-            for code, meta in canonical.items():
-                enabled = True if code == "6A" else False
-                TaxChecklistItem.objects.create(
-                    business_profile=obj,
-                    tax_year=tax_year,
-                    form_code=code,
-                    enabled=enabled,
-                    status="not_started",
-                    notes=f"{meta.get('label', '')} | Topic: {meta.get('topic', '')} | Entry type: {meta.get('entry_type', '')}",
-                )
+@admin.register(TaxChecklistItem)
+class TaxChecklistItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_profile",
+        "tax_year",
+        "form_code",
+        "enabled",
+        "status",
+        "date_modified",
+    )
+    list_filter = ("tax_year", "enabled", "status")
+    search_fields = ("form_code", "notes")
+    autocomplete_fields = ("business_profile",)
+    ordering = ("business_profile", "tax_year", "form_code")
+    inlines = [ChecklistAttachmentInline]
+    readonly_fields = ("business_profile", "tax_year", "form_code")
+    actions = ["enable_selected", "disable_selected"]
 
-    def statement_files_count(self, obj):
-        return obj.statement_files.count()
+    def enable_selected(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"Enabled {updated} checklist items.")
 
-    statement_files_count.short_description = "Statement Files"
+    enable_selected.short_description = "Enable selected checklist items"
 
-    def transactions_count(self, obj):
-        return obj.transactions.count()
+    def disable_selected(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"Disabled {updated} checklist items.")
 
-    transactions_count.short_description = "Transactions"
+    disable_selected.short_description = "Disable selected checklist items"
 
-    def short_business_description(self, obj):
-        desc = obj.business_description or ""
-        return desc[:40] + ("..." if len(desc) > 40 else "")
+    def changelist_view(self, request, extra_context=None):
+        # Default to enabled items only unless filter is set
+        if "enabled__exact" not in request.GET:
+            q = request.GET.copy()
+            q["enabled__exact"] = "1"
+            request.GET = q
+            request.META["QUERY_STRING"] = request.GET.urlencode()
+        return super().changelist_view(request, extra_context=extra_context)
 
-    short_business_description.short_description = "Business Description"
 
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        year = request.GET.get("tax_year")
-        current_year = datetime.now().year
-        if not year:
-            year = str(current_year - 1)
-        allowed_years = [str(current_year - i) for i in range(4)]
-        if year not in allowed_years:
-            allowed_years.append(year)
-        allowed_years = sorted(set(allowed_years), reverse=True)
-        extra_context = extra_context or {}
-        extra_context["tax_year"] = year
-        extra_context["tax_years"] = allowed_years
-        # Checklist init/reset button logic
-        checklist_qs = TaxChecklistItem.objects.filter(
-            business_profile_id=object_id, tax_year=year
-        )
-        show_init = not checklist_qs.exists()
-        extra_context["show_init_checklist"] = show_init
-        extra_context["show_reset_checklist"] = checklist_qs.exists()
-        extra_context["init_checklist_url"] = reverse(
-            "admin:init_checklist", args=[object_id, year]
-        )
-        # Add form dropdown logic
-        profile = BusinessProfile.objects.get(pk=object_id)
-        tracked_codes = set(
-            TaxChecklistItem.objects.filter(
-                business_profile=profile, tax_year=year, enabled=True
-            ).values_list("form_code", flat=True)
-        )
-        canonical = load_canonical_tax_checklist_index()
-        available_forms = [
-            (code, f"{code}: {meta.get('label', '')}")
-            for code, meta in canonical.items()
-            if code not in tracked_codes
-        ]
-        add_form = AddFormToChecklistForm(available_forms=available_forms)
-        if request.method == "POST" and "add_checklist_form" in request.POST:
-            add_form = AddFormToChecklistForm(
-                request.POST, available_forms=available_forms
-            )
-            if add_form.is_valid():
-                form_code = add_form.cleaned_data["form_code"]
-                TaxChecklistItem.objects.update_or_create(
-                    business_profile=profile,
-                    tax_year=year,
-                    form_code=form_code,
-                    defaults={"enabled": True, "status": "not_started"},
-                )
-                return redirect(f"{request.path}?tax_year={year}")
-        extra_context["add_checklist_form"] = add_form
-        # Instead of building checklist_html as a string, render a template partial
-        checklist_context = {
-            "add_checklist_form": add_form,
-            "tax_years": allowed_years,
-            "tax_year": year,
-            "show_all": request.GET.get("show_all", "0"),
-            "init_checklist_url": reverse(
-                "admin:init_checklist", args=[object_id, year]
-            ),
-            "show_init_checklist": show_init,
-            "show_reset_checklist": checklist_qs.exists(),
-        }
-        checklist_html = render_to_string(
-            "admin/profiles/businessprofile/_checklist_controls.html",
-            checklist_context,
-            request=request,
-        )
-        extra_context["bottom_checklist_ui"] = checklist_html
-        return super().change_view(
-            request, object_id, form_url, extra_context=extra_context
-        )
-
-    def init_checklist_view(self, request, object_id, year):
-        profile = get_object_or_404(BusinessProfile, pk=object_id)
-        # Delete existing items for this year
-        TaxChecklistItem.objects.filter(
-            business_profile=profile, tax_year=year
-        ).delete()
-        canonical = load_canonical_tax_checklist_index()
-        items = []
-        for form_code in canonical:
-            enabled = form_code == "6A"
-            items.append(
-                TaxChecklistItem(
-                    business_profile=profile,
-                    tax_year=year,
-                    form_code=form_code,
-                    enabled=enabled,
-                    status="not_started",
-                )
-            )
-        TaxChecklistItem.objects.bulk_create(items)
-        messages.success(
-            request, f"Checklist for year {year} has been initialized/reset."
-        )
-        url = (
-            reverse("admin:profiles_businessprofile_change", args=[object_id])
-            + f"?tax_year={year}"
-        )
-        return HttpResponseRedirect(url)
+@admin.register(ChecklistAttachment)
+class ChecklistAttachmentAdmin(admin.ModelAdmin):
+    list_display = ("file", "tag", "uploaded_at")
+    search_fields = ("file", "tag")
+    readonly_fields = ("uploaded_at",)
 
 
 class ClientFilter(admin.SimpleListFilter):
