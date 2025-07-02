@@ -90,14 +90,15 @@ class Command(BaseCommand):
                             response = call_agent(agent.name, tx)
 
                             # Use shared field mapping logic
+                            agent_type = (
+                                "payee"
+                                if "payee" in agent.name.lower()
+                                else "classification"
+                            )
                             update_fields = get_update_fields_from_response(
                                 agent,
                                 response,
-                                (
-                                    agent.purpose.lower()
-                                    if hasattr(agent, "purpose")
-                                    else "classification"
-                                ),
+                                agent_type,
                             )
 
                             Transaction.objects.filter(id=tx.id).update(**update_fields)
