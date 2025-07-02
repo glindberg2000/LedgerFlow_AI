@@ -1546,6 +1546,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "error_details",
         "task_metadata",
     )
+    exclude = ("task_log",)
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
 
     @admin.display(description="Status")
