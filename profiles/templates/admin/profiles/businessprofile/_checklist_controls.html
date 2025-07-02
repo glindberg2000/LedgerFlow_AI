@@ -1,0 +1,35 @@
+<div style='margin-top:2em;padding:1em;border-top:2px solid #eee;'>
+  <h3>Checklist Management</h3>
+  {% if add_checklist_form and add_checklist_form.fields.form_code.choices %}
+    <form method="post" style="display:inline; margin-right: 1em;">
+      {% csrf_token %}
+      {{ add_checklist_form.form_code.label_tag }}
+      {{ add_checklist_form.form_code }}
+      <button type="submit" name="add_checklist_form" class="button">Add Form to Checklist</button>
+    </form>
+  {% endif %}
+  <form method="get" style="display:inline; margin-right: 1em;">
+    <label for="tax_year_select">Tax Year:</label>
+    <select id="tax_year_select" name="tax_year" onchange="this.form.submit()">
+      {% for y in tax_years %}
+        <option value="{{ y }}" {% if y|stringformat:'s' == tax_year|stringformat:'s' %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="show_all" value="{{ show_all|default:'0' }}">
+  </form>
+  <form method="post" action="{{ init_checklist_url }}" style="display:inline; margin-right: 1em;">
+    {% csrf_token %}
+    {% if show_init_checklist %}
+      <button type="submit" class="button">Initialize Checklist</button>
+    {% elif show_reset_checklist %}
+      <button type="submit" class="button">Reset Checklist</button>
+    {% endif %}
+  </form>
+  <form method="get" style="display:inline; margin-left: 1em;">
+    <input type="hidden" name="tax_year" value="{{ tax_year }}">
+    <input type="hidden" name="show_all" value="{% if show_all == '1' %}0{% else %}1{% endif %}">
+    <button type="submit" class="button">
+      {% if show_all == '1' %}Show Only Tracked{% else %}Show All Forms{% endif %}
+    </button>
+  </form>
+</div> 

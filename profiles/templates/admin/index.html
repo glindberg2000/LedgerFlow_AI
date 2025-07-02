@@ -2,9 +2,18 @@
 {% block content %}
 {{ block.super }}
 <div class="module">
+    <h2>LedgerFlow Dashboard</h2>
+    <ul>
+        <li><strong>Transaction count:</strong> [stat goes here]</li>
+        <li><strong>Batch jobs:</strong> [status goes here]</li>
+        <li><strong>Recent imports:</strong> [recent import info here]</li>
+        <!-- Add more stats as needed -->
+    </ul>
+</div>
+<div class="module">
     <h2>Parser Utilities</h2>
     <ul>
-        <li><a href="/admin/parsers_utilities/parsertemplate/">Parser Templates</a></li>
+        <li><a href="/admin/parsers_utilities/registered-parsers/">Registered Modular Parsers (Read-Only)</a></li>
         <li><a href="/admin/parsers_utilities/samplestatement/">Sample Statements</a></li>
         <li><a href="/admin/parsers_utilities/extractionresult/">Extraction Results</a></li>
         <li><a href="/utilities/test_parser/">Parser Test Utility</a></li>

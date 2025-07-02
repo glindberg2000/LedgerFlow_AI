@@ -1,58 +1,68 @@
 {% extends "admin/base_site.html" %}
-{% block content %}
-<h2>IRS Worksheet 6A Report</h2>
-<div style="margin-bottom: 1em;">
-    <a href="/reports/irs/" class="button">IRS 6A</a>
-    <a href="/reports/all_categories/" class="button">All Categories</a>
-    {% for ws in worksheet_list %}
-    <a href="/reports/irs/worksheet/{{ ws.name }}/" class="button">IRS {{ ws.name }}</a>
-    {% endfor %}
+{% load i18n static admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:reports_reportsproxy_changelist' %}">Reports</a>
+    &rsaquo; {{ title }}
 </div>
-<form method="get">
-    {{ form.as_p }}
-    <input type="submit" value="Filter" />
-</form>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1em;">
+    <a href="/admin/reports/reportsproxy/" class="button">&larr; Back to Reports Dashboard</a>
+</div>
+
+<h1>{{ title }}</h1>
+
 {% if selected_client %}
+<div style="margin: 1em 0;">
+    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
+        style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
+        <span style="margin-right: 5px;">📥</span> Download PDF Report
+    </a>
+</div>
 <h3>Client: {{ selected_client.client_id }}</h3>
-<table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
-    <tr>
-        <th style="width:10%">Line</th>
-        <th style="width:60%">Category</th>
-        <th style="width:30%">Subtotal</th>
-    </tr>
-    {% for cat in categories %}
-    <tr>
-        <td>{{ cat.line_number }}</td>
-        <td>{{ cat.name }}</td>
-        <td><a href="{{ cat.tx_url }}" target="_blank">${{ cat.subtotal|floatformat:2 }}</a></td>
-    </tr>
-    {% endfor %}
-    <tr>
-        <td colspan="2"><strong>Total</strong></td>
-        <td><strong>${{ total|floatformat:2 }}</strong></td>
-    </tr>
-</table>
-{% if business_categories %}
-<h4 style="margin-top:2em;">Other Business Expense Categories (User-Defined)</h4>
-{% if unmapped_business_cats %}
-<p style="color: orange;">Note: Some business categories are not mapped to IRS categories and may not appear above.</p>
+<h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
+
+{% for worksheet in worksheets %}
+<div class="module">
+    <h2><a
+            href="{% url 'admin:reports_reportsproxy_worksheet' name=worksheet.name %}?client={{ selected_client.client_id }}">{{
+            worksheet.name }}</a></h2>
+    <table style="width: 100%;">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th style="text-align: right;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, data in worksheet.categories.items %}
+            <tr>
+                <td>{{ category }}</td>
+                <td style="text-align: right;">${{ data.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 2px solid #ccc;">
+                <td style="font-weight: bold;">Worksheet Total</td>
+                <td style="text-align: right; font-weight: bold;">${{ worksheet.total|floatformat:2 }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endfor %}
+
+<div class="module" style="margin-top: 2em; background-color: #f0f0f0; padding: 15px;">
+    <h2 style="font-size: 1.5em;">Grand Total: ${{ grand_total|floatformat:2 }}</h2>
+</div>
+
+{% else %}
+<p>Please select a client from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports dashboard</a> to
+    view this report.</p>
 {% endif %}
-<table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
-    <tr>
-        <th style="width:10%">Line</th>
-        <th style="width:60%">Category</th>
-        <th style="width:30%">Subtotal</th>
-    </tr>
-    {% for bcat in business_categories %}
-    <tr>
-        <td></td>
-        <td>{{ bcat.name }}</td>
-        <td><a href="{{ bcat.tx_url }}" target="_blank">${{ bcat.subtotal|floatformat:2 }}</a></td>
-    </tr>
-    {% endfor %}
-</table>
-{% endif %}
-{% elif client_id %}
-<p style="color:red;">Client not found.</p>
-{% endif %}
+
 {% endblock %}

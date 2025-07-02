@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # Technical Context
 
 ## Technology Stack
@@ -284,3 +285,7 @@
 - Documentation review
 - Team training
 - Process improvement
+
+---
+[2025-06-26] Tech Note: All parser submodules (PDF-extractor/dataextractai/parsers) must use module-level loggers with unique names, avoid function-level assignments, and ensure contract-compliant outputs. The recent Wells Fargo Mastercard parser fix is a reference for best practices.
+---

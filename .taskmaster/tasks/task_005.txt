@@ -1,0 +1,97 @@
+# Task ID: 5
+# Title: Implement Binder Admin UI
+# Status: pending
+# Dependencies: 1, 2, 3
+# Priority: high
+# Description: Create a new admin interface for the binder-centric workflow, allowing users to navigate from client to year to binder dashboard.
+# Details:
+Implement a custom admin interface for the binder-centric workflow:
+
+1. Create a custom ModelAdmin for TaxYear with list and detail views
+2. Implement a dashboard view that shows:
+   - Binder summary (client, year, status)
+   - Progress bar for checklist completion
+   - Sections (if implemented) with their checklist items
+   - Attachments related to the binder
+   - Quick action buttons
+
+```python
+from django.contrib import admin
+from django.urls import path
+from django.template.response import TemplateResponse
+
+class TaxYearAdmin(admin.ModelAdmin):
+    list_display = ['business_profile', 'year', 'status', 'get_completion_percentage']
+    list_filter = ['year', 'status', 'business_profile']
+    search_fields = ['business_profile__name', 'year', 'notes']
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:tax_year_id>/dashboard/',
+                 self.admin_site.admin_view(self.binder_dashboard),
+                 name='binder_dashboard'),
+        ]
+        return custom_urls + urls
+    
+    def get_completion_percentage(self, obj):
+        total = obj.checklist_items.count()
+        if total == 0:
+            return '0%'
+        completed = obj.checklist_items.filter(status='complete').count()
+        percentage = int((completed / total) * 100)
+        return f"{percentage}%"
+    get_completion_percentage.short_description = 'Completion'
+    
+    def binder_dashboard(self, request, tax_year_id):
+        tax_year = self.get_object(request, tax_year_id)
+        
+        # Get sections if implemented, otherwise None
+        try:
+            sections = tax_year.sections.all()
+        except AttributeError:
+            sections = None
+        
+        # Get checklist items, grouped by section if available
+        if sections:
+            items_by_section = {}
+            for section in sections:
+                items_by_section[section] = section.checklist_items.all()
+            unsectioned_items = tax_year.checklist_items.filter(section__isnull=True)
+        else:
+            items_by_section = None
+            unsectioned_items = tax_year.checklist_items.all()
+        
+        # Get attachments
+        attachments = tax_year.attachments.all()
+        
+        context = {
+            'title': f'Binder Dashboard: {tax_year}',
+            'tax_year': tax_year,
+            'sections': sections,
+            'items_by_section': items_by_section,
+            'unsectioned_items': unsectioned_items,
+            'attachments': attachments,
+            'completion_percentage': self.get_completion_percentage(tax_year),
+            # Include other required admin context
+            **self.admin_site.each_context(request),
+        }
+        
+        return TemplateResponse(request, 'admin/binder_dashboard.html', context)
+
+admin.site.register(TaxYear, TaxYearAdmin)
+```
+
+Create the corresponding template (admin/binder_dashboard.html) with sections for:
+- Binder header and progress
+- Checklist items (grouped by section if available)
+- Attachments
+- Quick actions
+
+# Test Strategy:
+1. Write tests for the custom admin views
+2. Test the dashboard view with various data scenarios
+3. Verify the completion percentage calculation
+4. Test navigation between clients, years, and the dashboard
+5. Verify all UI elements render correctly
+6. Test with and without sections to ensure both workflows work

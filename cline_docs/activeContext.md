@@ -1,117 +1,50 @@
-# Active Context
+[MEMORY BANK: ACTIVE]
+
+# Active Context (Updated)
 
 ## Current Focus
-- Implementing and improving backup and restore functionality
-- Enhancing deployment pipeline
-- Setting up development and production environments
-- Implementing security measures
-- Documenting system architecture and processes
-- Creating comprehensive onboarding materials for new team members
-- Integrating MPC tools and dockerized development workflow
+- Debugging persistent RecursionError in Django admin.
 
-**Critical Schema Issue:**
-- The `profiles_transactionclassification` table (for transaction classification history/audit) is missing from the database, even though the model and migrations exist and are marked as applied.
-- This is a global schema/migration drift problem, not just a data or legacy file issue.
-- Any admin action, cascade, or code that touches the classification history will fail for all clients, not just problematic files.
+## Key Developments
+- All model-level circular relationships (M2M, FK) were removed, but RecursionError persisted.
+- Error traced to a custom admin index monkey-patch in profiles/admin.py (custom_admin_index and get_urls override).
+- Commented out the custom admin index logic and restored the default Django admin index.
+- Next step: Confirm admin loads and document this as a known pitfall for future customizations.
 
-## Backup & Restore: Crucial Details
+## Key Findings
+- The error is not caused by admin customizations, relationships, or template tags.
+- The error is triggered by the mere presence of the `StatementFile`/`UploadedFile` model in the `profiles` app.
+- Database was never truly empty due to lingering objects, causing migration failures.
+- `.env.dev` is the authoritative source for the database connection.
+- Deleting all `profiles`-related files did not resolve the recursion error.
 
-**Backup Storage Locations:**
-- **Primary (iCloud):**
-  - `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/`
-    - `dev/` (development backups)
-    - `prod/` (production backups)
-    - `test/` (test/restore)
-    - `logs/` (backup logs)
-    - `migrations/` (pre-migration backups)
-- **Docker Bind Mounts:**
-  - Dev: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev` → `/backups` in postgres/backup containers
-  - Prod: `/Users/greg/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups` → `/icloud_backups` in backup container
+## Next Steps
+- Run Django migrations on the now truly empty `ledgerflow_fresh` database.
+- If error persists, further isolate by:
+  - Re-adding `profiles` app with only an empty `models.py` and no other files.
+  - Incrementally reintroduce models and admin files to pinpoint the trigger.
+  - Consider possible Django or Python environment corruption.
+- Update Task Master task list to reflect all attempted and excluded solutions.
+- Continue to log all new debugging actions and findings here.
 
-**Backup Scripts & Automation:**
-- **Manual/CLI:**
-  - `make backup FILE=...` (see Makefile)
-  - `scripts/db/backup_dev_db.sh` (hourly DB backup, integrity check, retention)
-  - `scripts/db/backup_dev_full.sh` (daily full backup: DB, media, config, manifest)
-- **Cron Jobs:**
-  - Hourly DB: `0 * * * * /path/to/backup_dev_db.sh`
-  - Daily full: `0 2 * * * /path/to/backup_dev_full.sh`
-  - Logs: `~/Library/Mobile Documents/com~apple~CloudDocs/repos/LedgerFlow_Archive/backups/dev/logs/`
-  - Setup: `scripts/db/setup_backup_cron.sh` (installs jobs, test run in 5 min)
-
-**Restore Procedures:**
-- **Makefile:**
-  - `make restore FILE=...` (see Makefile for env/volume details)
-- **Manual:**
-  - `./restore_db_clean.sh -f path/to/backup.sql.gz` (see cline_docs/database_backup.md)
-- **Test Restore:**
-  - `make restore-test FILE=...` (restores to temp DB, verifies structure/data)
-
-**Docker Compose: Key Services, Ports, Volumes**
-- **Dev (docker-compose.dev.yml):**
-  - `django`: 9000:8000, media: ledgerflow_dev_media
-  - `postgres`: 5435:5432, data: ledgerflow_dev_postgres_data, backups: bind mount
-  - `redis`: 6379:6379
-  - `adminer`: 8082:8080
-  - `searxng`: 8888:8080 (localhost only)
-- **Prod (docker-compose.prod.yml):**
-  - `django`: 9002:8000, media/static: bind mounts
-  - `postgres`: 5436:5432, data: ledgerflow_postgres_data
-  - `backup`: iCloud backup bind mount
-
-**Volume Protection & Verification:**
-- Run `make check-volumes` or `./scripts/verify_volumes.sh` to verify Docker volumes and backup directories exist and are writable.
-- Key volumes: `ledgerflow_postgres_data`, `ledgerflow_media`, `searxng_data`, `redis_data`
-- Key bind mounts: see docker-compose files and verify_volumes.sh
-
-**Backup Integrity & Retention:**
-- Minimum backup size: 10KB (checked in scripts)
-- All backups are verified for size, structure, and test-restored to temp DB
-- Retention: 7 days for hourly/daily, auto-cleanup in scripts
-- iCloud sync: All backups/logs are synced automatically; check iCloud status if missing files
-
-**Environment Variables/Config:**
-- DB credentials: set in `.env.dev`/`.env.prod` and passed to containers
-- Backup scripts use Docker Compose service/container names (see Makefile/scripts)
-- SearXNG/Redis: see .env.dev and docker-compose for host/port config
-
-**Logs & Troubleshooting:**
-- Backup logs: `backups/dev/logs/` (iCloud)
-- Script output: check cron logs, script logs, and Docker logs for backup/restore containers
-- For errors: check backup size, permissions, iCloud sync, and container health
-
-**Full Details:**
-- See `cline_docs/database_backup.md` for a complete backup/restore reference, including safety, verification, and troubleshooting procedures.
-
-## What I'm Working On Now
-
-- Updating the batch uploader and parsing workflow to use a hybrid approach for account number:
-  - Account number is **optional** on upload (batch uploader).
-  - Account number is **mandatory** for parsing/processing (must be present before parsing, either by extraction or manual entry).
-- Ensuring UI and backend logic reflect this policy.
+## Task Master
+- Ensure all steps and findings are tracked in Task Master and cline_docs/problem_report_20250627_admin_recursion.md.
+- Avoid repeating previous steps; document each isolation attempt.
 
 ## Recent Changes
-- Committed: Improved category mapping, sorting, and clickable subtotals in all reports.
-- IRS worksheet and all-categories reports now highlight unmapped business categories and allow direct navigation to filtered transactions.
-- **NEW:** Classification logic now always sets `transaction.category` to the mapped, allowed LLM `category_name` for all classification actions (single, batch, escalation). This prevents legacy or custom category values (e.g., 'Staging Expenses') from persisting and ensures only allowed business/IRS categories are used. Escalation and retry logic is in place to enforce strict mapping and flag for review if the LLM cannot comply.
-- Patched `normalize_parsed_data_df` to guarantee `source`, `file_path`, and `file_name` fields for all imports.
-- Verified First Republic parser and all modular parsers now work with Django import.
-- Cleaned up admin UI and removed legacy parser test utilities.
-- Added and migrated ParsingRun model for import logging.
-- Communicated with Extractor_Dev to coordinate and verify all parser/normalizer changes.
-- Analyzed the batch uploader code and identified that account number is not currently required or set in batch uploads.
-- Decided on hybrid approach for account number requirement after analysis and discussion.
+- profiles app directory renamed to profiles_test and INSTALLED_APPS updated for isolation.
+- Next: Restart Django and test admin access.
 
 ## Outstanding Issue
 - Custom business categories (e.g., 'Staging Expenses') are not mapped to IRS categories (e.g., 'Staging'), so their subtotals may not appear in IRS worksheet reports even if they show in the all-categories report.
 - This results in a disconnect between custom/user-defined categories and standardized IRS worksheet categories.
 
-## Next Steps / Recommendations
-- **Parent Mapping:** Use the `parent_category` field in `BusinessExpenseCategory` to explicitly map custom categories to IRS categories. This allows aggregation and reporting to roll up custom categories under the correct IRS line.
-- **Fuzzy Matching:** Implement a fuzzy string matching system to suggest or auto-map similar category names (e.g., 'Staging Expenses' → 'Staging'). This can be used as a fallback or for admin review.
-- **Schema Enforcement During Classification:** During transaction classification, enforce or suggest selection from a controlled vocabulary (IRS + business categories), possibly with auto-complete or admin override, to reduce drift.
-- **Admin UI for Mapping:** Build an admin interface to review, approve, and manage mappings between business and IRS categories, including suggestions for unmapped categories.
-- **Reporting Logic:** Update report aggregation to use the parent mapping or fuzzy match when rolling up subtotals for IRS worksheet lines.
+## Recommendations
+- Use the `parent_category` field in `BusinessExpenseCategory` to explicitly map custom categories to IRS categories.
+- Implement a fuzzy string matching system to suggest or auto-map similar category names.
+- Enforce or suggest selection from a controlled vocabulary during transaction classification.
+- Build an admin interface to review, approve, and manage mappings between business and IRS categories.
+- Update report aggregation to use the parent mapping or fuzzy match when rolling up subtotals for IRS worksheet lines.
 
 ## Action Item
 - Document and discuss the best approach for maintaining robust, user-friendly category mapping between custom business and IRS worksheet categories. Prioritize a solution that is maintainable and transparent for both admins and end users.
@@ -637,4 +570,164 @@ make <role>-session  # e.g., make reviewer-session
 - Backup script and location: `scripts/db/backup_dev_db.sh`, iCloud-synced backup folder.
 - Table missing: `profiles_transactionclassification` (required for classification history/audit).
 - All migrations for `profiles` are marked as applied, but the table is not present in the DB.
-- Next step: schema repair/reset, then restore data as needed. 
+- Next step: schema repair/reset, then restore data as needed.
+
+# Active Context (as of 2024-06-27)
+
+## Current Focus
+- Debugging persistent Django admin `RecursionError: maximum recursion depth exceeded`.
+
+## Latest Findings
+- Even with a minimal `app_list.html` (only extends and an empty content block), the RecursionError persists.
+- All circular references and template loader issues have been excluded.
+- This suggests a deeper Django template system bug or a project-specific misconfiguration.
+- Next steps may require external review or advanced debugging.
+
+## Current State
+- The working database is now `ledgerflow_test_restore` (restored, fixed, and fully in sync with migrations).
+- All migration drift and missing tables have been resolved.
+- Admin bulk actions are enabled (DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000).
+- All backup scripts have been updated to use the new database.
+- Codebase and migrations are committed and pushed to remote.
+- No secrets or `.env*` files are in version control; these are backed up separately.
+
+## Backup/Restore Process
+- Use `scripts/db/backup_dev_db.sh` for database-only backups (now points to `ledgerflow_test_restore`).
+- Use `scripts/db/backup_dev_full.sh` for full backups (DB, media, config, state). If not using Dockerized Django, skip media/config container steps.
+- All backup files are stored in iCloud and are automatically synced.
+- After any major schema or data change, take a fresh backup and verify it.
+- To restore: create a new DB, gunzip and psql the backup, then run Django migrations if needed.
+
+## Commit/Version Control
+- All code, migrations, and scripts are committed to Git.
+- No secret files are committed; `.env*` and sensitive configs are only on the backup drive.
+
+## Next Steps
+- Continue using `ledgerflow_test_restore` as the main DB.
+- Back up `.env*` and secrets to backup drive after any change.
+- If switching to Dockerized Django, ensure config and volumes are in sync.
+- Do not delete the old database until the new process is proven over time.
+- Update this doc and README after any major process change. 
+
+## Current Mission
+Refactor the ingestion pipeline to consume the new ParserOutput contract from all parsers, standardizing how transaction data and statement metadata are processed throughout the system.
+
+- **Branch:** `refactor/parser-ingestion-contract`
+- **Status:** In progress
+
+## Next Steps
+1. Define and implement ParserOutput contract classes (ParserOutput, TransactionRecord, StatementMetadata)
+2. Identify and document all parser output consumption points
+3. Update one reference parser to implement ParserOutput
+4. Refactor ingestion pipeline to consume ParserOutput
+5. Update remaining parsers and documentation
+
+## Task Master Alignment
+- Task #13: Refactor Ingestion Pipeline for ParserOutput Contract
+  - Subtasks:
+    1. Define and implement ParserOutput contract classes
+    2. Identify and document all parser output consumption points
+    3. Update one reference parser to implement ParserOutput
+    4. Refactor ingestion pipeline to consume ParserOutput
+    5. Update remaining parsers and documentation
+
+## Notes
+- This is a critical architectural update for long-term maintainability and extensibility.
+- All code that processes parser output will be updated to use the new contract.
+- Documentation and team communication will be updated accordingly.
+
+---
+[2025-06-26] Active Context Update
+- Wells Fargo Mastercard parser bug (logger scoping) resolved in PDF-extractor submodule. No main repo changes needed.
+- All logger usage now consistent, debug prints and legacy code removed, parser contract-compliant.
+- Next: Repo cleanup (remove logs, temp files, ensure no sensitive CSV/PDFs are committed).
+- After cleanup: Update Task Master tasks and proceed to UI review/cleanup.
+---
+
+_Last updated: 2025-06-12_
+
+# Migration Chain & DB Reset: Full Debug Log (2025-06-29)
+
+## What Was Fixed
+- Migration chain for `profiles_transactionclassification` was broken by index name mismatches between `0001_initial.py` and `0010_rename_transactionclassification_transaction_createdat_idx_profiles_tr_transac_002390_idx_and_more.py`.
+- Previous attempts failed due to leftover tables/indexes in the DB, even after faking migrations.
+
+## Solution Steps
+1. **Restored correct index names** in `0001_initial.py` to match the old names expected by `RenameIndex` in 0010.
+2. **Reset migration state** with `--fake profiles zero` (did not clear tables).
+3. **Dropped and recreated the `public` schema** in Postgres to fully clear all tables, indexes, and constraints.
+4. **Re-applied all migrations** from scratch. All succeeded with no errors.
+
+## Current State
+- **Django admin loads with no RecursionError** on a clean, empty DB.
+- **No data is present** (expected after full schema drop).
+- **Top navigation is missing**; admin is barebones but functional.
+
+## Open Questions
+- **Data Restoration:** Can we restore data from any backup, or are some tables (e.g., `profiles_statementfile`) missing from all available backups? If so, data loss is permanent for those tables.
+- **Top Nav:** Was the top nav removed in a recent commit, or is it missing due to the DB state? (Check git history for admin template changes.)
+- **Root Cause:** Was the RecursionError caused by DB/index corruption, or by a code/template/admin bug? (Current evidence: DB/index corruption was the main blocker, but nav issues may be unrelated.)
+
+## Next Steps
+- Attempt data restoration from latest backup (if available).
+- Investigate top nav disappearance (compare with previous commits).
+- If admin RecursionError is gone, focus on restoring UI and data.
+
+---
+
+**This log should be shared with DB_Guardian and stored in the project knowledge base.** 
+
+# ACME Corp Demo Bootstrap Plan (Memory Bank)
+
+## Goal
+Create a fully automated, safe, and production-like demo environment for LedgerFlow using a generic ACME Corp profile. This enables zero-friction onboarding, robust testing, and reproducible development for both SQLite and Postgres.
+
+---
+
+## Key Steps
+
+1. **Config Scaffolding**
+   - All demo config/data files live in `profiles/bootstrap/`:
+     - `agents.json` (agent definitions, prompts, model names)
+     - `business_profile.json` (ACME Corp)
+     - `worksheets.json` (IRS 6A worksheet)
+     - `categories_6A.json` (official IRS 6A categories)
+     - `business_expense_categories.json` (sample company-specific categories)
+     - `sample_transactions.csv` (realistic demo transactions)
+     - `field_mapping.json` (LLM-to-model field mapping)
+
+2. **Management Command: `bootstrap_demo`**
+   - Safely wipes or checks the DB (with explicit DB name confirmation and dry-run support).
+   - Loads all config files and creates demo objects (business profile, worksheet, categories, agents).
+   - Copies the sample CSV to the media directory and creates a `StatementFile`.
+   - Invokes the real batch upload/import logic to process the CSV as if uploaded by a user.
+   - Prints a summary and next steps for the user.
+
+3. **Safety & Best Practices**
+   - Prints the exact DB connection string and loaded `.env` file before any destructive action.
+   - Requires the user to type the DB name to confirm wipes.
+   - Supports a `--dry-run` mode for safe preview.
+
+4. **Onboarding & Usage**
+   - README instructions for both SQLite (default, zero-infra) and Postgres (advanced/dev/prod).
+   - One command to bootstrap the demo: `python manage.py bootstrap_demo --force`
+   - All demo data is loaded via the real ingestion pipeline for true end-to-end testing.
+
+5. **Testing & Validation**
+   - After setup, ACME Corp is present with:
+     - IRS 6A worksheet and categories
+     - Business expense categories
+     - Sample transactions linked to a statement file
+   - All admin and user flows work as in production.
+
+---
+
+## Why This Matters
+- **Zero-friction onboarding** for new users and devs
+- **Safe, explicit DB handling** to prevent accidental data loss
+- **Production-like demo** for robust testing and confidence
+- **Easily repeatable** for CI, dev, and onboarding
+
+---
+
+*This plan is now saved in the memory bank as the reference for the current ACME Corp demo bootstrap implementation and onboarding workflow.* 

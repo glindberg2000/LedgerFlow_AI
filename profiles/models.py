@@ -9,6 +9,8 @@ import hashlib
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
+from django.conf import settings
+import re
 
 # Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
 CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
@@ -19,7 +21,22 @@ PAYEE_EXTRACTION_METHOD_UNPROCESSED = "None"
 
 
 class BusinessProfile(models.Model):
-    client_id = models.CharField(max_length=255, primary_key=True)
+    # Default 'id' integer PK is used
+    client_id = models.CharField(
+        max_length=64,
+        unique=True,
+        editable=False,
+        blank=False,
+        null=False,
+        help_text="Unique, URL-safe identifier for this client. Used for lookups and URLs, but not the primary key.",
+    )
+    company_name = models.CharField(
+        max_length=255,
+        blank=False,
+        null=False,
+        default="ACME Corp",
+        help_text="Human-friendly business name. Editable.",
+    )
     business_type = models.TextField(blank=True, null=True)
     business_description = models.TextField(blank=True, null=True)
     contact_info = models.TextField(blank=True, null=True)
@@ -38,7 +55,16 @@ class BusinessProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Business Profile for client {self.client_id}"
+        return self.company_name
+
+    def clean(self):
+        # Ensure client_id is URL-safe
+        if not re.match(r"^[a-zA-Z0-9_-]+$", self.client_id):
+            raise ValidationError(
+                {
+                    "client_id": "Client ID must be URL-safe (letters, numbers, underscores, hyphens only)."
+                }
+            )
 
 
 class ClientExpenseCategory(models.Model):
@@ -199,23 +225,12 @@ class Transaction(models.Model):
 
     # Processing method tracking
     payee_extraction_method = models.CharField(
-        max_length=20,
-        choices=[
-            ("AI", "AI Only"),
-            ("AI+Search", "AI with Search"),
-            ("Human", "Human Override"),
-            ("None", "Not Processed"),  # Added this choice
-        ],
+        max_length=128,
         default=None,  # Changed from "AI" to None
         help_text="Method used to extract the payee information",
     )
     classification_method = models.CharField(
-        max_length=20,
-        choices=[
-            ("AI", "AI Only"),
-            ("Human", "Human Override"),
-            ("None", "Not Processed"),
-        ],
+        max_length=128,
         default=None,
         help_text="Method used to classify the transaction",
     )
@@ -223,7 +238,7 @@ class Transaction(models.Model):
     # New fields for full auditability
     statement_file = models.ForeignKey(
         "StatementFile", on_delete=models.CASCADE, null=True, blank=True
-    )
+    )  # One-way FK only (RecursionError fix, see o3_dev review)
     parser_name = models.CharField(max_length=64, null=True, blank=True)
 
     # New field for needs_account_number
@@ -462,9 +477,9 @@ class ProcessingTask(models.Model):
     error_count = models.IntegerField(default=0)
     error_details = models.JSONField(default=dict)
     task_metadata = models.JSONField(default=dict)  # For storing dynamic configuration
-    transactions = models.ManyToManyField(
-        "Transaction", related_name="processing_tasks"
-    )
+    # transactions = models.ManyToManyField(
+    #     "Transaction", related_name="processing_tasks"
+    # )  # Temporarily removed to fix Django admin RecursionError (see ticket #35694)
 
     def __str__(self):
         return f"{self.task_type} task for {self.client.client_id} ({self.status})"
@@ -529,9 +544,9 @@ class StatementFile(models.Model):
     year = models.IntegerField(blank=True, null=True)
     month = models.IntegerField(blank=True, null=True)
     parsed_metadata = models.JSONField(blank=True, null=True, default=dict)
-    transactions = models.ManyToManyField(
-        "Transaction", related_name="source_files", blank=True
-    )
+    # transactions = models.ManyToManyField(
+    #     "Transaction", related_name="source_files", blank=True
+    # )  # Removed to fix Django admin RecursionError (see ticket #35694)
     parser_module = models.CharField(
         max_length=100,
         blank=True,
@@ -571,8 +586,21 @@ class StatementFile(models.Model):
             )
         ]
 
+    def get_source_display(self):
+        """Returns a user-friendly display name for the transaction source."""
+        parts = []
+        if self.bank:
+            parts.append(self.bank)
+        if self.account_number:
+            # Display last 4 digits for privacy
+            parts.append(f"....{self.account_number[-4:]}")
+        if self.statement_type:
+            parts.append(self.statement_type)
+
+        return " - ".join(parts) if parts else "Unknown Source"
+
     def __str__(self):
-        return f"{self.client} - {self.original_filename} ({self.status})"
+        return f"{self.client.client_id} - {self.original_filename}"
 
     def compute_statement_hash(self):
         """Compute SHA256 hash of the file contents."""
@@ -627,3 +655,59 @@ class ParsingRun(models.Model):
 def delete_statementfile_file(sender, instance, **kwargs):
     if instance.file:
         instance.file.delete(save=False)
+
+
+class TaxChecklistItem(models.Model):
+    STATUS_CHOICES = [
+        ("not_started", "Not Started"),
+        ("in_progress", "In Progress"),
+        ("complete", "Complete"),
+        ("needs_review", "Needs Review"),
+    ]
+
+    business_profile = models.ForeignKey(
+        BusinessProfile, on_delete=models.CASCADE, related_name="tax_checklist_items"
+    )
+    tax_year = models.CharField(
+        max_length=8
+    )  # e.g., "2023"; change to FK if you have a TaxYear model
+    form_code = models.CharField(max_length=10)
+    enabled = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="not_started"
+    )
+    notes = models.TextField(blank=True, null=True)
+    current_year_value = models.TextField(blank=True, null=True)
+    date_modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("business_profile", "tax_year", "form_code")
+        verbose_name = "Tax Checklist Item"
+        verbose_name_plural = "Tax Checklist Items"
+        ordering = ["business_profile", "tax_year", "form_code"]
+
+    def __str__(self):
+        return f"{self.business_profile} - {self.tax_year} - {self.form_code} ({self.get_status_display()})"
+
+    @classmethod
+    def enabled_for_client_year(cls, business_profile, tax_year):
+        return cls.objects.filter(
+            business_profile=business_profile, tax_year=tax_year, enabled=True
+        )
+
+
+class ChecklistAttachment(models.Model):
+    checklist_item = models.ForeignKey(
+        "TaxChecklistItem",
+        on_delete=models.CASCADE,
+        related_name="checklist_attachments",
+    )
+    file = models.FileField(upload_to="tax_checklist_attachments/")
+    tag = models.CharField(
+        max_length=100,
+        help_text="Type or description of the document (e.g., W-2, 1099, Receipt)",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.tag} ({self.file.name})"

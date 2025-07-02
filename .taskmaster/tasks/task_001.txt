@@ -1,0 +1,51 @@
+# Task ID: 1
+# Title: Create TaxYear (Binder) Model
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Create the TaxYear model that represents a binder for a specific client and tax year, serving as the foundation for the binder-centric workflow.
+# Details:
+Create a new Django model called TaxYear with the following fields:
+- business_profile: ForeignKey to BusinessProfile
+- year: IntegerField or CharField to store the tax year
+- status: CharField with choices (e.g., 'not_started', 'in_progress', 'complete', 'needs_review')
+- notes: TextField (optional)
+- created_at: DateTimeField (auto_now_add=True)
+- updated_at: DateTimeField (auto_now=True)
+
+Example implementation:
+```python
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+
+class TaxYear(models.Model):
+    STATUS_CHOICES = [
+        ('not_started', _('Not Started')),
+        ('in_progress', _('In Progress')),
+        ('complete', _('Complete')),
+        ('needs_review', _('Needs Review')),
+    ]
+    
+    business_profile = models.ForeignKey('profiles.BusinessProfile', on_delete=models.CASCADE, related_name='tax_years')
+    year = models.CharField(max_length=10)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['business_profile', 'year']
+        ordering = ['-year']
+    
+    def __str__(self):
+        return f"{self.business_profile.name} - {self.year}"
+```
+
+Register the model in admin.py with a basic ModelAdmin class.
+
+# Test Strategy:
+1. Write unit tests to verify model creation with required fields
+2. Test unique constraint on business_profile and year
+3. Test string representation
+4. Test relationship with BusinessProfile (can access tax_years from a business profile)
+5. Verify admin registration works by accessing the admin page

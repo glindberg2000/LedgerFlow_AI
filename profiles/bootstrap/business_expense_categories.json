@@ -1,0 +1,22 @@
+[
+    {
+        "name": "Software Subscriptions",
+        "parent_category": "Office Expense",
+        "worksheet": "6A"
+    },
+    {
+        "name": "Team Lunches",
+        "parent_category": "Travel and Meals (Deductible Meals)",
+        "worksheet": "6A"
+    },
+    {
+        "name": "Client Gifts",
+        "parent_category": "Advertising",
+        "worksheet": "6A"
+    },
+    {
+        "name": "Cloud Hosting",
+        "parent_category": "Utilities",
+        "worksheet": "6A"
+    }
+]

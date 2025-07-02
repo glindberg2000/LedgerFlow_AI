@@ -1,0 +1,81 @@
+# Overview
+The Binder Refactor feature transforms the current Django admin workflow for client tax document management into a binder-centric model. Each client-year ("binder") becomes a focused workspace for all checklists, attachments, and reports, enabling clear navigation, progress tracking, and future extensibility (including a client portal). This solves the pain of flat, hard-to-navigate data and prepares the system for multi-year, multi-client, and multi-user scenarios.
+
+# Core Features
+- **Binder Model (TaxYear):**
+  - Each client has one or more binders, each representing a specific tax year/engagement.
+  - Binders group all checklist items, attachments, and reports for that year.
+- **Checklist Management:**
+  - Checklist items are linked to a binder (client-year), not just a client.
+  - Items can be initialized from a canonical template and customized per binder.
+  - Status tracking (not started, in progress, complete, needs review).
+- **Attachment Management:**
+  - Attachments are linked to checklist items and binders.
+  - Support for multiple files per item, tagging, and upload date.
+- **Binder Dashboard:**
+  - Admin UI for viewing a single binder: progress bar, sections (optional), checklist, attachments, and reports.
+  - Quick actions: upload, generate, mark complete.
+- **Bootloader Sample Data:**
+  - Bootloader creates multiple binders for the sample client to demonstrate multi-year support.
+- **Parallel UI Support:**
+  - New binder UI can run alongside the legacy admin for safe migration/testing.
+- **Future-Proofing:**
+  - Data model and UI are designed for easy extension to a client/contributor portal.
+
+# User Experience
+- **User Personas:**
+  - Staff/admin: Manages all clients, years, and documents.
+  - (Future) Client/contributor: Views and uploads docs for their own binders.
+- **Key User Flows:**
+  - Staff selects a client, then a year (binder), then manages checklist items and attachments in a focused dashboard.
+  - Bootloader sample client shows multiple years/binders for demo/testing.
+- **UI/UX Considerations:**
+  - Hierarchical navigation: Client → Year → Binder Dashboard.
+  - Progress/status indicators for each binder.
+  - Clear separation between old and new UIs during migration.
+
+# Technical Architecture
+- **System Components:**
+  - Django models: BusinessProfile, TaxYear (Binder), ChecklistItem, ChecklistAttachment, (optional) BinderSection.
+  - Admin UIs: Legacy admin, new binder admin (or app).
+  - Bootloader for sample data.
+- **Data Models:**
+  - TaxYear: FK to BusinessProfile, year, status, notes.
+  - ChecklistItem: FK to TaxYear, form_code, status, notes.
+  - ChecklistAttachment: FK to ChecklistItem, file, tag, uploaded_at.
+  - (Optional) BinderSection: FK to TaxYear, name.
+- **APIs and Integrations:**
+  - Internal Django ORM and admin APIs.
+  - (Future) REST API for portal integration.
+- **Infrastructure Requirements:**
+  - No special requirements; runs on existing Django stack.
+
+# Development Roadmap
+- **MVP Requirements:**
+  - Add TaxYear model and refactor ChecklistItem/Attachment to use it.
+  - Update admin UI for binder-centric navigation and dashboard.
+  - Enhance bootloader to create multiple binders for sample client.
+  - Support parallel operation of old and new UIs.
+- **Future Enhancements:**
+  - Add BinderSection for grouping checklist items.
+  - Build client/contributor portal UI.
+  - Add REST API endpoints for external integrations.
+  - Advanced reporting and export features.
+
+# Logical Dependency Chain
+- Add TaxYear model and migrate data (foundation).
+- Refactor ChecklistItem and ChecklistAttachment to use TaxYear.
+- Update admin UI for binder navigation and dashboard.
+- Enhance bootloader/sample data for multi-binder demo.
+- (Optional) Add BinderSection and sectioned UI.
+- (Future) Build portal and API features.
+
+# Risks and Mitigations
+- **Technical challenges:** Data migration from CharField to FK; mitigated by lack of critical data and ability to wipe/reload sample data.
+- **MVP scoping:** Focus on binder model, admin UI, and bootloader; defer portal and API to future phases.
+- **Parallel operation:** Risk of confusion; mitigated by clear separation of old/new UIs and feature branch development.
+
+# Appendix
+- Canonical checklist template: profiles/bootstrap/tax_checklist_index.json
+- Example admin UI: see binder_refactor_plan.md
+- Reference: example_prd.txt (Task-Master template) 

@@ -1,0 +1,322 @@
+{
+    "3": {
+        "label": "Personal Information",
+        "topic": "Personal Information",
+        "entry_type": "manual_entry"
+    },
+    "3A": {
+        "label": "Dependent Information",
+        "topic": "Personal Information",
+        "entry_type": "manual_entry"
+    },
+    "4": {
+        "label": "Electronic Filing",
+        "topic": "Electronic Filing",
+        "entry_type": "manual_entry"
+    },
+    "4A": {
+        "label": "Direct Deposit Information",
+        "topic": "Electronic Filing",
+        "entry_type": "manual_entry"
+    },
+    "4B": {
+        "label": "Savings Bond Purchases",
+        "topic": "Electronic Filing",
+        "entry_type": "manual_entry"
+    },
+    "5A": {
+        "label": "Interest Income",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5B": {
+        "label": "Dividend Income",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5C": {
+        "label": "Foreign Assets",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5D": {
+        "label": "Foreign Assets",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5E": {
+        "label": "Interest Income & Foreign Information",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5F": {
+        "label": "Dividend Income & Foreign Information",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "5G": {
+        "label": "Sales of Stocks, Securities, Capital Assets & Misc. Income",
+        "topic": "Consolidated Brokerage Statements",
+        "entry_type": "manual_entry"
+    },
+    "6": {
+        "label": "Business Income and Expenses",
+        "topic": "Business Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "6A": {
+        "label": "Business Use of Home (Business)",
+        "topic": "Business Income and Expenses",
+        "entry_type": "auto_calculated"
+    },
+    "6B": {
+        "label": "Vehicle/Other Listed Property Information (Business)",
+        "topic": "Business Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "6C": {
+        "label": "Vehicle/Other Listed Property Information (Business)",
+        "topic": "Business Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "6D": {
+        "label": "Business Use of Home (Business)",
+        "topic": "Business Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "7": {
+        "label": "Installment Sale Receipts / Sale of Stock, Securities and Other Capital Assets",
+        "topic": "Installment Sale Receipts",
+        "entry_type": "manual_entry"
+    },
+    "8": {
+        "label": "Moving Expenses / Sale of Your Home",
+        "topic": "Moving Expenses",
+        "entry_type": "manual_entry"
+    },
+    "9": {
+        "label": "IRA Contributions / Distributions / Roth IRA Contributions/Conversions",
+        "topic": "IRA Contributions",
+        "entry_type": "manual_entry"
+    },
+    "9A": {
+        "label": "Annuity Payments Received / Keogh Plan Contributions / Pension Income / SEP/SIMPLE Plan Contributions",
+        "topic": "Annuity Payments Received",
+        "entry_type": "manual_entry"
+    },
+    "10": {
+        "label": "Rental and Royalty Income and Expenses",
+        "topic": "Rental and Royalty Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "10A": {
+        "label": "Rental and Royalty Income and Expenses",
+        "topic": "Rental and Royalty Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "10B": {
+        "label": "Depreciable Property and Equipment (Rental and Royalty)",
+        "topic": "Depreciable Property and Equipment",
+        "entry_type": "manual_entry"
+    },
+    "10C": {
+        "label": "Vehicle/Other Listed Property Information (Rental and Royalty)",
+        "topic": "Vehicle/Other Listed Property Information",
+        "entry_type": "manual_entry"
+    },
+    "10D": {
+        "label": "Vehicle/Other Listed Property Information (Rental and Royalty)",
+        "topic": "Vehicle/Other Listed Property Information",
+        "entry_type": "manual_entry"
+    },
+    "10E": {
+        "label": "Business Use of Home (Rental)",
+        "topic": "Business Use of Home",
+        "entry_type": "manual_entry"
+    },
+    "11": {
+        "label": "Estate Income / Partnership Income / S Corporation Income / Trust Income / Real Estate Mortgage Investment Conduit Income (REMIC)",
+        "topic": "Estate Income",
+        "entry_type": "manual_entry"
+    },
+    "11A": {
+        "label": "Vehicle/Other Listed Property Information (Partnership/S Corporation)",
+        "topic": "Vehicle/Other Listed Property Information",
+        "entry_type": "manual_entry"
+    },
+    "11B": {
+        "label": "Business Use of Home (Passthrough)",
+        "topic": "Business Use of Home",
+        "entry_type": "manual_entry"
+    },
+    "12": {
+        "label": "Farm Income and Expenses",
+        "topic": "Farm Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "12A": {
+        "label": "Farm Income and Expenses",
+        "topic": "Farm Income and Expenses",
+        "entry_type": "manual_entry"
+    },
+    "12B": {
+        "label": "Depreciable Property and Equipment (Farm)",
+        "topic": "Depreciable Property and Equipment",
+        "entry_type": "manual_entry"
+    },
+    "12C": {
+        "label": "Vehicle/Other Listed Property Information (Farm)",
+        "topic": "Vehicle/Other Listed Property Information",
+        "entry_type": "manual_entry"
+    },
+    "12D": {
+        "label": "Vehicle/Other Listed Property Information (Farm)",
+        "topic": "Vehicle/Other Listed Property Information",
+        "entry_type": "manual_entry"
+    },
+    "12E": {
+        "label": "Business Use of Home (Farm)",
+        "topic": "Business Use of Home",
+        "entry_type": "manual_entry"
+    },
+    "13": {
+        "label": "Alimony Paid or Received / Miscellaneous Income and Adjustments / Railroad Retirement Benefits / Social Security Benefits / State and Local Tax Refunds / Unemployment Compensation",
+        "topic": "Alimony Paid or Received",
+        "entry_type": "manual_entry"
+    },
+    "13A": {
+        "label": "Educator (Teacher) Expenses / Health Savings Accounts / Student Loan Interest",
+        "topic": "Educator (Teacher) Expenses",
+        "entry_type": "manual_entry"
+    },
+    "13B": {
+        "label": "Ministerial Income",
+        "topic": "Ministerial Income",
+        "entry_type": "manual_entry"
+    },
+    "14": {
+        "label": "Medical and Dental Expenses / Taxes Paid",
+        "topic": "Medical and Dental Expenses",
+        "entry_type": "manual_entry"
+    },
+    "14A": {
+        "label": "Interest Paid / Investment Interest Expense / Mortgage Interest Paid",
+        "topic": "Interest Paid",
+        "entry_type": "manual_entry"
+    },
+    "15": {
+        "label": "Contributions",
+        "topic": "Contributions",
+        "entry_type": "manual_entry"
+    },
+    "16": {
+        "label": "Casualty or Theft Losses / Miscellaneous Itemized Deductions",
+        "topic": "Casualty or Theft Losses",
+        "entry_type": "manual_entry"
+    },
+    "16A": {
+        "label": "Business Use of Home (Itemized Deductions)",
+        "topic": "Business Use of Home",
+        "entry_type": "manual_entry"
+    },
+    "17": {
+        "label": "Employee Business Expenses",
+        "topic": "Employee Business Expenses",
+        "entry_type": "manual_entry"
+    },
+    "17A": {
+        "label": "Depreciable Property and Equipment (Employee Business Expenses) / Vehicle/Other Listed Property Information (Employee Business Expenses)",
+        "topic": "Depreciable Property and Equipment",
+        "entry_type": "manual_entry"
+    },
+    "17B": {
+        "label": "Business Use of Home (Employee Business Expenses)",
+        "topic": "Business Use of Home",
+        "entry_type": "manual_entry"
+    },
+    "18": {
+        "label": "Child and Dependent Care Expenses / Education Expenses",
+        "topic": "Child and Dependent Care Expenses",
+        "entry_type": "manual_entry"
+    },
+    "19": {
+        "label": "Household Employment Taxes",
+        "topic": "Household Employment Taxes",
+        "entry_type": "manual_entry"
+    },
+    "20": {
+        "label": "Application of Refund / Federal, State and City Estimated Taxes",
+        "topic": "Application of Refund",
+        "entry_type": "manual_entry"
+    },
+    "20A": {
+        "label": "Federal, State and City Estimated Taxes",
+        "topic": "Federal, State and City Estimated Taxes",
+        "entry_type": "manual_entry"
+    },
+    "21": {
+        "label": "Gambling Winnings",
+        "topic": "Gambling Winnings",
+        "entry_type": "manual_entry"
+    },
+    "30": {
+        "label": "Foreign Employment Information",
+        "topic": "Foreign Employment Information",
+        "entry_type": "manual_entry"
+    },
+    "30A": {
+        "label": "Foreign Employment Information",
+        "topic": "Foreign Employment Information",
+        "entry_type": "manual_entry"
+    },
+    "30B": {
+        "label": "Foreign Employment Information",
+        "topic": "Foreign Employment Information",
+        "entry_type": "manual_entry"
+    },
+    "30C": {
+        "label": "Foreign Housing Expenses",
+        "topic": "Foreign Housing Expenses",
+        "entry_type": "manual_entry"
+    },
+    "30D": {
+        "label": "Foreign Travel and Workdays",
+        "topic": "Foreign Travel and Workdays",
+        "entry_type": "manual_entry"
+    },
+    "31": {
+        "label": "Foreign Wages and Other Income",
+        "topic": "Foreign Wages and Other Income",
+        "entry_type": "manual_entry"
+    },
+    "31A": {
+        "label": "Foreign Wages and Other Income",
+        "topic": "Foreign Wages and Other Income",
+        "entry_type": "manual_entry"
+    },
+    "31B": {
+        "label": "Foreign Wages and Other Income",
+        "topic": "Foreign Wages and Other Income",
+        "entry_type": "manual_entry"
+    },
+    "32": {
+        "label": "Foreign Taxes",
+        "topic": "Foreign Taxes",
+        "entry_type": "manual_entry"
+    },
+    "33": {
+        "label": "Calendar",
+        "topic": "Calendar",
+        "entry_type": "manual_entry"
+    },
+    "34": {
+        "label": "Gifts",
+        "topic": "Gifts",
+        "entry_type": "manual_entry"
+    },
+    "35": {
+        "label": "Gifts",
+        "topic": "Gifts",
+        "entry_type": "manual_entry"
+    }
+}

@@ -87,19 +87,28 @@ class Command(BaseCommand):
                 raise ValueError(f"No agent found for task type {task.task_type}")
 
             # Process each transaction
-            total = task.transactions.count()
+            transaction_ids = task.task_metadata.get("transaction_ids", [])
+            total = len(transaction_ids)
             success_count = 0
             error_count = 0
             error_details = {}
 
-            for idx, transaction in enumerate(task.transactions.all(), 1):
+            for idx, transaction in enumerate(
+                Transaction.objects.filter(id__in=transaction_ids), 1
+            ):
                 try:
                     # Call the agent
-                    response = call_agent(agent.name, transaction)
+                    response, tool_usage = call_agent(agent.name, transaction)
 
-                    # Use shared field mapping logic
+                    # Map task_type to agent_type for robust method logic
+                    if task.task_type == "payee_lookup":
+                        agent_type = "payee"
+                    elif task.task_type == "classification":
+                        agent_type = "classification"
+                    else:
+                        raise ValueError(f"Unknown task_type: {task.task_type}")
                     update_fields = get_update_fields_from_response(
-                        agent, response, task.task_type
+                        agent, response, agent_type, tool_usage=tool_usage
                     )
 
                     # Update the transaction

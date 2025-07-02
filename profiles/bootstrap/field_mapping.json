@@ -1,0 +1,11 @@
+{
+    "payee": "payee",
+    "normalized_description": "normalized_description",
+    "payee_reasoning": "payee_reasoning",
+    "classification_type": "classification_type",
+    "worksheet": "worksheet",
+    "category": "category",
+    "confidence": "confidence",
+    "business_percentage": "business_percentage",
+    "questions": "questions"
+}

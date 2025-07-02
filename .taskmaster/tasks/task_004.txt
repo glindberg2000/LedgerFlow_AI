@@ -1,0 +1,41 @@
+# Task ID: 4
+# Title: Create BinderSection Model (Optional)
+# Status: pending
+# Dependencies: 2
+# Priority: medium
+# Description: Implement the optional BinderSection model to allow grouping of checklist items within a binder for better organization.
+# Details:
+Create a new Django model called BinderSection:
+
+```python
+class BinderSection(models.Model):
+    tax_year = models.ForeignKey('TaxYear', on_delete=models.CASCADE, related_name='sections')
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    order = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ['order', 'name']
+        unique_together = ['tax_year', 'name']
+    
+    def __str__(self):
+        return self.name
+```
+
+Update the ChecklistItem model to include an optional section field:
+
+```python
+# Add to ChecklistItem model
+section = models.ForeignKey('BinderSection', on_delete=models.SET_NULL, 
+                          related_name='checklist_items', 
+                          blank=True, null=True)
+```
+
+Create admin interfaces for managing sections and assigning checklist items to sections.
+
+# Test Strategy:
+1. Write unit tests for the BinderSection model
+2. Test the relationship between BinderSection and ChecklistItem
+3. Verify ordering works correctly
+4. Test admin interface for creating and managing sections
+5. Verify that checklist items can be assigned to sections

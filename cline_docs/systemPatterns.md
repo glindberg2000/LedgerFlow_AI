@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # System Patterns
 
 ## Architecture Overview
@@ -678,3 +679,11 @@ Identical configuration except:
 2. Never point live Postgres volume at iCloud
 3. Never push to `main` without passing tests & backup checks
 4. Never edit `.env.prod` directly on server 
+
+### [2025-06-26] Parser Logger Usage & Troubleshooting Pattern
+- Always define a module-level logger with a unique, descriptive name (e.g., `wellsFargo_logger = logging.getLogger("wellsfargo_mastercard_parser")`).
+- Never use function-level or shadowed logger assignments.
+- All logger calls must use the module-level variable consistently.
+- Remove legacy code and debug prints after troubleshooting.
+- Ensure all parser outputs are contract-compliant (never return DataFrame, always return contract object).
+- If you see 'cannot access local variable logger' or similar errors, check for inconsistent logger usage, legacy code, or stale bytecode in submodules.

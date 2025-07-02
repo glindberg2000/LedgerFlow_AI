@@ -1,3 +1,7 @@
-[submodule "dataextractai/parsers"]
-	path = dataextractai/parsers
-	url = git@github.com:glindberg2000/PDF-extractor.git
+[submodule "internal_chat_mcp"]
+	path = internal_chat_mcp
+	url = git@github.com:glindberg2000/internal_chat_mcp.git
+
+[submodule "PDF-extractor"]
+	path = PDF-extractor
+	url = https://github.com/glindberg2000/PDF-extractor.git
