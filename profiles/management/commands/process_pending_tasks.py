@@ -69,8 +69,13 @@ class Command(BaseCommand):
                         response = call_agent(agent.name, tx)
 
                         # Use shared field mapping logic
+                        agent_type = (
+                            "payee"
+                            if task.task_type == "payee_lookup"
+                            else "classification"
+                        )
                         update_fields = get_update_fields_from_response(
-                            agent, response, task.task_type
+                            agent, response, agent_type
                         )
 
                         # Update the transaction
