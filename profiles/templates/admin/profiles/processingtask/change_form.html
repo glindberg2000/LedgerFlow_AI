@@ -12,57 +12,17 @@
 
 {% block extrahead %}
 {{ block.super }}
+{% if auto_refresh %}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const logPre = document.getElementById('live-log');
-        const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
-        const statusBadge = document.getElementById('status-badge');
-        const taskId = '{{ original.task_id }}';
-        let polling = true;
-        function pollLog() {
-            fetch(`/admin/profiles/processingtask/${taskId}/live_status/`)
-                .then(response => response.json())
-                .then(data => {
-                    if (logPre) logPre.textContent = data.log || '(No log available)';
-                    if (progressBar && progressText) {
-                        const percent = data.transaction_count > 0 ? Math.floor((data.processed_count / data.transaction_count) * 100) : 0;
-                        progressBar.style.width = percent + '%';
-                        progressText.textContent = `${data.processed_count} / ${data.transaction_count}`;
-                    }
-                    if (statusBadge) {
-                        let label = data.status.charAt(0).toUpperCase() + data.status.slice(1);
-                        let style = '';
-                        if (data.status === 'pending') { label = '⏳ Pending'; style = 'background:#f6c23e;color:#fff;'; }
-                        if (data.status === 'processing') { label = '🔄 Processing'; style = 'background:#36b9cc;color:#fff;'; }
-                        if (data.status === 'completed') { label = '✅ Completed'; style = 'background:#1cc88a;color:#fff;'; }
-                        if (data.status === 'failed') { label = '❌ Failed'; style = 'background:#e74a3b;color:#fff;'; }
-                        statusBadge.textContent = label;
-                        statusBadge.style = style + 'font-weight:bold;padding:0.2em 0.7em;border-radius:1em;font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;';
-                    }
-                    if (data.status === 'completed' || data.status === 'failed') {
-                        polling = false;
-                    }
-                })
-                .catch(() => {});
-            if (polling) setTimeout(pollLog, 2000);
-        }
-        pollLog();
-    });
+    setTimeout(function () { window.location.reload(); }, 7000);
 </script>
+{% endif %}
 {% endblock %}
 
 {% block after_related_objects %}
 {{ block.super }}
+{% if log_content %}
 <h3>Task Log</h3>
-<div style="border:1px solid #ccc; background:#222; color:#eee; padding:1em; max-height:500px; overflow:auto; border-radius:6px; font-size:13px; font-family:monospace; white-space:pre-wrap;">
-  <pre id="live-log" style="background:none; color:inherit; border:none; padding:0; margin:0; font-family:inherit; font-size:inherit; white-space:pre-wrap;"></pre>
-</div>
-<div style="margin-top:1em;">
-  <span id="status-badge"></span>
-  <div style="display:inline-block;vertical-align:middle;width:200px;height:20px;border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;">
-    <div id="progress-bar" style="background:#79aec8;height:100%;width:0%;transition:width 0.3s ease;"></div>
-  </div>
-  <span id="progress-text" style="font-size:12px;color:#666;margin-left:8px;">0 / 0</span>
-</div>
+{{ log_content|safe }}
+{% endif %}
 {% endblock %}
