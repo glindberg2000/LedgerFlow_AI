@@ -142,9 +142,11 @@ class BusinessProfileAdminForm(forms.ModelForm):
     class Meta:
         model = BusinessProfile
         fields = [
-            "client_id",
-            "contact_info",
+            "company_name",
+            "business_type",
             "business_description",
+            "contact_info",
+            "location",
             "common_expenses",
             "custom_categories",
             "industry_keywords",
@@ -180,14 +182,14 @@ class BusinessProfileAdminForm(forms.ModelForm):
 @admin.register(BusinessProfile)
 class BusinessProfileAdmin(admin.ModelAdmin):
     form = BusinessProfileAdminForm
-    list_display = ("client_id", "business_type")
-    search_fields = ("client_id", "business_description")
+    list_display = ("company_name", "business_type")
+    search_fields = ("company_name", "business_description")
     fieldsets = (
         (
             "User-Defined Profile",
             {
-                "fields": ("client_id", "contact_info", "business_description"),
-                "description": "Enter the client ID, contact info, and a business description. The AI will generate the rest.",
+                "fields": ("company_name", "contact_info", "business_description"),
+                "description": "Enter the company name, contact info, and a business description. The AI will generate the rest.",
             },
         ),
         (
@@ -359,12 +361,14 @@ class ClientFilter(admin.SimpleListFilter):
     parameter_name = "client"
 
     def lookups(self, request, model_admin):
-        clients = set(Transaction.objects.values_list("client__client_id", flat=True))
+        clients = set(
+            Transaction.objects.values_list("client__company_name", flat=True)
+        )
         return [(client, client) for client in clients]
 
     def queryset(self, request, queryset):
         if self.value():
-            return queryset.filter(client__client_id=self.value())
+            return queryset.filter(client__company_name=self.value())
         return queryset
 
 
@@ -1178,14 +1182,25 @@ class TransactionAdmin(admin.ModelAdmin):
                     )
                     response = call_agent(agent.name, transaction)
                     logger.info(f"Agent response: {response}")
+                    # Robust agent_type mapping
+                    purpose = (
+                        getattr(agent, "purpose", "").lower()
+                        if hasattr(agent, "purpose")
+                        else ""
+                    )
+                    name = (
+                        getattr(agent, "name", "").lower()
+                        if hasattr(agent, "name")
+                        else ""
+                    )
+                    if "payee" in purpose or "payee" in name:
+                        agent_type = "payee"
+                    else:
+                        agent_type = "classification"
                     update_fields = get_update_fields_from_response(
                         agent,
                         response,
-                        (
-                            getattr(agent, "purpose", "").lower()
-                            if hasattr(agent, "purpose")
-                            else "classification"
-                        ),
+                        agent_type,
                     )
                     logger.info(
                         f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -1300,7 +1315,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
     )
     search_fields = (
         "task_id",
-        "client__client_id",
+        "client__company_name",
         "error_details",
         "task_metadata",
     )
@@ -1792,10 +1807,11 @@ class StatementFileAdmin(admin.ModelAdmin):
                             results.append(result)
                             os.unlink(temp_file_path)
                             continue
-                        parser = parser_cls()
                         # Call main() and expect ParserOutput
+                        parser_mod = importlib.import_module(parser_cls.__module__)
+                        parser_main = getattr(parser_mod, "main")
                         try:
-                            parser_output = parser.main(file_path=temp_file_path)
+                            parser_output = parser_main(input_path=temp_file_path)
                         except Exception as e:
                             result["error"] = f"Parser error: {e}"
                             results.append(result)
@@ -1869,13 +1885,46 @@ class StatementFileAdmin(admin.ModelAdmin):
                             results.append(result)
                             os.unlink(temp_file_path)
                             continue
-                        # Optionally create ParsingRun
+                        # Create transactions immediately after parsing
+                        transactions_created = 0
+                        transaction_errors = []
+                        from profiles.models import Transaction
+
+                        for idx, tx in enumerate(transactions):
+                            try:
+                                Transaction.objects.create(
+                                    client=client,
+                                    statement_file=statement_file,
+                                    transaction_date=tx.get("transaction_date"),
+                                    amount=tx.get("amount"),
+                                    description=tx.get("description"),
+                                    category=tx.get("category", ""),
+                                    file_path=statement_file.file.name,
+                                    source=tx.get("source", "batch_upload"),
+                                    transaction_type=tx.get("transaction_type", ""),
+                                    normalized_amount=tx.get("normalized_amount"),
+                                    parser_name=used_parser,
+                                    classification_method=tx.get(
+                                        "classification_method", "None"
+                                    ),
+                                    payee_extraction_method=tx.get(
+                                        "payee_extraction_method", "None"
+                                    ),
+                                )
+                                transactions_created += 1
+                            except Exception as e:
+                                transaction_errors.append(
+                                    {"index": idx, "error": str(e)}
+                                )
+                        result["transactions_created"] = transactions_created
+                        result["transaction_errors"] = transaction_errors
+                        # Optionally create ParsingRun (for audit, not for deferred processing)
                         if auto_parse and used_parser:
                             try:
                                 ParsingRun.objects.create(
                                     statement_file=statement_file,
                                     parser_module=used_parser,
-                                    status="pending",
+                                    status="completed",
                                 )
                                 result["parsing_run"] = "created"
                             except Exception as e:
@@ -1893,22 +1942,32 @@ class StatementFileAdmin(admin.ModelAdmin):
                 messages.success(
                     request, f"Processed {len(files)} files. See results below."
                 )
+                context = {
+                    "form": form,
+                    "results": results,
+                    "title": "Batch Upload Statement Files",
+                }
+                context.update(self.admin_site.each_context(request))
                 return render(
-                    request,
-                    "admin/batch_upload_statement_files.html",
-                    {
-                        "form": form,
-                        "results": results,
-                        "title": "Batch Upload Statement Files",
-                    },
+                    request, "admin/batch_upload_statement_files.html", context
+                )
+            else:
+                context = {
+                    "form": form,
+                    "title": "Batch Upload Statement Files",
+                }
+                context.update(self.admin_site.each_context(request))
+                return render(
+                    request, "admin/batch_upload_statement_files.html", context
                 )
         else:
             form = BatchStatementFileUploadForm()
-        return render(
-            request,
-            "admin/batch_upload_statement_files.html",
-            {"form": form, "title": "Batch Upload Statement Files"},
-        )
+            context = {
+                "form": form,
+                "title": "Batch Upload Statement Files",
+            }
+            context.update(self.admin_site.each_context(request))
+            return render(request, "admin/batch_upload_statement_files.html", context)
 
     def get_urls(self):
         from django.urls import path
