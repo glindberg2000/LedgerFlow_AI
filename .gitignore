@@ -150,4 +150,7 @@ tasks/
 
 # Added by Claude Task Master
 *.csv
-**/*.csv 
+**/*.csv
+
+# Added by Claude Task Master
+data/ 
