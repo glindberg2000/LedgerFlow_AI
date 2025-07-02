@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.template.loader import render_to_string
+from django.http import HttpResponseRedirect, JsonResponse, Http404
 
 admin.site.site_header = "LedgerFlow Admin"
 admin.site.site_title = "LedgerFlow Admin"
@@ -261,18 +262,14 @@ class BusinessProfileAdmin(admin.ModelAdmin):
         if not obj:
             messages.error(request, "BusinessProfile not found.")
             from django.shortcuts import redirect
-
             return redirect("..")
         try:
             from openai import OpenAI
-
-            # Always use the Agent with purpose containing 'Business Profile Generator'
             agent = None
             model = None
             base_url = None
             try:
                 from .models import Agent
-
                 agent = Agent.objects.filter(
                     purpose__icontains="business profile generator"
                 ).first()
@@ -323,7 +320,6 @@ Do NOT include any explanation or text outside the JSON.
                     request, f"LLM did not return valid JSON. Raw response: {content}"
                 )
                 from django.shortcuts import redirect
-
                 return redirect(
                     reverse("admin:profiles_businessprofile_change", args=[obj.pk])
                 )
@@ -353,11 +349,9 @@ Do NOT include any explanation or text outside the JSON.
             )
         except Exception as e:
             import logging
-
             logging.exception("Error generating AI profile")
             messages.error(request, f"Error generating AI profile: {e}")
         from django.shortcuts import redirect
-
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
 
 
@@ -457,110 +451,77 @@ def call_agent(
         agent = Agent.objects.get(name=agent_name)
         base_url = agent.llm.url if agent.llm and agent.llm.url else None
         api_key = os.environ.get("OPENAI_API_KEY")
-        # Use the LLMConfig.url as base_url if set, for multi-provider support
         if base_url:
             client = OpenAI(api_key=api_key, base_url=base_url)
         else:
             client = OpenAI(api_key=api_key)
 
-        # Get the appropriate prompt based on agent type
-        if "payee" in agent_name.lower():
-            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
-
-            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 1-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (1-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
-
+        # --- Dynamic context construction ---
+        # Fetch business profile for the transaction's client
+        business_profile = None
+        try:
+            business_profile = transaction.client
+        except Exception:
+            pass
+        business_context_lines = []
+        if business_profile:
+            if business_profile.business_type:
+                business_context_lines.append(f"Business Type: {business_profile.business_type}")
+            if business_profile.business_description:
+                business_context_lines.append(f"Business Description: {business_profile.business_description}")
+            if business_profile.contact_info:
+                business_context_lines.append(f"Contact Info: {business_profile.contact_info}")
+            if business_profile.common_expenses:
+                business_context_lines.append(f"Common Expenses: {business_profile.common_expenses}")
+            if business_profile.custom_categories:
+                business_context_lines.append(f"Custom Categories: {business_profile.custom_categories}")
+            if business_profile.industry_keywords:
+                business_context_lines.append(f"Industry Keywords: {business_profile.industry_keywords}")
+            if business_profile.category_patterns:
+                business_context_lines.append(f"Category Patterns: {business_profile.category_patterns}")
+            if business_profile.business_rules:
+                business_context_lines.append(f"Business Rules: {business_profile.business_rules}")
+        business_context = "\n".join(business_context_lines)
+        if business_context:
+            business_context = f"Business Profile Context:\n{business_context}\n"
         else:
-            # Dynamically build allowed categories
-            from profiles.models import (
-                IRSExpenseCategory,
-                IRSWorksheet,
-                BusinessExpenseCategory,
-            )
+            business_context = ""
+        # Add payee reasoning if available
+        payee_reasoning = getattr(transaction, "payee_reasoning", None)
+        if payee_reasoning:
+            payee_context = f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
+        else:
+            payee_context = ""
 
-            # IRS categories (active, for all relevant worksheets)
-            irs_cats = IRSExpenseCategory.objects.filter(
-                is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
-            ).values("id", "name", "worksheet__name")
-            # Business categories for this client
-            biz_cats = BusinessExpenseCategory.objects.filter(
-                is_active=True, business=transaction.client
-            ).values("id", "category_name", "worksheet__name")
-            # Build display list for prompt
-            allowed_categories = []
-            for cat in irs_cats:
-                allowed_categories.append(
-                    f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
-                )
-            for cat in biz_cats:
-                allowed_categories.append(
-                    f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
-                )
-            allowed_categories.append("Other")  # Genuine catch-all
-            allowed_categories.append("Personal")
-            allowed_categories.append("Review")  # For LLM to flag for admin review
-            # Build mapping for validation (not in prompt, but for post-processing)
-            allowed_category_ids = set(
-                [f"IRS-{cat['id']}" for cat in irs_cats]
-                + [f"BIZ-{cat['id']}" for cat in biz_cats]
-                + ["Other", "Personal", "Review"]
+        # --- Allowed categories ---
+        from profiles.models import IRSExpenseCategory, BusinessExpenseCategory
+        irs_cats = IRSExpenseCategory.objects.filter(
+            is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
+        ).values("id", "name", "worksheet__name")
+        biz_cats = BusinessExpenseCategory.objects.filter(
+            is_active=True, business=transaction.client
+        ).values("id", "category_name", "worksheet__name")
+        allowed_categories = []
+        for cat in irs_cats:
+            allowed_categories.append(
+                f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
             )
-            # Fetch business profile for the transaction's client
-            business_profile = None
-            try:
-                business_profile = transaction.client
-            except Exception:
-                pass
-            # Build business profile context string
-            business_context_lines = []
-            if business_profile:
-                if business_profile.business_type:
-                    business_context_lines.append(
-                        f"Business Type: {business_profile.business_type}"
-                    )
-                if business_profile.business_description:
-                    business_context_lines.append(
-                        f"Business Description: {business_profile.business_description}"
-                    )
-                if business_profile.contact_info:
-                    business_context_lines.append(
-                        f"Contact Info: {business_profile.contact_info}"
-                    )
-                if business_profile.common_expenses:
-                    business_context_lines.append(
-                        f"Common Expenses: {business_profile.common_expenses}"
-                    )
-                if business_profile.custom_categories:
-                    business_context_lines.append(
-                        f"Custom Categories: {business_profile.custom_categories}"
-                    )
-                if business_profile.industry_keywords:
-                    business_context_lines.append(
-                        f"Industry Keywords: {business_profile.industry_keywords}"
-                    )
-                if business_profile.category_patterns:
-                    business_context_lines.append(
-                        f"Category Patterns: {business_profile.category_patterns}"
-                    )
-                if business_profile.business_rules:
-                    business_context_lines.append(
-                        f"Business Rules: {business_profile.business_rules}"
-                    )
-            business_context = "\n".join(business_context_lines)
-            if business_context:
-                business_context = f"Business Profile Context:\n{business_context}\n"
-            else:
-                business_context = ""
-            # Add payee reasoning if available
-            payee_reasoning = getattr(transaction, "payee_reasoning", None)
-            if payee_reasoning:
-                payee_context = (
-                    f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
-                )
-            else:
-                payee_context = ""
-            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
+        for cat in biz_cats:
+            allowed_categories.append(
+                f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
+            )
+        allowed_categories += ["Other", "Personal", "Review"]
 
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+        # --- Final prompt construction ---
+        static_prompt = agent.prompt.strip() if agent.prompt else ""
+        dynamic_context = f"\n{business_context}{payee_context}Allowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}"
+        final_prompt = f"{static_prompt}\n\n{dynamic_context}"
+
+        # Log the full constructed prompt
+        logger.info("\n=== API Request ===")
+        logger.info(f"Model: {agent.llm.model}")
+        logger.info(f"Prompt: {final_prompt}")
+        logger.info(f"Transaction: {transaction.description}")
 
         # Prepare tools for the API call with proper schema
         tool_definitions = []
@@ -585,35 +546,21 @@ def call_agent(
             }
             tool_definitions.append(tool_def)
 
-        # Prepare the API request payload
         payload = {
             "model": agent.llm.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": final_prompt},
             ],
             "response_format": {"type": "json_object"},
         }
-
-        # Only add tools and tool_choice if tools are available
         if tool_definitions:
             payload["tools"] = tool_definitions
             payload["tool_choice"] = "auto"
 
-        # Log the complete API request
-        logger.info("\n=== API Request ===")
-        logger.info(f"Model: {agent.llm.model}")
-        logger.info(f"System Prompt: {system_prompt}")
-        logger.info(f"User Prompt: {user_prompt}")
-        logger.info(f"Transaction: {transaction.description}")
-        if tool_definitions:
-            logger.info(f"Tools: {json.dumps(tool_definitions, indent=2)}")
-
         try:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": final_prompt},
             ]
             if tool_definitions:
                 tools = tool_definitions
@@ -634,7 +581,6 @@ def call_agent(
                 response = client.chat.completions.create(**payload)
                 logger.info(f"LLM response: {response}")
                 msg = response.choices[0].message
-                # If the LLM returns a tool call, append the assistant message and then the tool message(s)
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                     if tool_call_count >= max_tool_calls:
                         messages.append(
@@ -644,7 +590,6 @@ def call_agent(
                             }
                         )
                         continue
-                    # 1. Append the assistant message with tool_calls
                     messages.append(
                         {
                             "role": "assistant",
@@ -666,7 +611,6 @@ def call_agent(
                             ],
                         }
                     )
-                    # 2. For each tool_call, execute and append a tool message
                     for tool_call in msg.tool_calls:
                         tool_name = tool_call.function.name
                         tool_args = json.loads(tool_call.function.arguments)
@@ -698,7 +642,6 @@ def call_agent(
                         tool_usage[tool_name] = tool_usage.get(tool_name, 0) + 1
                         tool_call_count += 1
                     continue  # Loop again to get the next LLM response
-                # If the LLM returns a final content message, parse and return it
                 if msg.content:
                     return json.loads(msg.content), tool_usage
                 logger.error(
@@ -715,7 +658,6 @@ def call_agent(
         logger.error(f"Error in call_agent: {str(e)}")
         raise
 
-    # All other return paths (including guardrail):
     return response, tool_usage
 
 
@@ -1313,15 +1255,43 @@ class TransactionAdmin(admin.ModelAdmin):
 
         return process_with_agent
 
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        # Remove 'Save and add another' and relabel 'Save and continue editing' to 'Save'
+    def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
-        extra_context["show_save_and_add_another"] = False
-        extra_context["show_save_and_continue"] = True
-        extra_context["save_as_continue"] = False
-        extra_context["save_as"] = False
-        extra_context["save_continue_label"] = "Save"
-        return super().changeform_view(
+        task = self.get_object(request, object_id)
+        # Always read-only
+        extra_context["hide_save"] = True
+        # Auto-refresh if running
+        if task and task.status in ["pending", "processing"]:
+            extra_context["auto_refresh"] = True
+        # --- Real-time log display logic (single window) ---
+        import os
+        from django.conf import settings
+        from pathlib import Path
+
+        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
+        log_content = None
+        if task:
+            if task.status in ["pending", "processing"] and log_file.exists():
+                # While running, read log file from disk for real-time updates
+                try:
+                    with open(log_file, "r") as f:
+                        log_content = mark_safe(
+                            '<pre style="max-height:500px;overflow:auto;background:#222;color:#eee;padding:10px;">{}</pre>'.format(f.read())
+                        )
+                except Exception:
+                    log_content = mark_safe('<pre style="color:red;">Error reading log file.</pre>')
+            else:
+                # After completion, show archived DB log
+                if hasattr(task, "task_log") and task.task_log:
+                    log_content = mark_safe(
+                        '<pre style="max-height:500px;overflow:auto;background:#222;color:#eee;padding:10px;">{}</pre>'.format(task.task_log)
+                    )
+                else:
+                    log_content = mark_safe('<pre style="color:#888;">No log available for this task.</pre>')
+        else:
+            log_content = mark_safe('<pre style="color:#888;">No task found.</pre>')
+        extra_context["log_content"] = log_content
+        return super().change_view(
             request, object_id, form_url, extra_context=extra_context
         )
 
@@ -1402,7 +1372,7 @@ class AgentAdmin(admin.ModelAdmin):
         )
         # Build prompt as in call_agent
         if "payee" in agent.name.lower():
-            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
+            system_prompt = """You are a diligent business researcher. Your job is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
             user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 1-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (1-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
         else:
             from profiles.models import IRSExpenseCategory, BusinessExpenseCategory
@@ -1479,7 +1449,7 @@ class AgentAdmin(admin.ModelAdmin):
                 )
             else:
                 payee_context = ""
-            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
+            system_prompt = """You are a professional auditor and accountant. Your job is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
             user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
         admin_context = self.admin_site.each_context(request)
         log_message = f"Prompt generated using agent: {agent.name} (ID: {agent.id})"
@@ -1497,32 +1467,8 @@ class AgentAdmin(admin.ModelAdmin):
         )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
-        # Decode object_id to get client_id
-        client_id = urllib.parse.unquote(object_id).replace("_5F", "_")
-        year = request.GET.get("tax_year")
-        if not year:
-            year = str(datetime.now().year - 1)
-        profile = BusinessProfile.objects.get(pk=client_id)
-        allowed_years = [str(datetime.now().year - i) for i in range(4)]
-        if year not in allowed_years:
-            allowed_years.append(year)
-        allowed_years = sorted(set(allowed_years), reverse=True)
-        extra_context = extra_context or {}
-        extra_context["tax_year"] = year
-        extra_context["tax_years"] = allowed_years
-        # Checklist init/reset button logic
-        checklist_qs = TaxChecklistItem.objects.filter(
-            business_profile_id=client_id, tax_year=year
-        )
-        show_init = not checklist_qs.exists()
-        extra_context["show_init_checklist"] = show_init
-        extra_context["show_reset_checklist"] = checklist_qs.exists()
-        extra_context["init_checklist_url"] = reverse(
-            "admin:init_checklist", args=[client_id, year]
-        )
-        return super().change_view(
-            request, object_id, form_url, extra_context=extra_context
-        )
+        # Agents are standalone; do not inject client or checklist context
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
 
 @admin.register(Tool)
@@ -1563,7 +1509,8 @@ class BusinessExpenseCategoryAdmin(admin.ModelAdmin):
 @admin.register(ProcessingTask)
 class ProcessingTaskAdmin(admin.ModelAdmin):
     list_display = (
-        "task_id",
+        "action_checkbox",
+        "short_task_id",
         "task_type",
         "client",
         "status_with_progress",
@@ -1625,38 +1572,173 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
             """
         return mark_safe(badge_html + progress_html)
 
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        extra_context = extra_context or {}
-        task = self.get_object(request, object_id)
-        # Always read-only
-        extra_context["hide_save"] = True
-        # Auto-refresh if running
-        if task and task.status in ["pending", "processing"]:
-            extra_context["auto_refresh"] = True
-        # Add log viewer if log file exists
+    @admin.display(description="Task ID", ordering="task_id")
+    def short_task_id(self, obj):
+        url = reverse('admin:profiles_processingtask_change', args=[obj.pk])
+        short = str(obj.task_id).split('-')[0]
+        return format_html('<a href="{}">{}</a>', url, short)
+
+    def get_row_attributes(self, obj, index):
+        return {'data-object-pk': str(obj.pk)}
+
+    def run_task(self, request, queryset):
+        """Execute the selected task and show progress."""
+        if queryset.count() > 1:
+            messages.error(request, "Please select only one task to run at a time.")
+            return
+
+        task = queryset.first()
+        if task.status != "pending":
+            messages.error(request, f"Task {task.task_id} is not in pending state.")
+            return
+
+        # Create log file first
+        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
+        log_file.parent.mkdir(exist_ok=True)
+        with open(log_file, "w") as f:
+            f.write(f"[{timezone.now()}] [INFO] Starting task {task.task_id}\n")
+
+        try:
+            # Verify the task exists and is in pending state
+            task.refresh_from_db()
+            if task.status != "pending":
+                messages.error(request, f"Task {task.task_id} is not in pending state.")
+                return
+
+            # Update task status to processing and commit it
+            with db_transaction.atomic():
+                task.status = "processing"
+                task.started_at = timezone.now()
+                task.save(force_update=True)
+
+            # Start the task processing command
+            python_executable = sys.executable
+            manage_py = str(Path(settings.BASE_DIR) / "manage.py")
+            cmd = [
+                python_executable,
+                manage_py,
+                "process_task",
+                str(task.task_id),
+                "--log-file",
+                str(log_file),
+            ]
+
+            # Set up environment variables
+            env = os.environ.copy()
+            project_root = str(Path(settings.BASE_DIR).parent)
+            env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+            env["DJANGO_SETTINGS_MODULE"] = "ledgerflow.settings"
+
+            # Start the process in the background
+            subprocess.Popen(
+                cmd,
+                env=env,
+                cwd=str(settings.BASE_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                start_new_session=True,
+                bufsize=1,
+            )
+            messages.success(request, f"Started task {task.task_id} in background.")
+        except Exception as e:
+            messages.error(request, f"Failed to start task: {e}")
+
+    run_task.short_description = "Run selected task"
+
+    def retry_failed_tasks(self, request, queryset):
+        """Retry failed processing tasks."""
+        for task in queryset.filter(status="failed"):
+            task.status = "pending"
+            task.error_count = 0
+            task.error_details = {}
+            task.save()
+            messages.success(request, f"Retrying task {task.task_id}")
+        messages.success(
+            request, f"Retried {queryset.filter(status='failed').count()} failed tasks"
+        )
+
+    retry_failed_tasks.short_description = "Retry failed tasks"
+
+    def cancel_tasks(self, request, queryset):
+        """Cancel selected processing tasks."""
+        for task in queryset.filter(status__in=["pending", "processing"]):
+            task.status = "failed"
+            task.error_details = {
+                "cancelled": True,
+                "cancelled_at": str(datetime.now()),
+            }
+            task.save()
+            messages.success(request, f"Cancelled task {task.task_id}")
+        messages.success(
+            request,
+            f"Cancelled {queryset.filter(status__in=['pending', 'processing']).count()} tasks",
+        )
+
+    cancel_tasks.short_description = "Cancel selected tasks"
+
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<path:object_id>/live_status/',
+                self.admin_site.admin_view(self.live_status_view),
+                name='profiles_processingtask_live_status',
+            ),
+            path(
+                'batch_status/',
+                self.admin_site.admin_view(self.batch_status_view),
+                name='profiles_processingtask_batch_status',
+            ),
+        ]
+        return custom_urls + urls
+
+    def live_status_view(self, request, object_id):
+        # Only staff users can access
+        if not request.user.is_staff:
+            return JsonResponse({'error': 'Forbidden'}, status=403)
+        try:
+            task = ProcessingTask.objects.get(task_id=object_id)
+        except ProcessingTask.DoesNotExist:
+            raise Http404()
+        # Try to read the log file if task is running, else use DB field
         import os
         from django.conf import settings
         from pathlib import Path
-
         log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
-        if log_file.exists():
-            try:
-                with open(log_file, "r") as f:
-                    lines = f.readlines()[-100:]
-                log_content = mark_safe(
-                    '<pre style="max-height:300px;overflow:auto;background:#222;color:#eee;padding:10px;">{}</pre>'.format(
-                        "".join(lines)
-                    )
-                )
-                extra_context["log_content"] = log_content
-            except Exception:
-                extra_context["log_content"] = mark_safe(
-                    '<pre style="color:red;">Error reading log file.</pre>'
-                )
+        if task.status in ["pending", "processing"] and log_file.exists():
+            with open(log_file, "r") as f:
+                log_content = f.read()
         else:
-            extra_context["log_content"] = mark_safe(
-                '<pre style="color:#888;">No log file found for this task.</pre>'
-            )
-        return super().change_view(
-            request, object_id, form_url, extra_context=extra_context
-        )
+            log_content = task.task_log or ""
+        return JsonResponse({
+            "log": log_content,
+            "processed_count": task.processed_count,
+            "transaction_count": task.transaction_count,
+            "status": task.status,
+        })
+
+    def batch_status_view(self, request):
+        # Only staff users can access
+        if not request.user.is_staff:
+            return JsonResponse({'error': 'Forbidden'}, status=403)
+        ids = request.GET.getlist('ids[]')
+        tasks = ProcessingTask.objects.filter(task_id__in=ids)
+        result = {}
+        for task in tasks:
+            result[str(task.task_id)] = {
+                "status": task.status,
+                "processed_count": task.processed_count,
+                "transaction_count": task.transaction_count,
+            }
+        return JsonResponse(result)
+
+
+def _get_agent_type(agent):
+    name = getattr(agent, "name", "").lower()
+    if "payee" in name:
+        return "payee"
+    if "classif" in name or "escalation" in name:
+        return "classification"
+    raise ValueError(f"Unknown agent type for agent name: {name}")

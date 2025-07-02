@@ -3,4 +3,58 @@
 
 {% block content %}
 {{ block.super }}
+<div id="ajax-marker">AJAX TEST</div>
+<style>
+    /* Hide the first column (UUID) in the table header and body */
+    #result_list th:first-child,
+    #result_list td:first-child {
+        display: none !important;
+    }
+</style>
+<script>
+console.log('AJAX script running');
+document.addEventListener('DOMContentLoaded', function() {
+    // Find all rows and collect task IDs
+    const rows = document.querySelectorAll('tr[data-object-pk]');
+    const ids = Array.from(rows).map(row => row.getAttribute('data-object-pk'));
+    console.log('Found rows:', rows);
+    console.log('Collected IDs:', ids);
+    if (!ids.length) return;
+    let polling = true;
+    function pollStatus() {
+        fetch(`/admin/profiles/processingtask/batch_status/?` + ids.map(id => `ids[]=${id}`).join('&'))
+            .then(response => response.json())
+            .then(data => {
+                console.log('AJAX response:', data);
+                let anyActive = false;
+                rows.forEach(row => {
+                    const id = row.getAttribute('data-object-pk');
+                    const cell = row.querySelector('td.field-status_with_progress');
+                    if (data[id] && cell) {
+                        let status = data[id].status;
+                        let processed = data[id].processed_count;
+                        let total = data[id].transaction_count;
+                        let percent = total > 0 ? Math.floor((processed / total) * 100) : 0;
+                        let label = status.charAt(0).toUpperCase() + status.slice(1);
+                        let style = '';
+                        if (status === 'pending') { label = '⏳ Pending'; style = 'background:#f6c23e;color:#fff;'; }
+                        if (status === 'processing') { label = '🔄 Processing'; style = 'background:#36b9cc;color:#fff;'; }
+                        if (status === 'completed') { label = '✅ Completed'; style = 'background:#1cc88a;color:#fff;'; }
+                        if (status === 'failed') { label = '❌ Failed'; style = 'background:#e74a3b;color:#fff;'; }
+                        let badge = `<span style="font-weight:bold;padding:0.2em 0.7em;border-radius:1em;${style}font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;">${label}</span>`;
+                        let progress = '';
+                        if (status === 'processing') {
+                            progress = `<div style="border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;height:20px;width:200px;margin-top:5px;"><div style="background:#79aec8;height:100%;width:${percent}%;transition:width 0.3s ease;"></div></div><div style="font-size:12px;color:#666;margin-top:2px;">${processed} / ${total}</div>`;
+                        }
+                        cell.innerHTML = badge + progress;
+                        if (status === 'pending' || status === 'processing') anyActive = true;
+                    }
+                });
+                if (anyActive) setTimeout(pollStatus, 2000);
+            })
+            .catch((err) => { console.error('AJAX error:', err); setTimeout(pollStatus, 4000); });
+    }
+    pollStatus();
+});
+</script>
 {% endblock %}
