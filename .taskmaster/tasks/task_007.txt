@@ -1,0 +1,77 @@
+# Task ID: 7
+# Title: Implement Attachment Management in Binder UI
+# Status: pending
+# Dependencies: 5, 6
+# Priority: high
+# Description: Add functionality to manage attachments within the binder dashboard, including uploads, downloads, tagging, and linking to checklist items.
+# Details:
+Enhance the binder dashboard with attachment management features:
+
+1. Implement file upload functionality
+2. Add tagging and notes for attachments
+3. Link attachments to checklist items
+4. Provide download and preview options
+
+```python
+# Add to TaxYearAdmin
+class ChecklistAttachmentInline(admin.TabularInline):
+    model = ChecklistAttachment
+    extra = 1
+    fields = ['file', 'filename', 'tag', 'checklist_item', 'notes']
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj:
+            formset.form.base_fields['checklist_item'].queryset = obj.checklist_items.all()
+        return formset
+
+# Add to binder_dashboard view
+def binder_dashboard(self, request, tax_year_id):
+    tax_year = self.get_object(request, tax_year_id)
+    
+    # Handle file uploads
+    if request.method == 'POST' and 'upload_attachment' in request.POST:
+        form = ChecklistAttachmentForm(request.POST, request.FILES)
+        if form.is_valid():
+            attachment = form.save(commit=False)
+            attachment.tax_year = tax_year
+            attachment.save()
+            return redirect('admin:binder_dashboard', tax_year_id=tax_year_id)
+    else:
+        form = ChecklistAttachmentForm(initial={'tax_year': tax_year})
+        form.fields['checklist_item'].queryset = tax_year.checklist_items.all()
+    
+    # Rest of the view code...
+    context['attachment_form'] = form
+```
+
+Create a form for attachment uploads:
+
+```python
+class ChecklistAttachmentForm(forms.ModelForm):
+    class Meta:
+        model = ChecklistAttachment
+        fields = ['file', 'filename', 'tag', 'checklist_item', 'notes']
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 2}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.instance.filename and self.instance.file:
+            self.initial['filename'] = os.path.basename(self.instance.file.name)
+```
+
+Update the template to include:
+- File upload form
+- Attachment listing with download links
+- Tagging interface
+- Attachment-to-checklist item linking
+
+# Test Strategy:
+1. Test file upload functionality with various file types and sizes
+2. Verify attachments are correctly linked to checklist items and tax years
+3. Test tagging and filtering by tags
+4. Test download functionality
+5. Verify proper error handling for invalid uploads
+6. Test UI interactions for attachment management

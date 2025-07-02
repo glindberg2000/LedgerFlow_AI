@@ -1,0 +1,199 @@
+# Task ID: 10
+# Title: Implement Data Migration Strategy
+# Status: pending
+# Dependencies: 1, 2, 3
+# Priority: high
+# Description: Create a comprehensive data migration strategy to move existing client data from the legacy model to the new binder-centric model.
+# Details:
+Implement a data migration strategy with the following components:
+
+1. Create Django migrations for model changes
+2. Implement a data migration script
+3. Add rollback capability
+4. Provide validation and reporting
+
+```python
+# Create a Django migration file
+from django.db import migrations, models
+import django.db.models.deletion
+
+def migrate_to_binder_model(apps, schema_editor):
+    BusinessProfile = apps.get_model('profiles', 'BusinessProfile')
+    TaxYear = apps.get_model('tax', 'TaxYear')
+    OldChecklistItem = apps.get_model('tax', 'ChecklistItem')
+    ChecklistAttachment = apps.get_model('tax', 'ChecklistAttachment')
+    
+    # Track migration statistics
+    stats = {
+        'businesses': 0,
+        'tax_years': 0,
+        'checklist_items': 0,
+        'attachments': 0,
+        'errors': [],
+    }
+    
+    # Get all business profiles
+    businesses = BusinessProfile.objects.all()
+    stats['businesses'] = businesses.count()
+    
+    for business in businesses:
+        # Find all unique years in checklist items
+        years = set()
+        for item in OldChecklistItem.objects.filter(business_profile=business):
+            # Extract year from form_code or other field
+            # This depends on how years are currently stored
+            year = '2023'  # Default or extract from data
+            years.add(year)
+        
+        # Create tax years for each business
+        for year in years:
+            tax_year, created = TaxYear.objects.get_or_create(
+                business_profile=business,
+                year=year,
+                defaults={'status': 'in_progress'}
+            )
+            if created:
+                stats['tax_years'] += 1
+            
+            # Update checklist items to point to tax year
+            items = OldChecklistItem.objects.filter(business_profile=business)
+            for item in items:
+                item.tax_year = tax_year
+                item.save()
+                stats['checklist_items'] += 1
+            
+            # Update attachments
+            attachments = ChecklistAttachment.objects.filter(checklist_item__in=items)
+            for attachment in attachments:
+                attachment.tax_year = tax_year
+                attachment.save()
+                stats['attachments'] += 1
+    
+    return stats
+
+def rollback_binder_migration(apps, schema_editor):
+    # This would restore the old relationships if needed
+    pass
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('profiles', '0001_initial'),
+        ('tax', '0001_initial'),
+    ]
+    
+    operations = [
+        # Add TaxYear model
+        migrations.CreateModel(
+            name='TaxYear',
+            fields=[
+                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('year', models.CharField(max_length=10)),
+                ('status', models.CharField(choices=[('not_started', 'Not Started'), ('in_progress', 'In Progress'), ('complete', 'Complete'), ('needs_review', 'Needs Review')], default='not_started', max_length=20)),
+                ('notes', models.TextField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('business_profile', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tax_years', to='profiles.BusinessProfile')),
+            ],
+            options={
+                'ordering': ['-year'],
+                'unique_together': {('business_profile', 'year')},
+            },
+        ),
+        
+        # Add tax_year field to ChecklistItem
+        migrations.AddField(
+            model_name='checklistitem',
+            name='tax_year',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='checklist_items', to='tax.TaxYear'),
+        ),
+        
+        # Add tax_year field to ChecklistAttachment
+        migrations.AddField(
+            model_name='checklistattachment',
+            name='tax_year',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='attachments', to='tax.TaxYear'),
+        ),
+        
+        # Run data migration
+        migrations.RunPython(migrate_to_binder_model, rollback_binder_migration),
+        
+        # Make tax_year required after data migration
+        migrations.AlterField(
+            model_name='checklistitem',
+            name='tax_year',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='checklist_items', to='tax.TaxYear'),
+        ),
+        
+        migrations.AlterField(
+            model_name='checklistattachment',
+            name='tax_year',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='attachments', to='tax.TaxYear'),
+        ),
+        
+        # Remove direct business_profile FK from ChecklistItem if it exists
+        migrations.RemoveField(
+            model_name='checklistitem',
+            name='business_profile',
+        ),
+    ]
+```
+
+Create a management command for manual migration and validation:
+
+```python
+from django.core.management.base import BaseCommand
+from profiles.models import BusinessProfile
+from tax.models import TaxYear, ChecklistItem, ChecklistAttachment
+
+class Command(BaseCommand):
+    help = 'Migrates data to the binder model and validates the migration'
+    
+    def add_arguments(self, parser):
+        parser.add_argument('--dry-run', action='store_true', help='Run in dry-run mode without making changes')
+        parser.add_argument('--validate', action='store_true', help='Validate existing migration')
+    
+    def handle(self, *args, **options):
+        if options['validate']:
+            self.validate_migration()
+            return
+        
+        dry_run = options['dry_run']
+        if dry_run:
+            self.stdout.write('Running in dry-run mode')
+        
+        # Similar logic to the migration function, but with more detailed reporting
+        # ...
+        
+    def validate_migration(self):
+        # Check for items without tax_year
+        orphaned_items = ChecklistItem.objects.filter(tax_year__isnull=True)
+        if orphaned_items.exists():
+            self.stdout.write(self.style.ERROR(f'Found {orphaned_items.count()} checklist items without tax_year'))
+            for item in orphaned_items[:10]:  # Show first 10
+                self.stdout.write(f'  - {item.id}: {item.form_code}')
+        
+        # Check for attachments without tax_year
+        orphaned_attachments = ChecklistAttachment.objects.filter(tax_year__isnull=True)
+        if orphaned_attachments.exists():
+            self.stdout.write(self.style.ERROR(f'Found {orphaned_attachments.count()} attachments without tax_year'))
+        
+        # Verify all businesses have at least one tax year
+        businesses_without_years = BusinessProfile.objects.filter(tax_years__isnull=True)
+        if businesses_without_years.exists():
+            self.stdout.write(self.style.WARNING(f'Found {businesses_without_years.count()} businesses without tax years'))
+        
+        # Overall statistics
+        self.stdout.write(self.style.SUCCESS(f'Businesses: {BusinessProfile.objects.count()}'))
+        self.stdout.write(self.style.SUCCESS(f'Tax Years: {TaxYear.objects.count()}'))
+        self.stdout.write(self.style.SUCCESS(f'Checklist Items: {ChecklistItem.objects.count()}'))
+        self.stdout.write(self.style.SUCCESS(f'Attachments: {ChecklistAttachment.objects.count()}'))
+```
+
+# Test Strategy:
+1. Create test fixtures with sample data in the old format
+2. Run the migration on the test fixtures and verify the results
+3. Test the rollback functionality
+4. Verify that all relationships are maintained after migration
+5. Test the validation command with various data scenarios
+6. Perform a dry run on production data before actual migration
+7. Create a backup before running the actual migration

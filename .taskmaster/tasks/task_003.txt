@@ -1,0 +1,46 @@
+# Task ID: 3
+# Title: Refactor ChecklistAttachment Model
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Update the ChecklistAttachment model to maintain proper relationships with the refactored ChecklistItem model and add new fields for enhanced attachment management.
+# Details:
+Modify the ChecklistAttachment model to:
+1. Ensure the FK to ChecklistItem is maintained
+2. Add a direct FK to TaxYear for easier querying
+3. Add fields for tagging and tracking upload dates
+
+```python
+class ChecklistAttachment(models.Model):
+    checklist_item = models.ForeignKey('ChecklistItem', on_delete=models.CASCADE, related_name='attachments')
+    tax_year = models.ForeignKey('TaxYear', on_delete=models.CASCADE, related_name='attachments')
+    file = models.FileField(upload_to='checklist_attachments/%Y/%m/%d/')
+    filename = models.CharField(max_length=255)
+    tag = models.CharField(max_length=100, blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return self.filename
+    
+    def save(self, *args, **kwargs):
+        # Auto-populate tax_year from checklist_item if not provided
+        if not self.tax_year_id and self.checklist_item_id:
+            self.tax_year = self.checklist_item.tax_year
+        super().save(*args, **kwargs)
+```
+
+Create a data migration to:
+1. Update existing ChecklistAttachment records to link to the appropriate TaxYear
+2. Set default values for new required fields
+
+# Test Strategy:
+1. Write unit tests for the updated model
+2. Test the auto-population of tax_year in the save method
+3. Verify file uploads work correctly
+4. Test the relationship navigation (can access attachments from TaxYear and ChecklistItem)
+5. Verify data migration correctly links existing attachments

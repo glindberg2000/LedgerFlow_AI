@@ -1,0 +1,55 @@
+# Task ID: 2
+# Title: Refactor ChecklistItem Model
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Update the ChecklistItem model to link to TaxYear instead of directly to BusinessProfile, enabling the binder-centric organization.
+# Details:
+Modify the existing ChecklistItem model to:
+1. Remove the direct FK to BusinessProfile
+2. Add a FK to TaxYear
+3. Update status field to match the required states
+4. Ensure all existing methods and properties are updated
+
+```python
+class ChecklistItem(models.Model):
+    STATUS_CHOICES = [
+        ('not_started', _('Not Started')),
+        ('in_progress', _('In Progress')),
+        ('complete', _('Complete')),
+        ('needs_review', _('Needs Review')),
+    ]
+    
+    # Replace business_profile FK with tax_year FK
+    tax_year = models.ForeignKey('TaxYear', on_delete=models.CASCADE, related_name='checklist_items')
+    form_code = models.CharField(max_length=100)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
+    notes = models.TextField(blank=True, null=True)
+    # Keep other existing fields
+    
+    class Meta:
+        ordering = ['form_code']
+        unique_together = ['tax_year', 'form_code']
+    
+    def __str__(self):
+        return f"{self.form_code}: {self.title}"
+    
+    @property
+    def business_profile(self):
+        # For backward compatibility
+        return self.tax_year.business_profile
+```
+
+Create a data migration to:
+1. Create TaxYear instances for each unique BusinessProfile/year combination in existing data
+2. Link ChecklistItems to the appropriate TaxYear
+3. Handle any data inconsistencies
+
+# Test Strategy:
+1. Write unit tests for the updated model structure
+2. Create test cases for the data migration
+3. Verify existing functionality still works with the new model structure
+4. Test the backward compatibility property
+5. Verify admin interface correctly displays the relationships

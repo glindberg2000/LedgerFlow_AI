@@ -146,4 +146,8 @@ logs/
 
 # Added by Task Master AI
 tasks.json
-tasks/ 
+tasks/
+
+# Added by Claude Task Master
+*.csv
+**/*.csv 
