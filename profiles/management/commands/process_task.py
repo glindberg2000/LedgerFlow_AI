@@ -98,17 +98,11 @@ class Command(BaseCommand):
             ):
                 try:
                     # Call the agent
-                    response, tool_usage = call_agent(agent.name, transaction)
+                    response = call_agent(agent.name, transaction)
 
-                    # Map task_type to agent_type for robust method logic
-                    if task.task_type == "payee_lookup":
-                        agent_type = "payee"
-                    elif task.task_type == "classification":
-                        agent_type = "classification"
-                    else:
-                        raise ValueError(f"Unknown task_type: {task.task_type}")
+                    # Use shared field mapping logic
                     update_fields = get_update_fields_from_response(
-                        agent, response, agent_type, tool_usage=tool_usage
+                        agent, response, task.task_type
                     )
 
                     # Update the transaction
