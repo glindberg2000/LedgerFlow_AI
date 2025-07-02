@@ -1,0 +1,93 @@
+# Task ID: 8
+# Title: Update Bootloader for Multi-Binder Sample Data
+# Status: pending
+# Dependencies: 1, 2, 3
+# Priority: medium
+# Description: Enhance the bootloader to create multiple binders (tax years) for the sample client to demonstrate multi-year support.
+# Details:
+Modify the existing bootloader code to:
+
+1. Create multiple TaxYear instances for the sample client
+2. Initialize checklist items for each tax year from the canonical template
+3. Create sample attachments for demonstration
+
+```python
+from django.core.management.base import BaseCommand
+from profiles.models import BusinessProfile
+from tax.models import TaxYear, ChecklistItem, ChecklistAttachment
+import json
+import os
+from django.conf import settings
+
+class Command(BaseCommand):
+    help = 'Bootstraps sample data for the binder feature'
+    
+    def handle(self, *args, **options):
+        # Get or create sample business profile
+        business, created = BusinessProfile.objects.get_or_create(
+            name="Sample Business LLC",
+            defaults={
+                'address': '123 Main St',
+                'city': 'Anytown',
+                'state': 'CA',
+                'zip_code': '90210',
+                'email': 'sample@example.com',
+                'phone': '555-123-4567',
+            }
+        )
+        
+        # Create multiple tax years (binders)
+        current_year = 2023
+        for year in range(current_year-2, current_year+1):
+            tax_year, created = TaxYear.objects.get_or_create(
+                business_profile=business,
+                year=str(year),
+                defaults={
+                    'status': 'in_progress' if year == current_year else 'complete',
+                    'notes': f'Sample tax year {year} for demonstration',
+                }
+            )
+            
+            if created:
+                self.stdout.write(f"Created tax year {year} for {business.name}")
+                
+                # Load checklist template
+                template_path = os.path.join(settings.BASE_DIR, 'profiles/bootstrap/tax_checklist_index.json')
+                with open(template_path, 'r') as f:
+                    checklist_template = json.load(f)
+                
+                # Create checklist items from template
+                for item_data in checklist_template:
+                    item = ChecklistItem.objects.create(
+                        tax_year=tax_year,
+                        form_code=item_data['form_code'],
+                        title=item_data['title'],
+                        description=item_data.get('description', ''),
+                        status='complete' if year < current_year else 'not_started',
+                    )
+                    
+                    # For completed years, add sample attachments
+                    if year < current_year:
+                        sample_file_path = os.path.join(settings.BASE_DIR, 'profiles/bootstrap/sample_files/sample.pdf')
+                        if os.path.exists(sample_file_path):
+                            with open(sample_file_path, 'rb') as f:
+                                attachment = ChecklistAttachment(
+                                    checklist_item=item,
+                                    tax_year=tax_year,
+                                    filename=f"{item.form_code}_sample.pdf",
+                                    tag="Sample",
+                                )
+                                attachment.file.save(f"{item.form_code}_sample.pdf", f)
+                                
+        self.stdout.write(self.style.SUCCESS('Successfully bootstrapped sample data'))
+```
+
+Ensure sample files are available in the bootstrap directory or create placeholder files as needed.
+
+# Test Strategy:
+1. Test the bootloader command with a clean database
+2. Verify multiple tax years are created for the sample client
+3. Check that checklist items are properly initialized from the template
+4. Verify sample attachments are created for past years
+5. Test idempotency (running the command multiple times should not create duplicates)
+6. Verify the sample data demonstrates all features of the binder model
