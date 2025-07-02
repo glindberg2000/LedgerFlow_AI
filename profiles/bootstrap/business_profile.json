@@ -1,0 +1,8 @@
+{
+    "client_id": "acme_corp_demo",
+    "company_name": "ACME Corp",
+    "business_type": "Corporation",
+    "business_description": "Demo business profile for ACME Corp onboarding.",
+    "contact_info": "info@acmecorp.com, (555) 123-4567",
+    "location": "123 Main St, Anytown, USA"
+}

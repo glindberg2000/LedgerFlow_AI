@@ -1,4 +1,10 @@
 from django.contrib import admin
+from django.template.loader import render_to_string
+
+admin.site.site_header = "LedgerFlow Admin"
+admin.site.site_title = "LedgerFlow Admin"
+admin.site.index_title = "LedgerFlow Admin"
+
 from .models import (
     BusinessProfile,
     Transaction,
@@ -15,6 +21,8 @@ from .models import (
     CLASSIFICATION_METHOD_UNCLASSIFIED,
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
+    TaxChecklistItem,
+    ChecklistAttachment,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -52,6 +60,11 @@ import pkgutil
 from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
 import pandas as pd
+import tempfile
+from django.core.files import File
+from profiles.parsers_utilities.models import ImportedParser
+from .bootstrap import load_canonical_tax_checklist_index
+import urllib.parse
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -72,76 +85,10 @@ logger.addHandler(handler)
 
 
 class BusinessProfileAdminForm(forms.ModelForm):
-    business_description = forms.CharField(
-        required=True,
-        widget=forms.Textarea(attrs={"rows": 3, "cols": 60}),
-        help_text="Describe your business in your own words. The AI will generate the rest of your business profile.",
-    )
-    contact_info = forms.CharField(
-        required=False,
-        widget=forms.Textarea(attrs={"rows": 2, "cols": 60}),
-        help_text="Contact information for the business (optional).",
-    )
-    common_expenses = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    custom_categories = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    industry_keywords = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    category_patterns = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-    business_rules = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "rows": 2,
-                "cols": 60,
-                "style": "min-height:60px;resize:vertical;width:100%;overflow:auto;",
-            }
-        ),
-        help_text="",
-    )
-
     class Meta:
         model = BusinessProfile
         fields = [
-            "client_id",
+            "company_name",
             "contact_info",
             "business_description",
             "common_expenses",
@@ -153,40 +100,102 @@ class BusinessProfileAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field in [
-            "common_expenses",
-            "custom_categories",
-            "industry_keywords",
-            "category_patterns",
-            "business_rules",
-        ]:
-            val = getattr(self.instance, field, None)
-            if val:
-                if isinstance(val, dict):
-                    val = ", ".join(f"{k}: {v}" for k, v in val.items())
-                elif isinstance(val, list):
-                    val = ", ".join(str(x) for x in val)
-                elif isinstance(val, str):
-                    val = val.replace("{", "").replace("}", "")
-                    val = ", ".join([v.strip() for v in val.split(",") if v.strip()])
-                # Ensure only one space after each comma (UI formatting)
-                val = re.sub(r",\s*", ", ", val)
-            else:
-                val = ""
-            self.fields[field].initial = val
+        # client_id is not editable, but we can show it as a readonly/display field in the admin if needed
+
+
+class TaxChecklistItemInline(admin.TabularInline):
+    model = TaxChecklistItem
+    extra = 0
+    can_delete = False
+    show_change_link = False
+    fields = (
+        "form_code",
+        "tax_year",
+        "description",
+        "entry_type",
+        "enabled",
+        "status",
+        "notes",
+    )
+    readonly_fields = ("form_code", "tax_year", "description", "entry_type")
+    verbose_name = "Tracked Form"
+    verbose_name_plural = "Tracked Forms"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        year = request.GET.get("tax_year")
+        show_all = request.GET.get("show_all") == "1"
+        if not year:
+            year = str(datetime.now().year - 1)
+        qs = qs.filter(tax_year=year)
+        if not show_all:
+            qs = qs.filter(enabled=True)
+        return qs
+
+    def formfield_for_dbfield(self, db_field, **kwargs):
+        field = super().formfield_for_dbfield(db_field, **kwargs)
+        if db_field.name == "enabled":
+            field.label = "Tracked"
+        return field
+
+    def description(self, obj):
+        canonical = load_canonical_tax_checklist_index()
+        meta = canonical.get(obj.form_code, {})
+        return meta.get("label", "")
+
+    def entry_type(self, obj):
+        canonical = load_canonical_tax_checklist_index()
+        meta = canonical.get(obj.form_code, {})
+        return meta.get("entry_type", "manual_entry")
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        return formset
+
+
+class ChecklistAttachmentInline(admin.TabularInline):
+    model = ChecklistAttachment
+    extra = 0
+    fields = ("file", "tag", "uploaded_at")
+    readonly_fields = ("uploaded_at",)
+    verbose_name = "Attachment"
+    verbose_name_plural = "Attachments"
+    can_delete = True
+    show_change_link = False
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        form = formset.form
+        form.base_fields["tag"].help_text = "Edit the tag and save to update."
+        return formset
 
 
 @admin.register(BusinessProfile)
 class BusinessProfileAdmin(admin.ModelAdmin):
     form = BusinessProfileAdminForm
-    list_display = ("client_id", "business_type")
-    search_fields = ("client_id", "business_description")
+    list_display = (
+        "company_name",
+        "client_id",
+        "business_type",
+        "statement_files_count",
+        "transactions_count",
+        "short_business_description",
+        "contact_info",
+    )
+    search_fields = ("company_name", "client_id", "business_description")
     fieldsets = (
         (
             "User-Defined Profile",
             {
-                "fields": ("client_id", "contact_info", "business_description"),
-                "description": "Enter the client ID, contact info, and a business description. The AI will generate the rest.",
+                "fields": (
+                    "company_name",
+                    "contact_info",
+                    "business_description",
+                ),
+                "description": "Client ID is a non-editable, URL-safe identifier. Company name is editable. Enter contact info and a business description. The AI will generate the rest.",
             },
         ),
         (
@@ -203,6 +212,24 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             },
         ),
     )
+    readonly_fields = ("client_id",)
+    inlines = [TaxChecklistItemInline]
+
+    def statement_files_count(self, obj):
+        return obj.statement_files.count()
+
+    statement_files_count.short_description = "Statement Files"
+
+    def transactions_count(self, obj):
+        return obj.transactions.count()
+
+    transactions_count.short_description = "Transactions"
+
+    def short_business_description(self, obj):
+        desc = obj.business_description or ""
+        return desc[:40] + ("..." if len(desc) > 40 else "")
+
+    short_business_description.short_description = "Business Description"
 
     def get_urls(self):
         urls = super().get_urls()
@@ -218,9 +245,6 @@ class BusinessProfileAdmin(admin.ModelAdmin):
     def render_change_form(self, request, context, *args, **kwargs):
         obj = context.get("original")
         if obj:
-            from django.urls import reverse
-            from django.utils.html import format_html
-
             generate_url = reverse(
                 "admin:profiles_businessprofile_generate_ai", args=[obj.pk]
             )
@@ -235,16 +259,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
     def generate_ai_profile_view(self, request, object_id):
         obj = self.get_object(request, object_id)
         if not obj:
-            from django.contrib import messages
+            messages.error(request, "BusinessProfile not found.")
             from django.shortcuts import redirect
 
-            messages.error(request, "BusinessProfile not found.")
             return redirect("..")
         try:
             from openai import OpenAI
-            import os
-            import json
-            from django.urls import reverse
 
             # Always use the Agent with purpose containing 'Business Profile Generator'
             agent = None
@@ -253,11 +273,9 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             try:
                 from .models import Agent
 
-                # Prefer a dedicated Business Profile Generator agent
                 agent = Agent.objects.filter(
                     purpose__icontains="business profile generator"
                 ).first()
-                # Fallback: any agent with an LLMConfig
                 if not agent:
                     agent = Agent.objects.exclude(llm=None).first()
                 if agent and agent.llm and agent.llm.model:
@@ -268,7 +286,6 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             if not model:
                 model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
             api_key = os.environ.get("OPENAI_API_KEY")
-            # Use the LLMConfig.url as base_url if set, for multi-provider support
             if base_url:
                 client = OpenAI(api_key=api_key, base_url=base_url)
             else:
@@ -299,22 +316,18 @@ Do NOT include any explanation or text outside the JSON.
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
-            print(f"Raw LLM response: {content}")
             try:
                 data = json.loads(content)
             except Exception as e:
-                from django.contrib import messages
-                from django.shortcuts import redirect
-
                 messages.error(
                     request, f"LLM did not return valid JSON. Raw response: {content}"
                 )
+                from django.shortcuts import redirect
+
                 return redirect(
                     reverse("admin:profiles_businessprofile_change", args=[obj.pk])
                 )
             if not isinstance(data, dict) or not any(data.values()):
-                from django.contrib import messages
-
                 messages.warning(
                     request,
                     f"AI response was empty or missing fields. Raw response: {content}. If this persists, check the prompt and schema format sent to OpenAI.",
@@ -334,8 +347,6 @@ Do NOT include any explanation or text outside the JSON.
                         value = ", ".join(str(x) for x in value)
                 setattr(obj, field, value)
             obj.save()
-            from django.contrib import messages
-
             messages.success(
                 request,
                 "AI-generated profile fields have been filled in. Review and save to persist.",
@@ -344,13 +355,57 @@ Do NOT include any explanation or text outside the JSON.
             import logging
 
             logging.exception("Error generating AI profile")
-            from django.contrib import messages
-
             messages.error(request, f"Error generating AI profile: {e}")
         from django.shortcuts import redirect
-        from django.urls import reverse
 
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
+
+
+@admin.register(TaxChecklistItem)
+class TaxChecklistItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_profile",
+        "tax_year",
+        "form_code",
+        "enabled",
+        "status",
+        "date_modified",
+    )
+    list_filter = ("tax_year", "enabled", "status")
+    search_fields = ("form_code", "notes")
+    autocomplete_fields = ("business_profile",)
+    ordering = ("business_profile", "tax_year", "form_code")
+    inlines = [ChecklistAttachmentInline]
+    readonly_fields = ("business_profile", "tax_year", "form_code")
+    actions = ["enable_selected", "disable_selected"]
+
+    def enable_selected(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"Enabled {updated} checklist items.")
+
+    enable_selected.short_description = "Enable selected checklist items"
+
+    def disable_selected(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"Disabled {updated} checklist items.")
+
+    disable_selected.short_description = "Disable selected checklist items"
+
+    def changelist_view(self, request, extra_context=None):
+        # Default to enabled items only unless filter is set
+        if "enabled__exact" not in request.GET:
+            q = request.GET.copy()
+            q["enabled__exact"] = "1"
+            request.GET = q
+            request.META["QUERY_STRING"] = request.GET.urlencode()
+        return super().changelist_view(request, extra_context=extra_context)
+
+
+@admin.register(ChecklistAttachment)
+class ChecklistAttachmentAdmin(admin.ModelAdmin):
+    list_display = ("file", "tag", "uploaded_at")
+    search_fields = ("file", "tag")
+    readonly_fields = ("uploaded_at",)
 
 
 class ClientFilter(admin.SimpleListFilter):
@@ -375,6 +430,25 @@ def call_agent(
     from openai import OpenAI
 
     logger = logging.getLogger(__name__)
+
+    # --- START: NEW GUARDRAIL ---
+    # For classification agents, if the amount is positive, it's income. No AI needed.
+    agent = Agent.objects.get(name=agent_name)
+    if "classification" in agent.purpose.lower() and transaction.amount > 0:
+        logger.info(
+            f"Transaction {transaction.id} has positive amount. Bypassing AI and auto-classifying as Income."
+        )
+        return {
+            "classification_type": "Income",
+            "worksheet": "Income",
+            "category": "Client Income",
+            "confidence": "high",
+            "reasoning": "Auto-classified as Income due to positive transaction amount.",
+            "business_percentage": 0,
+            "questions": "",
+        }
+    # --- END: NEW GUARDRAIL ---
+
     if model is None:
         model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
     logger.info(f"Using OpenAI model: {model}")
@@ -393,7 +467,7 @@ def call_agent(
         if "payee" in agent_name.lower():
             system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
 
-            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 2-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (2-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
+            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 1-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (1-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
 
         else:
             # Dynamically build allowed categories
@@ -486,7 +560,7 @@ def call_agent(
                 payee_context = ""
             system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
 
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
 
         # Prepare tools for the API call with proper schema
         tool_definitions = []
@@ -547,6 +621,7 @@ def call_agent(
                 tools = None
             max_tool_calls = 3
             tool_call_count = 0
+            tool_usage = {}  # Track tool name -> count
             while True:
                 payload = {
                     "model": agent.llm.model,
@@ -620,11 +695,12 @@ def call_agent(
                                 "content": json.dumps(tool_result),
                             }
                         )
+                        tool_usage[tool_name] = tool_usage.get(tool_name, 0) + 1
                         tool_call_count += 1
                     continue  # Loop again to get the next LLM response
                 # If the LLM returns a final content message, parse and return it
                 if msg.content:
-                    return json.loads(msg.content)
+                    return json.loads(msg.content), tool_usage
                 logger.error(
                     "LLM returned neither tool_calls nor content. Breaking loop."
                 )
@@ -638,6 +714,9 @@ def call_agent(
     except Exception as e:
         logger.error(f"Error in call_agent: {str(e)}")
         raise
+
+    # All other return paths (including guardrail):
+    return response, tool_usage
 
 
 def process_transactions(modeladmin, request, queryset):
@@ -666,7 +745,7 @@ def process_transactions(modeladmin, request, queryset):
     try:
         agent = Agent.objects.get(id=agent_id)
         for transaction in queryset:
-            response = call_agent(agent.name, transaction)
+            response, tool_usage = call_agent(agent.name, transaction)
             update_fields = get_update_fields_from_response(
                 agent,
                 response,
@@ -675,6 +754,7 @@ def process_transactions(modeladmin, request, queryset):
                     if hasattr(agent, "purpose")
                     else "classification"
                 ),
+                tool_usage=tool_usage,
             )
             logger.info(
                 f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -816,8 +896,8 @@ class TransactionAdminForm(forms.ModelForm):
         instance = super().save(commit=False)
         # Save notes back to business_context
         instance.business_context = self.cleaned_data.get("notes", "")
-        # Always set classification_method to 'Human' (the correct CHOICE value) if saving via admin form
-        instance.classification_method = "Human"
+        # Always set classification_method to 'None' if saving via admin form
+        instance.classification_method = "None"
         if commit:
             instance.save()
         return instance
@@ -879,7 +959,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "business_percentage",
         "confidence",
         "source",
-        "file_path",
+        "file_link_column",
         "account_number",
         "short_reasoning",  # Use icon if present
         "short_payee_reasoning",  # Use icon if present
@@ -960,6 +1040,8 @@ class TransactionAdmin(admin.ModelAdmin):
         "mark_as_business",
         "mark_as_unclassified",
         "batch_set_account_number",  # New batch action
+        "lookup_payee",  # Direct payee lookup action
+        "classify_transactions",  # Direct classify action
     ]
 
     def short_reasoning(self, obj):
@@ -975,6 +1057,26 @@ class TransactionAdmin(admin.ModelAdmin):
         return ""
 
     short_payee_reasoning.short_description = "Payee Reasoning"
+
+    def file_link_column(self, obj):
+        try:
+            if obj.statement_file and obj.statement_file.original_filename:
+                url = reverse(
+                    "reports:download_statement_file",
+                    args=[obj.statement_file_id],
+                )
+                return format_html(
+                    '<a href="{}" target="_blank">{}</a>',
+                    url,
+                    obj.statement_file.original_filename,
+                )
+            else:
+                return "N/A"
+        except Exception as e:
+            return format_html('<span style="color:red;">Link unavailable</span>')
+
+    file_link_column.short_description = "Original File"
+    file_link_column.admin_order_field = "file_path"
 
     @admin.action(description="Batch set account number for selected transactions")
     def batch_set_account_number(self, request, queryset):
@@ -1007,8 +1109,6 @@ class TransactionAdmin(admin.ModelAdmin):
         if not queryset:
             messages.error(request, "No transactions selected.")
             return
-
-        # Group transactions by client
         client_transactions = {}
         for transaction in queryset:
             if transaction.client_id not in client_transactions:
@@ -1023,8 +1123,6 @@ class TransactionAdmin(admin.ModelAdmin):
             client_transactions[transaction.client_id]["transaction_ids"].append(
                 transaction.id
             )
-
-        # Create a task for each client's transactions
         for client_id, data in client_transactions.items():
             with db_transaction.atomic():
                 task = ProcessingTask.objects.create(
@@ -1033,14 +1131,17 @@ class TransactionAdmin(admin.ModelAdmin):
                     transaction_count=len(data["transactions"]),
                     status="pending",
                     task_metadata={
-                        "description": f"Batch payee lookup for {len(data['transactions'])} transactions"
+                        "description": f"Batch payee lookup for {len(data['transactions'])} transactions",
+                        "transaction_ids": data["transaction_ids"],
                     },
                 )
-                task.transactions.add(*data["transaction_ids"])
                 messages.success(
                     request,
                     f"Created payee lookup task for client {client_id} with {len(data['transactions'])} transactions",
                 )
+        self.message_user(
+            request, f"Created payee lookup task for selected transactions."
+        )
 
     batch_payee_lookup.short_description = "Create batch payee lookup task"
 
@@ -1049,8 +1150,6 @@ class TransactionAdmin(admin.ModelAdmin):
         if not queryset:
             messages.error(request, "No transactions selected.")
             return
-
-        # Group transactions by client
         client_transactions = {}
         for transaction in queryset:
             if transaction.client_id not in client_transactions:
@@ -1065,8 +1164,6 @@ class TransactionAdmin(admin.ModelAdmin):
             client_transactions[transaction.client_id]["transaction_ids"].append(
                 transaction.id
             )
-
-        # Create a task for each client's transactions
         for client_id, data in client_transactions.items():
             with db_transaction.atomic():
                 task = ProcessingTask.objects.create(
@@ -1075,14 +1172,17 @@ class TransactionAdmin(admin.ModelAdmin):
                     transaction_count=len(data["transactions"]),
                     status="pending",
                     task_metadata={
-                        "description": f"Batch classification for {len(data['transactions'])} transactions"
+                        "description": f"Batch classification for {len(data['transactions'])} transactions",
+                        "transaction_ids": data["transaction_ids"],
                     },
                 )
-                task.transactions.add(*data["transaction_ids"])
                 messages.success(
                     request,
                     f"Created classification task for client {client_id} with {len(data['transactions'])} transactions",
                 )
+        self.message_user(
+            request, f"Created classification task for selected transactions."
+        )
 
     batch_classify.short_description = "Create batch classification task"
 
@@ -1175,16 +1275,14 @@ class TransactionAdmin(admin.ModelAdmin):
                     logger.info(
                         f"Processing transaction {transaction.id} with agent {agent.name}"
                     )
-                    response = call_agent(agent.name, transaction)
+                    response, tool_usage = call_agent(agent.name, transaction)
                     logger.info(f"Agent response: {response}")
+                    agent_type = _get_agent_type(agent)
                     update_fields = get_update_fields_from_response(
                         agent,
                         response,
-                        (
-                            getattr(agent, "purpose", "").lower()
-                            if hasattr(agent, "purpose")
-                            else "classification"
-                        ),
+                        agent_type=agent_type,
+                        tool_usage=tool_usage,
                     )
                     logger.info(
                         f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -1227,6 +1325,47 @@ class TransactionAdmin(admin.ModelAdmin):
             request, object_id, form_url, extra_context=extra_context
         )
 
+    # --- Shared agent processing logic for direct and batch flows ---
+    def process_transactions_with_agent(self, agent_name, transaction_ids):
+        from .models import Transaction, Agent
+
+        agent = Agent.objects.get(name=agent_name)
+        results = []
+        for transaction in Transaction.objects.filter(id__in=transaction_ids):
+            response, tool_usage = call_agent(agent.name, transaction)
+            update_fields = get_update_fields_from_response(
+                agent,
+                response,
+                (
+                    getattr(agent, "purpose", "").lower()
+                    if hasattr(agent, "purpose")
+                    else "classification"
+                ),
+                tool_usage=tool_usage,
+            )
+            Transaction.objects.filter(id=transaction.id).update(**update_fields)
+            results.append((transaction.id, update_fields))
+        return results
+
+    # --- Restore direct lookup/classify actions ---
+    @admin.action(description="Lookup payee for selected transactions")
+    def lookup_payee(self, modeladmin, request, queryset):
+        agent_name = "Payee Lookup Agent"
+        transaction_ids = list(queryset.values_list("id", flat=True))
+        self.process_transactions_with_agent(agent_name, transaction_ids)
+        messages.success(
+            request, f"Processed {len(transaction_ids)} transactions with {agent_name}"
+        )
+
+    @admin.action(description="Classify selected transactions")
+    def classify_transactions(self, modeladmin, request, queryset):
+        agent_name = "Classification Agent"
+        transaction_ids = list(queryset.values_list("id", flat=True))
+        self.process_transactions_with_agent(agent_name, transaction_ids)
+        messages.success(
+            request, f"Processed {len(transaction_ids)} transactions with {agent_name}"
+        )
+
 
 @admin.register(LLMConfig)
 class LLMConfigAdmin(admin.ModelAdmin):
@@ -1240,6 +1379,150 @@ class AgentAdmin(admin.ModelAdmin):
     list_display = ("name", "purpose", "llm")
     search_fields = ("name", "purpose", "llm__name")
     filter_horizontal = ("tools",)
+    readonly_fields = ("name",)  # Make name read-only to prevent breaking the app
+    change_form_template = "admin/agent_change_form.html"  # Use model-specific template
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:agent_id>/preview_prompt/",
+                self.admin_site.admin_view(self.preview_prompt_view),
+                name="profiles_agent_preview_prompt",
+            ),
+        ]
+        return custom_urls + urls
+
+    def preview_prompt_view(self, request, agent_id):
+        agent = get_object_or_404(Agent, pk=agent_id)
+        # Use a sample transaction and business profile for context
+        transaction = Transaction.objects.first()
+        business_profile = (
+            transaction.client if transaction else BusinessProfile.objects.first()
+        )
+        # Build prompt as in call_agent
+        if "payee" in agent.name.lower():
+            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
+            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 1-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (1-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
+        else:
+            from profiles.models import IRSExpenseCategory, BusinessExpenseCategory
+
+            # IRS categories (active, for all relevant worksheets)
+            irs_cats = IRSExpenseCategory.objects.filter(
+                is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
+            ).values("id", "name", "worksheet__name")
+            # Business categories for this client
+            biz_cats = (
+                BusinessExpenseCategory.objects.filter(
+                    is_active=True, business=business_profile
+                ).values("id", "category_name", "worksheet__name")
+                if business_profile
+                else []
+            )
+            allowed_categories = []
+            for cat in irs_cats:
+                allowed_categories.append(
+                    f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
+                )
+            for cat in biz_cats:
+                allowed_categories.append(
+                    f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
+                )
+            allowed_categories += ["Other", "Personal", "Review"]
+            # Build business profile context string
+            business_context_lines = []
+            if business_profile:
+                if business_profile.business_type:
+                    business_context_lines.append(
+                        f"Business Type: {business_profile.business_type}"
+                    )
+                if business_profile.business_description:
+                    business_context_lines.append(
+                        f"Business Description: {business_profile.business_description}"
+                    )
+                if business_profile.contact_info:
+                    business_context_lines.append(
+                        f"Contact Info: {business_profile.contact_info}"
+                    )
+                if business_profile.common_expenses:
+                    business_context_lines.append(
+                        f"Common Expenses: {business_profile.common_expenses}"
+                    )
+                if business_profile.custom_categories:
+                    business_context_lines.append(
+                        f"Custom Categories: {business_profile.custom_categories}"
+                    )
+                if business_profile.industry_keywords:
+                    business_context_lines.append(
+                        f"Industry Keywords: {business_profile.industry_keywords}"
+                    )
+                if business_profile.category_patterns:
+                    business_context_lines.append(
+                        f"Category Patterns: {business_profile.category_patterns}"
+                    )
+                if business_profile.business_rules:
+                    business_context_lines.append(
+                        f"Business Rules: {business_profile.business_rules}"
+                    )
+            business_context = "\n".join(business_context_lines)
+            if business_context:
+                business_context = f"Business Profile Context:\n{business_context}\n"
+            else:
+                business_context = ""
+            # Add payee reasoning if available
+            payee_reasoning = (
+                getattr(transaction, "payee_reasoning", None) if transaction else None
+            )
+            if payee_reasoning:
+                payee_context = (
+                    f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
+                )
+            else:
+                payee_context = ""
+            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
+            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description if transaction else '[No transaction]'}\nAmount: ${transaction.amount if transaction else '[No amount]'}\nDate: {transaction.transaction_date if transaction else '[No date]'}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
+        admin_context = self.admin_site.each_context(request)
+        log_message = f"Prompt generated using agent: {agent.name} (ID: {agent.id})"
+        context = {
+            "agent": agent,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "log_message": log_message,
+        }
+        context.update(admin_context)
+        return render(
+            request,
+            "admin/agent_prompt_preview.html",
+            context,
+        )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        # Decode object_id to get client_id
+        client_id = urllib.parse.unquote(object_id).replace("_5F", "_")
+        year = request.GET.get("tax_year")
+        if not year:
+            year = str(datetime.now().year - 1)
+        profile = BusinessProfile.objects.get(pk=client_id)
+        allowed_years = [str(datetime.now().year - i) for i in range(4)]
+        if year not in allowed_years:
+            allowed_years.append(year)
+        allowed_years = sorted(set(allowed_years), reverse=True)
+        extra_context = extra_context or {}
+        extra_context["tax_year"] = year
+        extra_context["tax_years"] = allowed_years
+        # Checklist init/reset button logic
+        checklist_qs = TaxChecklistItem.objects.filter(
+            business_profile_id=client_id, tax_year=year
+        )
+        show_init = not checklist_qs.exists()
+        extra_context["show_init_checklist"] = show_init
+        extra_context["show_reset_checklist"] = checklist_qs.exists()
+        extra_context["init_checklist_url"] = reverse(
+            "admin:init_checklist", args=[client_id, year]
+        )
+        return super().change_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
 
 
 @admin.register(Tool)
@@ -1283,7 +1566,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "task_id",
         "task_type",
         "client",
-        "status",
+        "status_with_progress",
         "transaction_count",
         "processed_count",
         "error_count",
@@ -1317,6 +1600,30 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "task_metadata",
     )
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
+
+    @admin.display(description="Status")
+    def status_with_progress(self, obj):
+        status = obj.status
+        badge_map = {
+            "pending": ("⏳ Pending", "background:#f6c23e;color:#fff;"),
+            "processing": ("🔄 Processing", "background:#36b9cc;color:#fff;"),
+            "completed": ("✅ Completed", "background:#1cc88a;color:#fff;"),
+            "failed": ("❌ Failed", "background:#e74a3b;color:#fff;"),
+        }
+        label, style = badge_map.get(status, (status.title(), ""))
+        badge_html = f'<span style="font-weight:bold;padding:0.2em 0.7em;border-radius:1em;{style}font-size:0.95em;display:inline-block;margin-right:0.5em;min-width:80px;white-space:nowrap;">{label}</span>'
+        progress_html = ""
+        if status == "processing":
+            processed = getattr(obj, "processed_count", 0) or 0
+            total = getattr(obj, "transaction_count", 0) or 0
+            percent = int((processed / total) * 100) if total > 0 else 0
+            progress_html = f"""
+                <div style="border-radius:3px;overflow:hidden;background:#f0f0f0;border:1px solid #ccc;height:20px;width:200px;margin-top:5px;">
+                  <div style="background:#79aec8;height:100%;width:{percent}%;transition:width 0.3s ease;"></div>
+                </div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">{processed} / {total}</div>
+            """
+        return mark_safe(badge_html + progress_html)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
@@ -1353,1010 +1660,3 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         return super().change_view(
             request, object_id, form_url, extra_context=extra_context
         )
-
-    def run_task(self, request, queryset):
-        """Execute the selected task and show progress."""
-        if queryset.count() > 1:
-            messages.error(request, "Please select only one task to run at a time.")
-            return
-
-        task = queryset.first()
-        if task.status != "pending":
-            messages.error(request, f"Task {task.task_id} is not in pending state.")
-            return
-
-        # Create log file first
-        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
-        log_file.parent.mkdir(exist_ok=True)
-        with open(log_file, "w") as f:
-            f.write(f"[{timezone.now()}] [INFO] Starting task {task.task_id}\n")
-
-        try:
-            # Verify the task exists and is in pending state
-            task.refresh_from_db()
-            if task.status != "pending":
-                messages.error(request, f"Task {task.task_id} is not in pending state.")
-                return
-
-            # Update task status to processing and commit it
-            with db_transaction.atomic():
-                task.status = "processing"
-                task.started_at = timezone.now()
-                task.save(force_update=True)
-
-            # Start the task processing command
-            python_executable = sys.executable
-            # Always use the manage.py in the LedgerFlow project root
-            manage_py = str(Path(settings.BASE_DIR) / "manage.py")
-            cmd = [
-                python_executable,
-                manage_py,
-                "process_task",
-                str(task.task_id),
-                "--log-file",
-                str(log_file),
-            ]
-
-            # Set up environment variables
-            env = os.environ.copy()
-            project_root = str(Path(settings.BASE_DIR).parent)
-            env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
-            env["DJANGO_SETTINGS_MODULE"] = "ledgerflow.settings"
-
-            # Start the process in the background
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                cwd=str(settings.BASE_DIR),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                start_new_session=True,
-                bufsize=1,
-            )
-
-            # Log the process start
-            logger.info(f"Started task {task.task_id} with PID {process.pid}")
-            self.message_user(request, f"Started task {task.task_id}")
-
-            # Start a thread to read the output
-            def read_output():
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        logger.info(output.strip())
-                        with open(log_file, "a") as f:
-                            f.write(output)
-
-            import threading
-
-            output_thread = threading.Thread(target=read_output)
-            output_thread.daemon = True
-            output_thread.start()
-
-            # Start a thread to read errors
-            def read_errors():
-                while True:
-                    error = process.stderr.readline()
-                    if error == "" and process.poll() is not None:
-                        break
-                    if error:
-                        logger.error(error.strip())
-                        with open(log_file, "a") as f:
-                            f.write(f"[ERROR] {error}")
-
-            error_thread = threading.Thread(target=read_errors)
-            error_thread.daemon = True
-            error_thread.start()
-
-            # Wait for the process to complete
-            def wait_for_process():
-                process.wait()
-                if process.returncode != 0:
-                    logger.error(
-                        f"Task {task.task_id} failed with return code {process.returncode}"
-                    )
-                    # Update task status to failed if the process failed
-                    task.refresh_from_db()
-                    if task.status == "processing":
-                        task.status = "failed"
-                        task.error_details = {
-                            "error": f"Process failed with return code {process.returncode}"
-                        }
-                        task.save(force_update=True)
-
-            # Start the wait thread
-            wait_thread = threading.Thread(target=wait_for_process)
-            wait_thread.daemon = True
-            wait_thread.start()
-
-        except Exception as e:
-            logger.error(f"Failed to start task {task.task_id}: {str(e)}")
-            task.status = "failed"
-            task.error_details = {"error": str(e)}
-            task.save(force_update=True)
-            self.message_user(
-                request, f"Failed to start task: {str(e)}", level=messages.ERROR
-            )
-
-    run_task.short_description = "Run selected task"
-
-    def retry_failed_tasks(self, request, queryset):
-        """Retry failed processing tasks."""
-        for task in queryset.filter(status="failed"):
-            task.status = "pending"
-            task.error_count = 0
-            task.error_details = {}
-            task.save()
-            messages.success(request, f"Retrying task {task.task_id}")
-        messages.success(
-            request, f"Retried {queryset.filter(status='failed').count()} failed tasks"
-        )
-
-    retry_failed_tasks.short_description = "Retry failed tasks"
-
-    def cancel_tasks(self, request, queryset):
-        """Cancel selected processing tasks."""
-        for task in queryset.filter(status__in=["pending", "processing"]):
-            task.status = "failed"
-            task.error_details = {
-                "cancelled": True,
-                "cancelled_at": str(datetime.now()),
-            }
-            task.save()
-            messages.success(request, f"Cancelled task {task.task_id}")
-        messages.success(
-            request,
-            f"Cancelled {queryset.filter(status__in=['pending', 'processing']).count()} tasks",
-        )
-
-    cancel_tasks.short_description = "Cancel selected tasks"
-
-    def view_task_transactions(self, request, task_id):
-        """View transactions associated with a processing task."""
-        task = get_object_or_404(ProcessingTask, task_id=task_id)
-        transactions = task.transactions.all()
-        return render(
-            request,
-            "admin/processing_task_transactions.html",
-            context={
-                "task": task,
-                "transactions": transactions,
-                "title": f"Transactions for Task {task_id}",
-                "opts": self.model._meta,
-            },
-        )
-
-
-class StatementFileAdminForm(forms.ModelForm):
-    # Use standard single file upload for ModelForm; batch upload requires custom view
-    file = forms.FileField(
-        widget=forms.ClearableFileInput(), required=True, label="Upload File"
-    )
-
-    class Meta:
-        model = StatementFile
-        fields = [
-            "client",
-            "file",
-            "file_type",
-            "bank",
-            "account_number",
-            "year",
-            "month",
-            "status",
-            "status_detail",
-        ]
-
-
-def get_parser_module_choices():
-    try:
-        sys.path.append("/Users/greg/repos/LedgerFlow_AI/PDF-extractor")
-        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
-
-        autodiscover_parsers()
-        registry_mod = importlib.import_module("dataextractai.parsers_core.registry")
-        registry = getattr(registry_mod, "ParserRegistry")
-        parser_names = list(getattr(registry, "_parsers", {}).keys())
-        print(f"[DEBUG] Parser registry contents: {parser_names}")
-        # Add 'Autodetect' as the default option
-        return [("autodetect", "Autodetect (Recommended)")] + [
-            (name, name) for name in parser_names
-        ]
-    except Exception as e:
-        print(f"[DEBUG] Exception in get_parser_module_choices: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return [("autodetect", "Autodetect (Recommended)")]
-
-
-class BulkTagForm(forms.Form):
-    parser_module = forms.ChoiceField(required=False, label="Parser Module")
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["parser_module"].choices = get_parser_module_choices()
-
-
-@admin.action(description="Bulk tag: Parser only")
-def bulk_tag_action(modeladmin, request, queryset):
-    if "apply" in request.POST:
-        form = BulkTagForm(request.POST)
-        if form.is_valid():
-            data = form.cleaned_data
-            update_fields = {}
-            if data["parser_module"]:
-                update_fields["parser_module"] = data["parser_module"]
-            queryset.update(**update_fields)
-            modeladmin.message_user(request, f"Updated {queryset.count()} files.")
-            return None
-    else:
-        form = BulkTagForm()
-    return TemplateResponse(
-        request,
-        "admin/bulk_tag_action.html",
-        {
-            "form": form,
-            "queryset": queryset,
-            "action_checkbox_name": admin.helpers.ACTION_CHECKBOX_NAME,
-        },
-    )
-
-
-@admin.action(description="Batch Parse and Normalize")
-def batch_parse_and_normalize(modeladmin, request, queryset):
-    sync_transaction_id_sequence()
-    from django.db import transaction as db_transaction
-    from django.contrib import messages
-    import logging
-
-    logger = logging.getLogger(__name__)
-    required_fields = [
-        "transaction_date",
-        "description",
-        "amount",
-        "file_path",
-        "source",
-        "transaction_type",
-        "account_number",
-        "transaction_id",
-    ]
-
-    # Import detection utility
-    from dataextractai.parsers.detect import detect_parser_for_file
-
-    for statement in queryset:
-        file_path = (
-            statement.file.path
-            if hasattr(statement.file, "path")
-            else statement.file.name
-        )
-        parser_name = statement.parser_module
-        client_name = statement.client.client_id
-        # If autodetect is selected, run detection utility
-        if parser_name == "autodetect" or not parser_name:
-            detected = detect_parser_for_file(file_path)
-            if not detected:
-                messages.error(
-                    request,
-                    f"No compatible parser found for {statement.original_filename}. Please select a parser manually or contact support.",
-                )
-                continue
-            parser_name = detected
-            messages.info(
-                request,
-                f"Parser '{parser_name}' was automatically selected for {statement.original_filename}.",
-            )
-        error_message = None
-        created, skipped = 0, 0
-        try:
-            df = normalize_parsed_data_df(
-                file_path=file_path, parser_name=parser_name, client_name=client_name
-            )
-            result = df.to_dict(orient="records")
-        except Exception as e:
-            error_message = str(e)
-            # Write debug log
-            import os
-
-            debug_log_path = os.path.join(
-                os.path.dirname(__file__), "..", "debug_transaction_error.log"
-            )
-            try:
-                with open(debug_log_path, "a") as f:
-                    f.write(f"Exception during normalization: {e}\n")
-                    f.write(f"File: {file_path}\n")
-                    f.write(f"Parser: {parser_name}\n")
-                    f.write(f"Client: {client_name}\n\n")
-            except Exception as file_err:
-                logger.error(f"Failed to write debug log (normalization): {file_err}")
-            # Add details to UI error message
-            messages.error(
-                request,
-                f"Failed to parse/normalize {statement.original_filename}: {e}\nFile: {file_path}\nParser: {parser_name}\nClient: {client_name}",
-            )
-            # Log ParsingRun as fail
-            from .models import ParsingRun
-
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="fail",
-                error_message=error_message,
-                rows_imported=0,
-            )
-            continue
-        for row in result:
-            if hasattr(row, "to_dict"):
-                row = row.to_dict()
-            date_val = row.get("transaction_date")
-            if (
-                not isinstance(date_val, str)
-                or not date_val.strip()
-                or date_val == "nan"
-            ):
-                logger.error(
-                    f"[MALFORMED TRANSACTION] Skipping row due to invalid date: {row}"
-                )
-                skipped += 1
-                continue
-            try:
-                Transaction.objects.create(
-                    client=statement.client,
-                    statement_file=statement,
-                    transaction_date=row["transaction_date"],
-                    description=row["description"],
-                    amount=row["amount"],
-                    file_path=row["file_path"],
-                    source=row["source"],
-                    transaction_type=row["transaction_type"],
-                    account_number=row.get("account_number")
-                    or statement.account_number
-                    or "",
-                    transaction_id=row.get("transaction_id"),
-                    transaction_hash=row.get("transaction_hash"),
-                    parser_name=row.get("parser_name"),
-                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                    needs_account_number=(
-                        not (row.get("account_number") or statement.account_number)
-                        or str(
-                            row.get("account_number") or statement.account_number
-                        ).strip()
-                        == ""
-                    ),
-                )
-                created += 1
-            except Exception as e:
-                import json
-                import os
-
-                debug_fields = dict(
-                    client=str(statement.client),
-                    statement_file=str(statement),
-                    transaction_date=row.get("transaction_date"),
-                    description=row.get("description"),
-                    amount=row.get("amount"),
-                    file_path=row.get("file_path"),
-                    source=row.get("source"),
-                    transaction_type=row.get("transaction_type"),
-                    account_number=row.get("account_number")
-                    or statement.account_number
-                    or "",
-                    transaction_id=row.get("transaction_id"),
-                    transaction_hash=row.get("transaction_hash"),
-                    parser_name=row.get("parser_name"),
-                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                    needs_account_number=(
-                        not (row.get("account_number") or statement.account_number)
-                        or str(
-                            row.get("account_number") or statement.account_number
-                        ).strip()
-                        == ""
-                    ),
-                )
-                debug_log_path = os.path.join(
-                    os.path.dirname(__file__), "..", "debug_transaction_error.log"
-                )
-                try:
-                    with open(debug_log_path, "a") as f:
-                        f.write(f"Exception: {e}\n")
-                        f.write(f"Fields: {json.dumps(debug_fields, default=str)}\n\n")
-                except Exception as file_err:
-                    logger.error(f"Failed to write debug log: {file_err}")
-                skipped += 1
-        # Log ParsingRun as success or fail
-        from .models import ParsingRun
-
-        if created > 0:
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="success",
-                error_message=None,
-                rows_imported=created,
-            )
-        else:
-            ParsingRun.objects.create(
-                statement_file=statement,
-                parser_module=parser_name,
-                status="fail",
-                error_message=error_message or f"No rows imported. Skipped: {skipped}",
-                rows_imported=0,
-            )
-        messages.success(
-            request,
-            f"{created} transactions imported for {statement.original_filename}. {skipped} rows skipped.",
-        )
-
-
-class BatchStatementFileUploadForm(forms.Form):
-    client = forms.ModelChoiceField(
-        queryset=BusinessProfile.objects.all(), required=True
-    )
-    file_type = forms.ChoiceField(
-        choices=StatementFile._meta.get_field("file_type").choices, required=True
-    )
-    parser_module = forms.ChoiceField(
-        choices=[], required=False, label="Parser Module (optional)"
-    )
-    account_number = forms.CharField(label="Account Number (optional)", required=False)
-    auto_parse = forms.BooleanField(label="Auto-parse", required=False)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["parser_module"].choices = get_parser_module_choices()
-
-
-@admin.register(StatementFile)
-class StatementFileAdmin(admin.ModelAdmin):
-    form = StatementFileAdminForm
-    list_display = (
-        "client",
-        "original_filename",
-        "file_type",
-        "parser_module",
-        "status",
-        "upload_timestamp",
-        "uploaded_by",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "account_type",
-        "statement_period_start",
-        "statement_period_end",
-        "statement_date",
-        "year",
-        "month",
-        "status_detail",
-    )
-    list_filter = (
-        "client",
-        "file_type",
-        "status",
-        "year",
-        "month",
-        "bank",
-        NeedsAccountNumberFilter,
-    )
-    search_fields = (
-        "original_filename",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "status_detail",
-    )
-    readonly_fields = (
-        "upload_timestamp",
-        "uploaded_by",
-        "parsed_metadata",
-        "parser_module",
-        "file_link",
-        "bank",
-        "account_number",
-        "account_holder_name",
-        "address",
-        "account_type",
-        "statement_period_start",
-        "statement_period_end",
-        "statement_date",
-        "year",
-        "month",
-        "status_detail",
-    )
-    fieldsets = (
-        (
-            None,
-            {
-                "fields": [
-                    "client",
-                    "file",
-                    "file_type",
-                    "parser_module",
-                    "status",
-                    "status_detail",
-                    "bank",
-                    "account_number",
-                    "account_holder_name",
-                    "address",
-                    "account_type",
-                    "statement_period_start",
-                    "statement_period_end",
-                    "statement_date",
-                    "year",
-                    "month",
-                    "upload_timestamp",
-                    "uploaded_by",
-                    "parsed_metadata",
-                    "file_link",
-                ]
-            },
-        ),
-    )
-    actions = [bulk_tag_action, batch_parse_and_normalize, "batch_set_account_number"]
-
-    def file_link(self, obj):
-        if obj.file and hasattr(obj.file, "url"):
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>', obj.file.url, obj.file.name
-            )
-        return "No file uploaded"
-
-    file_link.short_description = "File Download Link"
-
-    @admin.action(description="Batch set account number for selected statement files")
-    def batch_set_account_number(self, request, queryset):
-        from django import forms
-
-        class AccountNumberForm(forms.Form):
-            account_number = forms.CharField(label="Account Number", required=True)
-
-        if "apply" in request.POST:
-            form = AccountNumberForm(request.POST)
-            if form.is_valid():
-                account_number = form.cleaned_data["account_number"]
-                updated = queryset.update(
-                    account_number=account_number, needs_account_number=False
-                )
-                self.message_user(
-                    request, f"Set account number for {updated} statement files."
-                )
-                return
-        else:
-            form = AccountNumberForm()
-        return render(
-            request,
-            "admin/batch_set_account_number.html",
-            {"form": form, "queryset": queryset},
-        )
-
-    def save_model(self, request, obj, form, change):
-        if not obj.statement_hash and obj.file:
-            obj.statement_hash = obj.compute_statement_hash()
-        super().save_model(request, obj, form, change)
-
-    def add_view(self, request, form_url="", extra_context=None):
-        # Custom add_view to support batch upload
-        if (
-            request.method == "POST"
-            and request.FILES.getlist("file")
-            and len(request.FILES.getlist("file")) > 1
-        ):
-            form = self.get_form(request)(request.POST, request.FILES)
-            if form.is_valid():
-                auto_parse = form.cleaned_data.get("auto_parse", True)
-                for f in request.FILES.getlist("file"):
-                    ext = f.name.split(".")[-1].lower()
-                    detected_type = None
-                    if ext == "pdf":
-                        detected_type = "pdf"
-                    elif ext == "csv":
-                        detected_type = "csv"
-                    else:
-                        detected_type = "other"
-                    final_file_type = (
-                        form.cleaned_data.get("file_type") or detected_type
-                    )
-                    # If autodetect is selected, run detection utility
-                    final_parser_module = form.cleaned_data.get("parser_module")
-                    metadata = {}
-                    if final_parser_module == "autodetect" or not final_parser_module:
-                        # Save file temporarily to disk to run detection
-                        import tempfile
-
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=f".{f.name.split('.')[-1]}"
-                        ) as tmp:
-                            tmp.write(f.read())
-                            tmp.flush()
-                            detected = detect_parser_for_file(tmp.name)
-                        if not detected:
-                            messages.error(
-                                request,
-                                f"No compatible parser found for {f.name}. Please select a parser manually or contact support.",
-                            )
-                            continue
-                        final_parser_module = detected
-                        from django.contrib import messages
-
-                        messages.info(
-                            request,
-                            f"Parser '{final_parser_module}' was automatically selected for {f.name}.",
-                        )
-                        # If Chase Checking, extract metadata
-                        if final_parser_module == "chase_checking":
-                            try:
-                                from dataextractai.parsers.chase_checking import (
-                                    ChaseCheckingParser,
-                                )
-
-                                parser = ChaseCheckingParser()
-                                metadata = parser.extract_metadata(tmp.name)
-                            except Exception as e:
-                                messages.warning(
-                                    request,
-                                    f"Failed to extract metadata for {f.name}: {e}",
-                                )
-                        # Reset file pointer for Django upload
-                        f.seek(0)
-                    # After metadata extraction and before saving instance
-                    transaction_count = 0
-                    parse_error = None
-                    if (
-                        auto_parse
-                        and final_parser_module
-                        and final_parser_module != "autodetect"
-                    ):
-                        try:
-                            # Dynamically import the parser and call parse_file/normalize
-                            parser_mod = __import__(
-                                f"dataextractai.parsers.{final_parser_module}",
-                                fromlist=[None],
-                            )
-                            parser_class = getattr(
-                                parser_mod,
-                                "".join(
-                                    [
-                                        w.capitalize()
-                                        for w in final_parser_module.split("_")
-                                    ]
-                                )
-                                + "Parser",
-                            )
-                            parser = parser_class()
-                            # Parse the file and create transactions
-                            txns = parser.parse_file(
-                                tmp.name, config={"original_filename": f.name}
-                            )
-                            from profiles.models import Transaction
-
-                            for txn in txns:
-                                Transaction.objects.create(
-                                    client=form.cleaned_data["client"],
-                                    statement_file=obj,
-                                    transaction_date=txn.get("transaction_date")
-                                    or txn.get("Date of Transaction"),
-                                    description=txn.get("description")
-                                    or txn.get(
-                                        "Merchant Name or Transaction Description"
-                                    ),
-                                    amount=txn.get("amount") or txn.get("Amount"),
-                                    file_path=txn.get("file_path"),
-                                    source=txn.get("source"),
-                                    transaction_type=txn.get("transaction_type"),
-                                    account_number=txn.get("account_number")
-                                    or form.cleaned_data.get("account_number", ""),
-                                    transaction_id=txn.get("transaction_id"),
-                                    transaction_hash=txn.get("transaction_hash"),
-                                    parser_name=final_parser_module,
-                                )
-                                transaction_count += 1
-                        except Exception as e:
-                            parse_error = str(e)
-                    # Save instance as before
-                    try:
-                        instance = StatementFile(
-                            client=form.cleaned_data["client"],
-                            file=f,
-                            file_type=final_file_type,
-                            account_number=metadata.get(
-                                "account_number",
-                                form.cleaned_data.get("account_number", ""),
-                            ),
-                            original_filename=f.name,
-                            uploaded_by=request.user,
-                            status="uploaded",
-                            status_detail=form.cleaned_data.get("status_detail", ""),
-                            bank=form.cleaned_data.get("bank", ""),
-                            year=form.cleaned_data.get("year", None),
-                            month=form.cleaned_data.get("month", None),
-                            parser_module=final_parser_module or None,
-                            account_holder_name=metadata.get("account_holder_name"),
-                            address=metadata.get("address"),
-                            account_type=metadata.get("account_type"),
-                            statement_period_start=metadata.get(
-                                "statement_period_start"
-                            ),
-                            statement_period_end=metadata.get("statement_period_end"),
-                            statement_date=metadata.get("statement_date"),
-                        )
-                        instance.full_clean()
-                        instance.save()
-                        if auto_parse and transaction_count > 0:
-                            messages.success(
-                                request,
-                                f"Auto-parsed and created {transaction_count} transactions for {f.name}.",
-                            )
-                        elif parse_error:
-                            messages.warning(
-                                request,
-                                f"Auto-parse failed for {f.name}: {parse_error}",
-                            )
-                        success += 1
-                    except Exception as e:
-                        errors += 1
-                if success:
-                    messages.success(request, f"Uploaded {success} files successfully.")
-                if errors:
-                    messages.error(request, f"{errors} files failed to upload.")
-                return redirect("..")
-        return super().add_view(request, form_url, extra_context)
-
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        batch_upload_url = reverse("admin:profiles_statementfile_batch_upload")
-        extra_context["batch_upload_url"] = batch_upload_url
-        return super().changelist_view(request, extra_context=extra_context)
-
-    def batch_upload_view(self, request):
-        if request.method == "POST":
-            form = BatchStatementFileUploadForm(request.POST, request.FILES)
-            if form.is_valid():
-                client = form.cleaned_data["client"]
-                file_type = form.cleaned_data["file_type"]
-                parser_module = form.cleaned_data.get("parser_module")
-                account_number = form.cleaned_data.get("account_number", "")
-                files = request.FILES.getlist("files")
-                uploaded_by = request.user if request.user.is_authenticated else None
-                auto_parse = form.cleaned_data.get("auto_parse", True)
-                success, errors = 0, 0
-                from dataextractai.parsers.detect import detect_parser_for_file
-
-                for f in files:
-                    ext = f.name.split(".")[-1].lower()
-                    detected_type = None
-                    if ext == "pdf":
-                        detected_type = "pdf"
-                    elif ext == "csv":
-                        detected_type = "csv"
-                    else:
-                        detected_type = "other"
-                    final_file_type = file_type or detected_type
-                    # If autodetect is selected, run detection utility
-                    final_parser_module = parser_module
-                    metadata = {}
-                    if parser_module == "autodetect" or not parser_module:
-                        # Save file temporarily to disk to run detection
-                        import tempfile
-
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=f".{ext}"
-                        ) as tmp:
-                            tmp.write(f.read())
-                            tmp.flush()
-                            detected = detect_parser_for_file(tmp.name)
-                        if not detected:
-                            errors += 1
-                            from django.contrib import messages
-
-                            messages.error(
-                                request,
-                                f"No compatible parser found for {f.name}. Please select a parser manually or contact support.",
-                            )
-                            continue
-                        final_parser_module = detected
-                        from django.contrib import messages
-
-                        messages.info(
-                            request,
-                            f"Parser '{final_parser_module}' was automatically selected for {f.name}.",
-                        )
-                        # If Chase Checking, extract metadata
-                        if final_parser_module == "chase_checking":
-                            try:
-                                from dataextractai.parsers.chase_checking import (
-                                    ChaseCheckingParser,
-                                )
-
-                                parser = ChaseCheckingParser()
-                                metadata = parser.extract_metadata(tmp.name)
-                            except Exception as e:
-                                messages.warning(
-                                    request,
-                                    f"Failed to extract metadata for {f.name}: {e}",
-                                )
-                        # Reset file pointer for Django upload
-                        f.seek(0)
-                    # After metadata extraction and before saving instance
-                    transaction_count = 0
-                    parse_error = None
-                    if (
-                        auto_parse
-                        and final_parser_module
-                        and final_parser_module != "autodetect"
-                    ):
-                        try:
-                            # Use ParserRegistry to get the parser class
-                            from dataextractai.parsers_core.registry import (
-                                ParserRegistry,
-                            )
-
-                            parser_class = ParserRegistry.get_parser(
-                                final_parser_module
-                            )
-                            if not parser_class:
-                                raise ImportError(
-                                    f"Parser '{final_parser_module}' not found in registry."
-                                )
-                            parser = parser_class()
-                            # Parse the file and create transactions
-                            try:
-                                txns = parser.parse_file(tmp.name)
-                            except Exception as e:
-                                print("[DEBUG] Exception during parser.parse_file:", e)
-                                print("[DEBUG] Parser:", parser)
-                                print("[DEBUG] File:", tmp.name)
-                                raise
-                            from profiles.models import (
-                                Transaction,
-                                CLASSIFICATION_METHOD_UNCLASSIFIED,
-                                PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                            )
-
-                            for txn in txns:
-                                debug_fields = dict(
-                                    client=client,
-                                    statement_file=None,  # Will set after instance is saved
-                                    transaction_date=txn.get("transaction_date")
-                                    or txn.get("Date of Transaction"),
-                                    description=txn.get("description")
-                                    or txn.get(
-                                        "Merchant Name or Transaction Description"
-                                    ),
-                                    amount=txn.get("amount") or txn.get("Amount"),
-                                    file_path=txn.get("file_path"),
-                                    source=txn.get("source"),
-                                    transaction_type=txn.get("transaction_type"),
-                                    account_number=txn.get("account_number")
-                                    or account_number,
-                                    transaction_id=txn.get("transaction_id"),
-                                    transaction_hash=txn.get("transaction_hash"),
-                                    parser_name=final_parser_module,
-                                    classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                                    payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                                )
-                                print(
-                                    "[DEBUG] Transaction fields to be created:",
-                                    debug_fields,
-                                )
-                                try:
-                                    Transaction.objects.create(**debug_fields)
-                                except Exception as e:
-                                    import json
-                                    import os
-
-                                    debug_log_path = os.path.join(
-                                        os.path.dirname(__file__),
-                                        "..",
-                                        "debug_transaction_error.log",
-                                    )
-                                    try:
-                                        with open(debug_log_path, "a") as f:
-                                            f.write(f"Exception: {e}\n")
-                                            f.write(
-                                                f"Fields: {json.dumps(debug_fields, default=str)}\n\n"
-                                            )
-                                    except Exception as file_err:
-                                        logger.error(
-                                            f"Failed to write debug log: {file_err}"
-                                        )
-                                    raise
-                                transaction_count += 1
-                        except Exception as e:
-                            parse_error = str(e)
-                    try:
-                        instance = StatementFile(
-                            client=client,
-                            file=f,
-                            file_type=final_file_type,
-                            account_number=metadata.get(
-                                "account_number", account_number
-                            ),
-                            original_filename=f.name,
-                            uploaded_by=uploaded_by,
-                            status="uploaded",
-                            status_detail=form.cleaned_data.get("status_detail", ""),
-                            bank=form.cleaned_data.get("bank", ""),
-                            year=form.cleaned_data.get("year", None),
-                            month=form.cleaned_data.get("month", None),
-                            parser_module=final_parser_module or None,
-                            account_holder_name=metadata.get("account_holder_name"),
-                            address=metadata.get("address"),
-                            account_type=metadata.get("account_type"),
-                            statement_period_start=metadata.get(
-                                "statement_period_start"
-                            ),
-                            statement_period_end=metadata.get("statement_period_end"),
-                            statement_date=metadata.get("statement_date"),
-                        )
-                        instance.full_clean()
-                        instance.save()
-                        if auto_parse and transaction_count > 0:
-                            messages.success(
-                                request,
-                                f"Auto-parsed and created {transaction_count} transactions for {f.name}.",
-                            )
-                        elif parse_error:
-                            messages.warning(
-                                request,
-                                f"Auto-parse failed for {f.name}: {parse_error}",
-                            )
-                        success += 1
-                    except Exception as e:
-                        errors += 1
-                if success:
-                    messages.success(request, f"Uploaded {success} files successfully.")
-                if errors:
-                    messages.error(request, f"{errors} files failed to upload.")
-                return redirect("..")
-        else:
-            form = BatchStatementFileUploadForm()
-        context = self.admin_site.each_context(request)
-        context["opts"] = self.model._meta
-        context["form"] = form
-        context["title"] = "Batch Upload Statement Files"
-        return render(request, "admin/batch_upload_statement_files.html", context)
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "batch-upload/",
-                self.admin_site.admin_view(self.batch_upload_view),
-                name="profiles_statementfile_batch_upload",
-            ),
-        ]
-        return custom_urls + urls
-
-
-@admin.register(ParsingRun)
-class ParsingRunAdmin(admin.ModelAdmin):
-    list_display = (
-        "statement_file",
-        "parser_module",
-        "status",
-        "rows_imported",
-        "short_error",
-        "created",
-    )
-    search_fields = (
-        "statement_file__original_filename",
-        "parser_module",
-        "error_message",
-    )
-    list_filter = ("status", "parser_module", "created")
-
-    def short_error(self, obj):
-        return (
-            (obj.error_message[:60] + "...")
-            if obj.error_message and len(obj.error_message) > 60
-            else obj.error_message
-        )
-
-    short_error.short_description = "Error Message"

@@ -1,0 +1,80 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:reports_reportsproxy_changelist' %}">Reports</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>{{ title }}</h1>
+
+    <div class="module">
+        {% if selected_client %}
+        <div style="margin-bottom: 20px;">
+            <a href="?client={{ selected_client.client_id }}&download=pdf" class="button">📥 Download PDF Report</a>
+        </div>
+        <p><strong>Client:</strong> {{ selected_client.client_id }}</p>
+
+        {% for group in donation_transactions %}
+        <div class="results">
+            <h2>{{ group.source }}</h2>
+            <p>
+                {% if group.account_info.bank %}
+                    Bank: {{ group.account_info.bank }}
+                {% endif %}
+                {% if group.account_info.account_number %}
+                    {% if group.account_info.bank %} | {% endif %}
+                    Account: ....{{ group.account_info.account_number|slice:"-4:" }}
+                {% endif %}
+            </p>
+            <table class="results" style="width: 100%;">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Date</th>
+                        <th style="width: 45%;">Payee</th>
+                        <th style="width: 15%; text-align: right;">Amount</th>
+                        <th style="width: 25%;">Source File <!-- Now a download link to the original statement file --></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in group.transactions %}
+                    <tr class="{% cycle 'row1' 'row2' %}">
+                        <td>{{ tx.transaction_date|date:"Y-m-d" }}</td>
+                        <td>{{ tx.payee|default:tx.description }}</td>
+                        <td style="text-align: right;">${{ tx.amount|floatformat:2 }}</td>
+                        <td>
+                            {% if tx.statement_file %}
+                                <a href="{% url 'reports:download_statement_file' tx.statement_file.id %}" target="_blank">{{ tx.statement_file.original_filename }}</a>
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3" style="text-align: right;"><strong>Subtotal</strong></td>
+                        <td style="text-align: right;"><strong>${{ group.subtotal|floatformat:2 }}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% empty %}
+        <p>No donation transactions found for this client.</p>
+        {% endfor %}
+        <div style="text-align: right; margin-top: 20px;">
+            <h3>Grand Total: ${{ total_donations|floatformat:2 }}</h3>
+        </div>
+        {% else %}
+        <p>Please select a client from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports
+                dashboard</a> to view this report.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,4 +1,6 @@
 from django.apps import AppConfig
+import os
+import sys
 
 
 class ProfilesConfig(AppConfig):
@@ -6,7 +8,21 @@ class ProfilesConfig(AppConfig):
     name = "profiles"
 
     def ready(self):
-        # Ensure all parsers are registered at app startup
-        from dataextractai.parsers_core.autodiscover import autodiscover_parsers
+        # Only run in main process, not migrations or shell_plus
+        if os.environ.get("RUN_MAIN") == "true" or (
+            len(sys.argv) > 1
+            and sys.argv[1] in ["runserver", "runserver_plus", "uwsgi", "gunicorn"]
+        ):
+            try:
+                from dataextractai.parsers_core.autodiscover import autodiscover_parsers
+                from .agents import bootstrap_tools_and_agents
 
-        autodiscover_parsers()
+                autodiscover_parsers()
+                bootstrap_tools_and_agents()
+            except Exception as e:
+                import logging
+
+                logging.getLogger("django").error(
+                    f"[profiles.apps] Bootstrapping tools/agents failed: {e}"
+                )
+                # Do not crash startup; log and continue

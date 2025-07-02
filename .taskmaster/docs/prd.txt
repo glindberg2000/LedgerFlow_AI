@@ -1,45 +1,58 @@
-# Product Requirements Document (PRD)
+# PRD: Debugging Django Admin RecursionError in LedgerFlow_AI
 
-## Title
-Hybrid Account Number Workflow for Statement File Upload, Parsing, and Admin Review
+## Problem Statement
+The Django admin interface in the LedgerFlow_AI project fails with a `RecursionError: maximum recursion depth exceeded while calling a Python object`. The error is triggered by the presence of the `StatementFile` (now `UploadedFile`) model in `profiles/models.py`. All standard debugging, environment resets, and database resets have failed to resolve the issue.
 
-## Background
-LedgerFlow must ensure that every statement file and transaction is associated with an account number for downstream reconciliation, reporting, and deduplication. However, account number extraction is only possible for some PDFs, and is rarely available in CSVs. For privacy, masked/last-4 is preferred unless full account number is required. The system should automate extraction where possible, and prompt for manual entry only when needed.
+## Environment
+- Django version: 5.2.3
+- Python version: 3.11
+- OS: macOS (darwin 24.5.0)
+- Virtualenvs: venv, cleanenv
+- Project: LedgerFlow_AI
 
-## Goals
-- Allow statement file uploads without requiring account number at upload time.
-- Attempt to extract account number during parsing (PDFs where possible).
-- If account number is missing after parsing, flag the file/transaction for manual entry.
-- Provide admin UI to review and fill in missing account numbers (prefer masked/last-4).
-- Block or warn on export/reporting if any files/transactions are missing account number.
-- Clearly document and communicate limitations for CSVs and privacy best practices.
+## Steps Already Taken
+1. Disabled all custom admin templates and admin.py files. (done)
+2. Cleared Python bytecode caches. (done)
+3. Removed all custom apps from INSTALLED_APPS; admin worked with only built-ins. (done)
+4. Added apps back one by one; adding `profiles` brought back the RecursionError. (done)
+5. Renamed `profiles/models.py` to disable all models: error disappeared. (done)
+6. Uncommented models one by one: error only returns with `StatementFile`/`UploadedFile` present. (done)
+7. Restored full model, fixed NameError, error persists even with all admin/forms/template tag references commented out. (done)
+8. Commented out custom admin navigation: no effect. (done)
+9. Created clean virtualenv and minimal Django project: admin works fine. (done)
+10. Full database reset, new DB, dropped all tables/views/sequences, ran fresh migrations, created new superuser: error persists. (done)
 
-## Requirements
-1. **Model Changes**
-   - Add a `needs_account_number` Boolean field to `StatementFile` (and/or Transaction) to track missing account numbers.
-2. **Parsing Logic**
-   - Attempt to extract account number from PDFs during parsing.
-   - If extraction fails or is not possible (e.g., CSVs), set `needs_account_number = True`.
-   - If account number is present, set `needs_account_number = False`.
-3. **Admin UI**
-   - Add a filter/list in the admin for files/transactions where `needs_account_number = True`.
-   - Provide a form/inline to allow manual entry of account number (masked/last-4 or full).
-4. **Validation**
-   - Block or warn on export/reporting if any files/transactions are missing account number.
-5. **Documentation**
-   - Update user/admin documentation to clarify:
-     - Account number is not required at upload.
-     - Extraction is attempted during parsing (PDFs only).
-     - Manual entry is required if extraction fails.
-     - CSVs will not have account numbers unless provided externally.
-     - Masked/last-4 is preferred for privacy.
+## Hypothesis
+The error is caused by a code-level recursion in Django's admin context generation, triggered by a bidirectional relationship between `UploadedFile` and `Transaction`:
+- `UploadedFile.transactions` is a ManyToManyField to `Transaction` (with related_name="source_files").
+- `Transaction.statement_file` is a ForeignKey back to `UploadedFile`.
+This creates a cycle in Django's model graph, which may cause infinite recursion in the admin's app-dictionary builder (see https://code.djangoproject.com/ticket/35694).
 
-## Out of Scope
-- Automated account number extraction for CSVs (unless feasible in the future).
-- Enforcement of full account number if masked/last-4 is sufficient for business needs.
+## Goal
+Resolve the RecursionError and restore full Django admin functionality for all required models. Identify and document the root cause.
+
+## Tasks
+1. Disabled all custom admin templates and admin.py files. (done)
+2. Cleared Python bytecode caches. (done)
+3. Removed all custom apps from INSTALLED_APPS; admin worked with only built-ins. (done)
+4. Added apps back one by one; adding `profiles` brought back the RecursionError. (done)
+5. Renamed `profiles/models.py` to disable all models: error disappeared. (done)
+6. Uncommented models one by one: error only returns with `StatementFile`/`UploadedFile` present. (done)
+7. Restored full model, fixed NameError, error persists even with all admin/forms/template tag references commented out. (done)
+8. Commented out custom admin navigation: no effect. (done)
+9. Created clean virtualenv and minimal Django project: admin works fine. (done)
+10. Full database reset, new DB, dropped all tables/views/sequences, ran fresh migrations, created new superuser: error persists. (done)
+11. Comment out the M2M field in UploadedFile and test admin.
+12. If error persists, comment out the FK field in Transaction and test admin.
+13. If error persists, try removing the related_name from the M2M and test admin.
+14. If error persists, try renaming the model everywhere and test admin.
+15. If error persists, check for circular imports or registry issues in all related files.
+16. If error persists, try a field-by-field reintroduction in a fresh clone of the repo, testing admin after each.
+17. If error persists, comment out all custom template tags and middleware, then test admin.
+18. If error persists, escalate to Django bug tracker with full reproduction steps and findings.
 
 ## Success Criteria
-- All statement files and transactions have an account number (masked/last-4 or full) before export/reporting.
-- Admins can easily identify and fill in missing account numbers.
-- No user is blocked at upload due to missing account number.
-- Privacy best practices are followed. 
+- Django admin loads without RecursionError.
+- All required models are present and functional in the admin interface.
+- Root cause is identified and documented.
+- All steps and results are logged for future reference.

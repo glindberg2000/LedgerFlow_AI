@@ -1,4 +1,4 @@
-from profiles.models import StatementFile, Transaction
+from profiles.models import UploadedFile, Transaction
 
 files = [
     "062524 WellsFargo.pdf",
@@ -11,7 +11,7 @@ files = [
 ]
 
 for fname in files:
-    sf = StatementFile.objects.filter(original_filename=fname).first()
+    sf = UploadedFile.objects.filter(original_filename=fname).first()
     if sf:
         count = Transaction.objects.filter(statement_file=sf).count()
         print(f"{fname}: {count} transactions")

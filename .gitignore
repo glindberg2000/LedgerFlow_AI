@@ -119,9 +119,6 @@ node_modules/
 *.sln
 *.sw?
 # OS specific
-# Task files
-tasks.json
-tasks/
 .cursor/mcp.json *.pdf
 
 transaction_hash_collisions.csv
@@ -132,3 +129,28 @@ db_backup_before_transaction_hash.pgcustom
 
 # Ignore uploaded statement files
 clients/*
+
+# Ignore log files
+tests/*.log
+logs/
+*.log
+# Never commit or delete this file from disk; only untrack from git if needed
+.cursor/mcp.json
+
+# Sub-repositories
+/internal_chat_mcp/
+
+# Task files
+# tasks.json
+# tasks/
+
+# Added by Task Master AI
+tasks.json
+tasks/
+
+# Added by Claude Task Master
+*.csv
+**/*.csv
+
+# Added by Claude Task Master
+data/ 

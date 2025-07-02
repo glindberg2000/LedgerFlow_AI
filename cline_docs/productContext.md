@@ -1,3 +1,4 @@
+[MEMORY BANK: ACTIVE]
 # LedgerFlow Product Context
 
 ## Product Overview
@@ -71,4 +72,8 @@ LedgerFlow is a modern, modular platform for automated document processing, fina
 
 ---
 
-*For more details, see the Memory Bank files in `cline_docs/`.* 
+*For more details, see the Memory Bank files in `cline_docs/`.*
+
+---
+[2025-06-26] Note: Parser modules (e.g., for bank statement ingestion) must be robust, contract-compliant, and maintainable. Recent logger scoping bug in the Wells Fargo Mastercard parser highlighted the need for consistent logger usage and removal of legacy code. All parser modules should follow this pattern to ensure reliability and ease of debugging.
+--- 

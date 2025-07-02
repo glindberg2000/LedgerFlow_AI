@@ -1,0 +1,67 @@
+# Task ID: 6
+# Title: Implement Checklist Management in Binder UI
+# Status: pending
+# Dependencies: 5
+# Priority: high
+# Description: Add functionality to manage checklist items within the binder dashboard, including status updates, notes, and section assignment.
+# Details:
+Enhance the binder dashboard with checklist management features:
+
+1. Add inline editing for checklist items
+2. Implement status toggle buttons
+3. Add notes editing functionality
+4. If sections are implemented, allow drag-and-drop between sections
+
+```python
+# Add to TaxYearAdmin
+class ChecklistItemInline(admin.TabularInline):
+    model = ChecklistItem
+    extra = 0
+    fields = ['form_code', 'title', 'status', 'notes']
+    readonly_fields = ['form_code', 'title']
+    can_delete = False
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+# Add to binder_dashboard view
+def binder_dashboard(self, request, tax_year_id):
+    tax_year = self.get_object(request, tax_year_id)
+    
+    # Handle POST requests for updating checklist items
+    if request.method == 'POST' and 'update_checklist' in request.POST:
+        item_id = request.POST.get('item_id')
+        new_status = request.POST.get('status')
+        notes = request.POST.get('notes')
+        section_id = request.POST.get('section_id')
+        
+        item = tax_year.checklist_items.get(id=item_id)
+        if new_status:
+            item.status = new_status
+        if notes is not None:
+            item.notes = notes
+        if section_id:
+            item.section_id = section_id if section_id != 'none' else None
+        item.save()
+        
+        # Redirect to avoid form resubmission
+        return redirect('admin:binder_dashboard', tax_year_id=tax_year_id)
+    
+    # Rest of the view code...
+```
+
+Create JavaScript for the dashboard to handle:
+- AJAX updates for status changes
+- Notes editing with auto-save
+- Section assignment (if implemented)
+- Progress bar updates
+
+Update the template to include forms and UI elements for these interactions.
+
+# Test Strategy:
+1. Write tests for the checklist item update functionality
+2. Test status changes and verify they update the progress bar
+3. Test notes editing and saving
+4. If implemented, test section assignment
+5. Verify all UI interactions work correctly
+6. Test edge cases like concurrent edits

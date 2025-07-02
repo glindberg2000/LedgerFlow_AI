@@ -1,0 +1,86 @@
+# PRD: Debugging Django Admin RecursionError in LedgerFlow_AI
+
+## Problem Statement
+
+- The Django admin interface in the LedgerFlow_AI project fails with a `RecursionError: maximum recursion depth exceeded while calling a Python object`.
+- The error occurs only in the main project, not in a minimal Django project or clean environment.
+- The error is triggered by the presence of the `StatementFile` (now `UploadedFile`) model in `profiles/models.py`.
+- All standard debugging, environment resets, and database resets have failed to resolve the issue.
+
+## Environment
+- Django version: 5.2.3
+- Python version: 3.11
+- OS: macOS (darwin 24.5.0)
+- Virtualenvs: venv, cleanenv
+- Project: LedgerFlow_AI
+
+## Background & Steps Already Taken
+- Disabled all custom admin templates and admin.py files.
+- Cleared Python bytecode caches.
+- Removed all custom apps from INSTALLED_APPS; admin worked with only built-ins.
+- Added apps back one by one; adding `profiles` brought back the RecursionError.
+- Renamed `profiles/models.py` to disable all models: error disappeared.
+- Uncommented models one by one: error only returns with `StatementFile`/`UploadedFile` present.
+- Restored full model, fixed NameError, error persists even with all admin/forms/template tag references commented out.
+- Commented out custom admin navigation: no effect.
+- Created clean virtualenv and minimal Django project: admin works fine.
+- Full database reset, new DB, dropped all tables/views/sequences, ran fresh migrations, created new superuser: error persists.
+
+## Hypothesis
+- The error is caused by a code-level recursion in Django's admin context generation, triggered by a bidirectional relationship between `UploadedFile` and `Transaction`:
+  - `UploadedFile.transactions` is a ManyToManyField to `Transaction` (with related_name="source_files").
+  - `Transaction.statement_file` is a ForeignKey back to `UploadedFile`.
+- This creates a cycle in Django's model graph, which may cause infinite recursion in the admin's app-dictionary builder (see https://code.djangoproject.com/ticket/35694).
+
+## Goal
+- Resolve the RecursionError and restore full Django admin functionality for all required models.
+
+## Diagnostic Tasks
+
+1. **Comment out the M2M field in UploadedFile**
+   - `# transactions = models.ManyToManyField("Transaction", related_name="source_files", blank=True)`
+   - Run makemigrations, migrate, restart server, test admin.
+   - Record result.
+
+2. **If error persists, comment out the FK field in Transaction**
+   - `# statement_file = models.ForeignKey("UploadedFile", on_delete=models.CASCADE, null=True, blank=True)`
+   - Run makemigrations, migrate, restart server, test admin.
+   - Record result.
+
+3. **If error persists, try removing the related_name from the M2M**
+   - `transactions = models.ManyToManyField("Transaction", blank=True)`
+   - Run makemigrations, migrate, restart server, test admin.
+   - Record result.
+
+4. **If error persists, try renaming the model again**
+   - Change `class UploadedFile` to another name everywhere.
+   - Run makemigrations, migrate, restart server, test admin.
+   - Record result.
+
+5. **If error persists, check for circular imports or registry issues**
+   - Review all import statements in `profiles/models.py` and related files.
+   - Record findings.
+
+6. **If error persists, try a field-by-field reintroduction in a fresh clone of the repo**
+   - Add fields to UploadedFile one by one, testing admin after each.
+   - Record which field triggers the error.
+
+7. **If error persists, review all custom template tags and middleware**
+   - Comment out all custom template tags and middleware.
+   - Test admin.
+   - Record result.
+
+8. **If error persists, escalate to Django bug tracker with full reproduction steps and findings.**
+
+## Success Criteria
+- Django admin loads without RecursionError.
+- All required models are present and functional in the admin interface.
+- Root cause is identified and documented.
+- All steps and results are logged for future reference.
+
+## Resolution Summary (2025-06-27)
+
+- The RecursionError in Django admin was resolved by removing the circular relationship between `StatementFile.transactions` (ManyToMany) and `Transaction.statement_file` (ForeignKey).
+- The admin now loads normally.
+- Reviewer confirmed this is a known Django bug (ticket #35694).
+- Next step: Consider a through model or one-way link if the relationship is needed. 

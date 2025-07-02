@@ -1,3 +1,6 @@
+# WARNING: This is the ONLY settings.py used by the running Django site (see app/manage.py)
+# Do NOT edit core/settings.py; it is not used. Consider deleting or archiving it to avoid confusion.
+
 import os
 import environ
 from pathlib import Path
@@ -32,12 +35,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # Use AppConfig path for profiles to ensure management commands are loaded
-    "profiles.apps.ProfilesConfig",
-    "simple_classifications",
-    "experimental_admin",
-    "reports",
+    # Project apps
+    "profiles",
     "profiles.parsers_utilities",
+    "simple_classifications",
+    "reports",
 ]
 
 MIDDLEWARE = [
@@ -103,3 +105,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Allow large admin bulk actions (default is 1000; increased to prevent TooManyFieldsSent errors)
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
+# Allow up to 1000 files per upload (fixes TooManyFilesSent error)
+DATA_UPLOAD_MAX_NUMBER_FILES = 1000
+
+# Media files (PDFs, CSVs, etc.)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
