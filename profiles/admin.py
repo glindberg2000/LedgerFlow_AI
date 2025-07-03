@@ -251,54 +251,51 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             import os
             import json
             from django.urls import reverse
+            from .models import Agent
+            import jinja2
 
-            # Always use the Agent with purpose containing 'Business Profile Generator'
-            agent = None
-            model = None
-            base_url = None
-            try:
-                from .models import Agent
+            # Use the Agent with purpose containing 'Business Profile Generator'
+            agent = Agent.objects.filter(
+                purpose__icontains="business profile generator"
+            ).first()
+            if not agent or not agent.llm or not agent.llm.model:
+                from django.contrib import messages
 
-                # Prefer a dedicated Business Profile Generator agent
-                agent = Agent.objects.filter(
-                    purpose__icontains="business profile generator"
-                ).first()
-                # Fallback: any agent with an LLMConfig
-                if not agent:
-                    agent = Agent.objects.exclude(llm=None).first()
-                if agent and agent.llm and agent.llm.model:
-                    model = agent.llm.model
-                    base_url = agent.llm.url
-            except Exception:
-                pass
-            if not model:
-                model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
+                messages.error(
+                    request,
+                    "No Business Profile Generator agent with LLM configured in UI.",
+                )
+                return redirect(
+                    reverse("admin:profiles_businessprofile_change", args=[obj.pk])
+                )
+            model = agent.llm.model
+            base_url = agent.llm.url
             api_key = os.environ.get("OPENAI_API_KEY")
-            # Use the LLMConfig.url as base_url if set, for multi-provider support
+            # Render prompt from UI (Jinja2)
+            try:
+                env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+                template = env.from_string(agent.prompt)
+                rendered = template.render(business_profile=obj)
+                if "---USER---" in rendered:
+                    system_prompt, user_prompt = rendered.split("---USER---", 1)
+                else:
+                    system_prompt = rendered
+                    user_prompt = ""
+            except Exception as e:
+                from django.contrib import messages
+
+                messages.error(request, f"Failed to render agent prompt: {e}")
+                return redirect(
+                    reverse("admin:profiles_businessprofile_change", args=[obj.pk])
+                )
+            # Log the actual prompts being sent
+            logger.info(f"System Prompt Sent: {system_prompt!r}")
+            logger.info(f"User Prompt Sent: {user_prompt!r}")
+            # Use LLMConfig.url as base_url if set
             if base_url:
                 client = OpenAI(api_key=api_key, base_url=base_url)
             else:
                 client = OpenAI(api_key=api_key)
-            system_prompt = (
-                "You are an expert business profile generator. Given a business description, generate a JSON object with these keys: "
-                "common_expenses, custom_categories, industry_keywords, category_patterns, business_rules. "
-                "Each value should be a comma-separated string. Only include the required keys."
-            )
-            user_prompt = f"""
-Business Description:
-{obj.business_description}
-
-Respond ONLY with a valid JSON object with these exact keys:
-- common_expenses: comma-separated list of common business expenses
-- custom_categories: comma-separated list of custom categories
-- industry_keywords: comma-separated list of industry keywords
-- category_patterns: comma-separated list of category patterns
-- business_rules: comma-separated list of business rules or policies
-Do NOT include any explanation or text outside the JSON.
-"""
-            # Log the actual prompts being sent
-            logger.info(f"System Prompt Sent: {system_prompt!r}")
-            logger.info(f"User Prompt Sent: {user_prompt!r}")
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -313,7 +310,6 @@ Do NOT include any explanation or text outside the JSON.
                 data = json.loads(content)
             except Exception as e:
                 from django.contrib import messages
-                from django.shortcuts import redirect
 
                 messages.error(
                     request, f"LLM did not return valid JSON. Raw response: {content}"
@@ -326,7 +322,7 @@ Do NOT include any explanation or text outside the JSON.
 
                 messages.warning(
                     request,
-                    f"AI response was empty or missing fields. Raw response: {content}. If this persists, check the prompt and schema format sent to OpenAI.",
+                    f"AI response was empty or missing fields. Raw response: {content}. If this persists, check the prompt and schema format sent to the LLM.",
                 )
             for field in [
                 "common_expenses",
@@ -378,6 +374,26 @@ class ClientFilter(admin.SimpleListFilter):
         return queryset
 
 
+def build_allowed_categories(transaction):
+    from .models import IRSExpenseCategory, BusinessExpenseCategory
+
+    irs_cats = IRSExpenseCategory.objects.filter(
+        worksheet__name="6A", is_active=True
+    ).order_by("line_number")
+    biz_cats = BusinessExpenseCategory.objects.filter(
+        business=transaction.client, worksheet__name="6A", is_active=True
+    ).order_by("category_name")
+    lines = []
+    for cat in irs_cats:
+        lines.append(f"IRS-{cat.line_number}: {cat.name}")
+    for cat in biz_cats:
+        lines.append(f"BIZ-{cat.id}: {cat.category_name}")
+    lines.append("Other: Other Expenses")
+    lines.append("Personal: Personal")
+    lines.append("Review: Review (propose a new category)")
+    return "\n".join(lines)
+
+
 def call_agent(
     agent_name, transaction, model=None, max_retries=2, escalate_on_fail=True
 ):
@@ -411,9 +427,18 @@ def call_agent(
                     },
                 }
                 tool_definitions.append(tool_def)
+        # Patch: always build allowed_categories for classification agents
+        is_classification = (
+            "classification" in (agent.purpose or "").lower()
+            or "classification" in (agent.name or "").lower()
+        )
+        allowed_categories = ""
+        if is_classification:
+            allowed_categories = build_allowed_categories(transaction)
+            logger.info(f"Allowed categories sent to LLM:\n{allowed_categories}")
         context = {
             "transaction": transaction,
-            "allowed_categories": getattr(transaction, "allowed_categories", ""),
+            "allowed_categories": allowed_categories,
             "business_profile": getattr(transaction, "client", None),
             "payee_reasoning": getattr(transaction, "payee_reasoning", None),
         }
