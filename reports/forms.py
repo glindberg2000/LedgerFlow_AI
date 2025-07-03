@@ -4,5 +4,8 @@ from profiles.models import BusinessProfile
 
 class ClientSelectForm(forms.Form):
     client = forms.ModelChoiceField(
-        queryset=BusinessProfile.objects.all(), required=True, label="Client"
+        queryset=BusinessProfile.objects.all(),
+        required=True,
+        label="Client",
+        to_field_name="client_id",
     )

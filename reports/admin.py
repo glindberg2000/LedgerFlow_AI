@@ -137,11 +137,13 @@ class ReportsAdmin(admin.ModelAdmin):
 
         # Add client_id to report URLs if a client is selected
         for report in reports_list:
-            url = reverse(f'admin:{report["url_name"]}')
-            if selected_client:
-                report["url"] = f"{url}?client={client_id}"
-            else:
-                report["url"] = url
+            if report.get("url_name"):
+                url = reverse(f'admin:{report["url_name"]}')
+                if selected_client:
+                    report["url"] = f"{url}?client={client_id}"
+                else:
+                    report["url"] = url
+            # else: report["url"] is already set (e.g., Tax Checklist)
 
         context = {
             **self.admin_site.each_context(request),

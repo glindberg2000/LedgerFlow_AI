@@ -15,6 +15,7 @@ from .models import (
     CLASSIFICATION_METHOD_UNCLASSIFIED,
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
+    TaxChecklistItem,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -1976,3 +1977,22 @@ class ParsingRunAdmin(admin.ModelAdmin):
         )
 
     short_error.short_description = "Error Message"
+
+
+@admin.register(TaxChecklistItem)
+class TaxChecklistItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_profile",
+        "tax_year",
+        "form_code",
+        "status",
+        "enabled",
+        "date_modified",
+    )
+    search_fields = (
+        "business_profile__company_name",
+        "tax_year",
+        "form_code",
+        "status",
+    )
+    list_filter = ("business_profile", "tax_year", "status", "enabled")
