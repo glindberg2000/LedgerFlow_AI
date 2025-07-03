@@ -242,7 +242,6 @@ class BusinessProfileAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         if not obj:
             from django.contrib import messages
-            from django.shortcuts import redirect
 
             messages.error(request, "BusinessProfile not found.")
             return redirect("..")
@@ -254,20 +253,22 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             from .models import Agent
             import jinja2
 
-            # Use the Agent with purpose containing 'Business Profile Generator'
+            # Robust: search for agent by name containing either 'business profile generator' or 'business profile generation'
             agent = Agent.objects.filter(
-                purpose__icontains="business profile generator"
+                name__icontains="business profile generator"
             ).first()
+            if not agent:
+                agent = Agent.objects.filter(
+                    name__icontains="business profile generation"
+                ).first()
             if not agent or not agent.llm or not agent.llm.model:
                 from django.contrib import messages
 
                 messages.error(
                     request,
-                    "No Business Profile Generator agent with LLM configured in UI.",
+                    "No Business Profile Generator agent with LLM configured in UI. Please create or update an agent with name containing 'Business Profile Generator' or 'Business Profile Generation' and assign an LLM config.",
                 )
-                return redirect(
-                    reverse("admin:profiles_businessprofile_change", args=[obj.pk])
-                )
+                return redirect("..")
             model = agent.llm.model
             base_url = agent.llm.url
             api_key = os.environ.get("OPENAI_API_KEY")
@@ -352,7 +353,9 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             from django.contrib import messages
 
             messages.error(request, f"Error generating AI profile: {e}")
-        from django.shortcuts import redirect
+            return redirect(
+                reverse("admin:profiles_businessprofile_change", args=[obj.pk])
+            )
         from django.urls import reverse
 
         return redirect(reverse("admin:profiles_businessprofile_change", args=[obj.pk]))
