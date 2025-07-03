@@ -28,3 +28,59 @@ Transaction: {transaction.description}
 Amount: ${transaction.amount}
 Date: {transaction.transaction_date}"""
     return system_prompt, user_prompt
+
+
+def get_fallback_classification_prompts(
+    transaction, allowed_categories=None, business_profile=None, payee_reasoning=None
+):
+    """Return (system_prompt, user_prompt) for classification agent fallback."""
+
+    system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:
+1. Analyze transactions and determine if they are business or personal expenses.
+2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal).
+3. Provide detailed reasoning for your decisions.
+4. Flag any transactions that need additional review.
+
+Consider these factors:
+- Business type and description
+- Industry context
+- Transaction patterns
+- Amount and frequency
+- Business rules and patterns
+"""
+
+    user_prompt = (
+        f"Return your analysis in this exact JSON format:\n"
+        "{\n"
+        '    "classification_type": "business" or "personal",\n'
+        '    "worksheet": "6A" or "Vehicle" or "HomeOffice" or "Personal",\n'
+        '    "category_id": "IRS-<id>" or "BIZ-<id>" or "Other" or "Personal" or "Review",\n'
+        '    "category_name": "Name of the selected category from the list below",\n'
+        '    "confidence": "high" or "medium" or "low",\n'
+        '    "reasoning": "Detailed explanation of your decision, referencing both the business profile and payee reasoning above.",\n'
+        '    "business_percentage": "integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.",\n'
+        '    "questions": "Any questions or uncertainties about this classification",\n'
+        '    "proposed_category_name": "If you chose \'Review\', propose a new category name that best fits the transaction. Otherwise, leave blank."\n'
+        "}\n\n"
+        f"Transaction: {transaction.description}\n"
+        f"Amount: ${transaction.amount}\n"
+        f"Date: {transaction.transaction_date}\n"
+    )
+
+    if allowed_categories:
+        user_prompt += f"\nAllowed Categories (choose ONLY from this list):\n{allowed_categories}\n"
+
+    user_prompt += (
+        "\nIMPORTANT RULES:"
+        "\n- You MUST use one of the allowed category_id values above."
+        "\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name."
+        "\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment')."
+        "\n- If the expense is not business-related, use 'Personal'."
+        "\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'."
+        "\n- For business expenses, use the most specific category that matches."
+        "\n- ALWAYS provide a business_percentage field as described above."
+        "\n- Use the payee reasoning above as additional context for your decision."
+        "\n\nIMPORTANT: Your response must be a valid JSON object.\n"
+    )
+
+    return system_prompt, user_prompt

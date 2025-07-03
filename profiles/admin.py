@@ -419,6 +419,7 @@ def call_agent(
             "business_profile": getattr(transaction, "client", None),
             "payee_reasoning": getattr(transaction, "payee_reasoning", None),
         }
+        # Always use Agent.prompt (UI template) as primary for ALL agents
         template_rendered = False
         system_prompt = None
         user_prompt = None
@@ -444,18 +445,18 @@ def call_agent(
                     e,
                 )
         if not template_rendered:
+            # Use fallback for any agent type if template missing or fails
             if "payee" in agent_name.lower():
                 system_prompt, user_prompt = get_fallback_payee_prompts(transaction)
                 logger.info(
                     "[PROMPT] Used fallback payee prompt for agent '%s'", agent_name
                 )
             else:
-                # (Add similar fallback for classification agent if needed)
+                # Generic fallback for other agents (can be improved with more helpers)
                 system_prompt = "Classification fallback prompt not implemented."
                 user_prompt = ""
                 logger.info(
-                    "[PROMPT] Used fallback classification prompt for agent '%s'",
-                    agent_name,
+                    "[PROMPT] Used fallback generic prompt for agent '%s'", agent_name
                 )
         # Log the actual prompts being sent
         logger.info(f"System Prompt Sent: {system_prompt!r}")
