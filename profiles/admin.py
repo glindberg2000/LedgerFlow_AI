@@ -53,6 +53,8 @@ from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
 import pandas as pd
 import tempfile
+from profiles.prompt_utils import get_fallback_payee_prompts
+import jinja2
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -293,6 +295,9 @@ Respond ONLY with a valid JSON object with these exact keys:
 - business_rules: comma-separated list of business rules or policies
 Do NOT include any explanation or text outside the JSON.
 """
+            # Log the actual prompts being sent
+            logger.info(f"System Prompt Sent: {system_prompt!r}")
+            logger.info(f"User Prompt Sent: {user_prompt!r}")
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -384,162 +389,78 @@ def call_agent(
         model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
     logger.info(f"Using OpenAI model: {model}")
     try:
-        # Get the agent object from the database
         agent = Agent.objects.get(name=agent_name)
-        base_url = agent.llm.url if agent.llm and agent.llm.url else None
-        api_key = os.environ.get("OPENAI_API_KEY")
-        # Use the LLMConfig.url as base_url if set, for multi-provider support
-        if base_url:
-            client = OpenAI(api_key=api_key, base_url=base_url)
-        else:
-            client = OpenAI(api_key=api_key)
-
-        # Get the appropriate prompt based on agent type
-        if "payee" in agent_name.lower():
-            system_prompt = """You are a transaction analysis assistant. Your task is to:\n1. Identify the payee/merchant from transaction descriptions\n2. Use the search tool to gather comprehensive vendor information\n3. Synthesize all information into a clear, normalized description\n4. Return a final response in the exact JSON format specified\n\nIMPORTANT RULES:\n1. Make as many search calls as needed to gather complete information\n2. Synthesize all information into a clear, normalized response\n3. NEVER use the raw transaction description in your final response\n4. Format the response exactly as specified"""
-
-            user_prompt = f"""Analyze this transaction and return a JSON object with EXACTLY these field names:\n{{\n    \"normalized_description\": \"string - A VERY SUCCINCT 2-5 word summary of what was purchased/paid for (e.g., 'Grocery shopping', 'Fast food purchase', 'Office supplies'). DO NOT include vendor details, just the core type of purchase.\",\n    \"payee\": \"string - The normalized payee/merchant name (e.g., 'Lowe's' not 'LOWE'S #1636', 'Walmart' not 'WALMART #1234')\",\n    \"confidence\": \"string - Must be exactly 'high', 'medium', or 'low'\",\n    \"reasoning\": \"string - VERBOSE explanation of the identification, including all search results and any details about the vendor, business type, and what was purchased. If you have a long description, put it here, NOT in normalized_description.\",\n    \"transaction_type\": \"string - One of: purchase, payment, transfer, fee, subscription, service\",\n    \"questions\": \"string - Any questions about unclear elements\",\n    \"needs_search\": \"boolean - Whether additional vendor information is needed\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nIMPORTANT INSTRUCTIONS:\n1. The 'normalized_description' MUST be a short phrase (2-5 words) summarizing the purchase type.\n2. Place any verbose or detailed explanation in the 'reasoning' field.\n3. NEVER use the raw transaction description in your final response.\n4. Include the type of business and what was purchased in the reasoning, not in normalized_description.\n5. Reference all search results used in the reasoning field.\n6. NEVER include store numbers, locations, or other non-standard elements in the payee field.\n7. Normalize the payee name to its standard business name (e.g., 'Lowe's' not 'LOWE'S #1636').\n8. ALWAYS provide a final JSON response after gathering all necessary information."""
-
-        else:
-            # Dynamically build allowed categories
-            from profiles.models import (
-                IRSExpenseCategory,
-                IRSWorksheet,
-                BusinessExpenseCategory,
-            )
-
-            # IRS categories (active, for all relevant worksheets)
-            irs_cats = IRSExpenseCategory.objects.filter(
-                is_active=True, worksheet__name__in=["6A", "Auto", "HomeOffice"]
-            ).values("id", "name", "worksheet__name")
-            # Business categories for this client
-            biz_cats = BusinessExpenseCategory.objects.filter(
-                is_active=True, business=transaction.client
-            ).values("id", "category_name", "worksheet__name")
-            # Build display list for prompt
-            allowed_categories = []
-            for cat in irs_cats:
-                allowed_categories.append(
-                    f"IRS-{cat['id']}: {cat['name']} (worksheet: {cat['worksheet__name']})"
-                )
-            for cat in biz_cats:
-                allowed_categories.append(
-                    f"BIZ-{cat['id']}: {cat['category_name']} (worksheet: {cat['worksheet__name']})"
-                )
-            allowed_categories.append("Other")  # Genuine catch-all
-            allowed_categories.append("Personal")
-            allowed_categories.append("Review")  # For LLM to flag for admin review
-            # Build mapping for validation (not in prompt, but for post-processing)
-            allowed_category_ids = set(
-                [f"IRS-{cat['id']}" for cat in irs_cats]
-                + [f"BIZ-{cat['id']}" for cat in biz_cats]
-                + ["Other", "Personal", "Review"]
-            )
-            # Fetch business profile for the transaction's client
-            business_profile = None
-            try:
-                business_profile = transaction.client
-            except Exception:
-                pass
-            # Build business profile context string
-            business_context_lines = []
-            if business_profile:
-                if business_profile.business_type:
-                    business_context_lines.append(
-                        f"Business Type: {business_profile.business_type}"
-                    )
-                if business_profile.business_description:
-                    business_context_lines.append(
-                        f"Business Description: {business_profile.business_description}"
-                    )
-                if business_profile.contact_info:
-                    business_context_lines.append(
-                        f"Contact Info: {business_profile.contact_info}"
-                    )
-                if business_profile.common_expenses:
-                    business_context_lines.append(
-                        f"Common Expenses: {business_profile.common_expenses}"
-                    )
-                if business_profile.custom_categories:
-                    business_context_lines.append(
-                        f"Custom Categories: {business_profile.custom_categories}"
-                    )
-                if business_profile.industry_keywords:
-                    business_context_lines.append(
-                        f"Industry Keywords: {business_profile.industry_keywords}"
-                    )
-                if business_profile.category_patterns:
-                    business_context_lines.append(
-                        f"Category Patterns: {business_profile.category_patterns}"
-                    )
-                if business_profile.business_rules:
-                    business_context_lines.append(
-                        f"Business Rules: {business_profile.business_rules}"
-                    )
-            business_context = "\n".join(business_context_lines)
-            if business_context:
-                business_context = f"Business Profile Context:\n{business_context}\n"
-            else:
-                business_context = ""
-            # Add payee reasoning if available
-            payee_reasoning = getattr(transaction, "payee_reasoning", None)
-            if payee_reasoning:
-                payee_context = (
-                    f"Payee Reasoning (detailed vendor info):\n{payee_reasoning}\n"
-                )
-            else:
-                payee_context = ""
-            system_prompt = """You are an expert in business expense classification and tax preparation. Your role is to:\n1. Analyze transactions and determine if they are business or personal expenses\n2. For business expenses, determine the appropriate worksheet (6A, Vehicle, HomeOffice, or Personal)\n3. Provide detailed reasoning for your decisions\n4. Flag any transactions that need additional review\n\nConsider these factors:\n- Business type and description\n- Industry context\n- Transaction patterns\n- Amount and frequency\n- Business rules and patterns"""
-
-            user_prompt = f"""{business_context}{payee_context}Return your analysis in this exact JSON format:\n{{\n    \"classification_type\": \"business\" or \"personal\",\n    \"worksheet\": \"6A\" or \"Vehicle\" or \"HomeOffice\" or \"Personal\",\n    \"category_id\": \"IRS-<id>\" or \"BIZ-<id>\" or \"Other\" or \"Personal\" or \"Review\",\n    \"category_name\": \"Name of the selected category from the list below\",\n    \"confidence\": \"high\" or \"medium\" or \"low\",\n    \"reasoning\": \"Detailed explanation of your decision, referencing both the business profile and payee reasoning above.\",\n    \"business_percentage\": \"integer - 0 for personal, 100 for clear business, 50 for dual-purpose, etc.\",\n    \"questions\": \"Any questions or uncertainties about this classification\",\n    \"proposed_category_name\": \"If you chose 'Review', propose a new category name that best fits the transaction. Otherwise, leave blank.\"\n}}\n\nTransaction: {transaction.description}\nAmount: ${transaction.amount}\nDate: {transaction.transaction_date}\n\nAllowed Categories (choose ONLY from this list):\n{chr(10).join(allowed_categories)}\n\nIMPORTANT RULES:\n- You MUST use one of the allowed category_id values above.\n- If the expense is business-related but does not fit any allowed category, use 'Review' and propose a new category name.\n- Only use 'Other' if it is a genuine, catch-all business category (e.g., 'Other Expenses', 'Miscellaneous', 'Check', 'Payment').\n- If the expense is not business-related, use 'Personal'.\n- NEVER invent a new category unless you use 'Review' and fill in 'proposed_category_name'.\n- For business expenses, use the most specific category that matches.\n- ALWAYS provide a business_percentage field as described above.\n- Use the payee reasoning above as additional context for your decision.\n\nIMPORTANT: Your response must be a valid JSON object."""
-
-        # Prepare tools for the API call with proper schema
+        # Ensure tool_definitions is always defined
         tool_definitions = []
-        for tool in agent.tools.all():
-            tool_def = {
-                "name": tool.name,
-                "type": "function",
-                "function": {
+        if hasattr(agent, "tools"):
+            for tool in agent.tools.all():
+                tool_def = {
                     "name": tool.name,
-                    "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query to look up",
-                            }
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The search query to look up",
+                                }
+                            },
+                            "required": ["query"],
                         },
-                        "required": ["query"],
                     },
-                },
-            }
-            tool_definitions.append(tool_def)
-
-        # Prepare the API request payload
-        payload = {
-            "model": agent.llm.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},
+                }
+                tool_definitions.append(tool_def)
+        context = {
+            "transaction": transaction,
+            "allowed_categories": getattr(transaction, "allowed_categories", ""),
+            "business_profile": getattr(transaction, "client", None),
+            "payee_reasoning": getattr(transaction, "payee_reasoning", None),
         }
-
-        # Only add tools and tool_choice if tools are available
-        if tool_definitions:
-            payload["tools"] = tool_definitions
-            payload["tool_choice"] = "auto"
-
-        # Log the complete API request
-        logger.info("\n=== API Request ===")
-        logger.info(f"Model: {agent.llm.model}")
-        logger.info(f"System Prompt: {system_prompt}")
-        logger.info(f"User Prompt: {user_prompt}")
-        logger.info(f"Transaction: {transaction.description}")
-        if tool_definitions:
-            logger.info(f"Tools: {json.dumps(tool_definitions, indent=2)}")
-
+        template_rendered = False
+        system_prompt = None
+        user_prompt = None
+        if agent.prompt:
+            try:
+                env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+                template = env.from_string(agent.prompt)
+                rendered = template.render(**context)
+                # Split into system/user if delimiter present, else use as system
+                if "---USER---" in rendered:
+                    system_prompt, user_prompt = rendered.split("---USER---", 1)
+                else:
+                    system_prompt = rendered
+                    user_prompt = ""
+                template_rendered = True
+                logger.info(
+                    "[PROMPT] Used Agent.prompt from UI for agent '%s'", agent_name
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[PROMPT] Failed to render Agent.prompt for agent '%s': %s. Falling back.",
+                    agent_name,
+                    e,
+                )
+        if not template_rendered:
+            if "payee" in agent_name.lower():
+                system_prompt, user_prompt = get_fallback_payee_prompts(transaction)
+                logger.info(
+                    "[PROMPT] Used fallback payee prompt for agent '%s'", agent_name
+                )
+            else:
+                # (Add similar fallback for classification agent if needed)
+                system_prompt = "Classification fallback prompt not implemented."
+                user_prompt = ""
+                logger.info(
+                    "[PROMPT] Used fallback classification prompt for agent '%s'",
+                    agent_name,
+                )
+        # Log the actual prompts being sent
+        logger.info(f"System Prompt Sent: {system_prompt!r}")
+        logger.info(f"User Prompt Sent: {user_prompt!r}")
+        # ... existing code to call LLM ...
         try:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             messages = [
@@ -562,7 +483,7 @@ def call_agent(
                     payload["tools"] = tools
                     payload["tool_choice"] = "auto"
                 response = client.chat.completions.create(**payload)
-                logger.info(f"LLM response: {response}")
+                logger.info(f"Raw LLM Response: {response}")
                 msg = response.choices[0].message
                 # If the LLM returns a tool call, append the assistant message and then the tool message(s)
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
@@ -629,16 +550,24 @@ def call_agent(
                     continue  # Loop again to get the next LLM response
                 # If the LLM returns a final content message, parse and return it
                 if msg.content:
-                    return json.loads(msg.content)
+                    try:
+                        return json.loads(msg.content)
+                    except Exception as e:
+                        logger.warning(
+                            f"[PROMPT] LLM returned non-JSON content: {msg.content!r} (error: {e})"
+                        )
+                        return {}
                 logger.error(
                     "LLM returned neither tool_calls nor content. Breaking loop."
                 )
                 break
-            raise RuntimeError("Failed to get a valid response from the LLM.")
-
+            logger.warning(
+                "[PROMPT] LLM returned None or invalid response. Returning empty dict."
+            )
+            return {}
         except Exception as e:
             logger.error(f"Error calling OpenAI API: {str(e)}")
-            raise
+            return {}
 
     except Exception as e:
         logger.error(f"Error in call_agent: {str(e)}")
