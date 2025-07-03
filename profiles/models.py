@@ -708,3 +708,29 @@ class ChecklistAttachment(models.Model):
 
     def __str__(self):
         return f"{self.tag} ({self.file.name})"
+
+
+class TaxYear(models.Model):
+    STATUS_CHOICES = [
+        ("not_started", "Not Started"),
+        ("in_progress", "In Progress"),
+        ("complete", "Complete"),
+        ("needs_review", "Needs Review"),
+    ]
+    business_profile = models.ForeignKey(
+        BusinessProfile, on_delete=models.CASCADE, related_name="tax_years"
+    )
+    year = models.CharField(max_length=10)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="not_started"
+    )
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["business_profile", "year"]
+        ordering = ["-year"]
+
+    def __str__(self):
+        return f"{self.business_profile.company_name} - {self.year}"

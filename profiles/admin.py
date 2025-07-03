@@ -16,6 +16,7 @@ from .models import (
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
     TaxChecklistItem,
+    TaxYear,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -2143,3 +2144,10 @@ class TaxChecklistItemAdmin(admin.ModelAdmin):
         "status",
     )
     list_filter = ("business_profile", "tax_year", "status", "enabled")
+
+
+@admin.register(TaxYear)
+class TaxYearAdmin(admin.ModelAdmin):
+    list_display = ("business_profile", "year", "status", "created_at", "updated_at")
+    list_filter = ("business_profile", "year", "status")
+    search_fields = ("business_profile__company_name", "year", "notes")
