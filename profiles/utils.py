@@ -189,6 +189,12 @@ def extract_pdf_metadata(pdf_path):
 # For extensibility: if all fields are None or confidence is low, fallback to vision agent
 
 
+def normalize_category(category):
+    if category and (category.startswith("IRS-: ") or category.startswith("BIZ-: ")):
+        return category.split(": ", 1)[-1]
+    return category
+
+
 def get_update_fields_from_response(agent, response, agent_type, tool_usage=None):
     """
     Map LLM agent response to transaction update fields for both classification and payee lookup.
@@ -232,6 +238,8 @@ def get_update_fields_from_response(agent, response, agent_type, tool_usage=None
             "payee_extraction_method",
         ]
         update_fields = {k: v for k, v in update_fields.items() if k in allowed}
+        if "category" in update_fields:
+            update_fields["category"] = normalize_category(update_fields["category"])
         return update_fields
     elif agent_type == "classification":
         update_fields["classification_method"] = method_str
@@ -255,6 +263,8 @@ def get_update_fields_from_response(agent, response, agent_type, tool_usage=None
             "classification_method",
         ]
         update_fields = {k: v for k, v in update_fields.items() if k in allowed}
+        if "category" in update_fields:
+            update_fields["category"] = normalize_category(update_fields["category"])
         return update_fields
 
 
