@@ -12,6 +12,7 @@ from profiles.models import (
     Agent,
     LLMConfig,
     Tool,
+    TaxYear,
 )
 from django.core.files import File
 from profiles.models import StatementFile, Transaction
@@ -270,6 +271,27 @@ class Command(BaseCommand):
                 )
             created["BusinessProfile"] = getattr(bp_obj, "client_id", str(bp_obj))
 
+            # --- Create demo TaxYear (Binder) objects for the default company ---
+            current_year = datetime.datetime.now().year
+            years = [str(current_year - 1), str(current_year)]
+            taxyear_objs = []
+            for year in years:
+                taxyear, created_ty = TaxYear.objects.get_or_create(
+                    business_profile=bp_obj,
+                    year=year,
+                    defaults={
+                        "status": "not_started",
+                        "notes": f"Demo binder for {year}",
+                    },
+                )
+                taxyear_objs.append(
+                    f"{taxyear.year} ({'created' if created_ty else 'existing'})"
+                )
+            created["TaxYears"] = taxyear_objs
+            self.stdout.write(
+                self.style.SUCCESS(f"Demo TaxYear binders created: {taxyear_objs}")
+            )
+
             # Load worksheets.json (create IRSWorksheet)
             ws_objs = []
             for ws in worksheets if isinstance(worksheets, list) else [worksheets]:
@@ -371,12 +393,27 @@ class Command(BaseCommand):
             # --- PATCH: Initialize Tax Checklist for Demo Company ---
             try:
                 from django.core.management import call_command
+
                 demo_tax_year = current_year  # Use the same year as used for categories
-                self.stdout.write(self.style.NOTICE(f"Initializing TaxChecklist for demo company (client_id={bp_obj.client_id}, year={demo_tax_year})..."))
-                call_command('init_tax_checklist', client_id=bp_obj.client_id, tax_year=demo_tax_year)
-                self.stdout.write(self.style.SUCCESS(f"TaxChecklist initialized for demo company and year {demo_tax_year}."))
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f"Initializing TaxChecklist for demo company (client_id={bp_obj.client_id}, year={demo_tax_year})..."
+                    )
+                )
+                call_command(
+                    "init_tax_checklist",
+                    client_id=bp_obj.client_id,
+                    tax_year=demo_tax_year,
+                )
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"TaxChecklist initialized for demo company and year {demo_tax_year}."
+                    )
+                )
             except Exception as e:
-                self.stdout.write(self.style.ERROR(f"Failed to initialize TaxChecklist: {e}"))
+                self.stdout.write(
+                    self.style.ERROR(f"Failed to initialize TaxChecklist: {e}")
+                )
             # --- END PATCH ---
 
             # Load agents.json

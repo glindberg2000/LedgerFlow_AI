@@ -1,5 +1,39 @@
 [MEMORY BANK: ACTIVE]
 
+# [2025-06-27] Recent Updates and State
+
+## Recent Work
+- **IRS 6A Report Bug:**
+  - Identified that transactions with worksheet="6A" and classification_type="business" were not appearing due to category field prefix mismatches (e.g., `IRS-: Travel and Meals (Travel)` vs. `Travel and Meals (Travel)`).
+  - Fixed by normalizing the category field in classification logic to strip prefixes before saving.
+  - Patched the IRS 6A report template to robustly render data whether context provides `worksheets` or a flat `categories` list.
+  - Added a section to the report for unmapped business categories (user-defined), ensuring all relevant categories are displayed.
+
+- **Admin Transaction Form Improvements:**
+  - Made all relevant fields editable except `classification_method` (readonly).
+  - Added dropdowns for worksheet, transaction type, payee extraction method, and classification method, populated with canonical and legacy/custom values.
+  - Ensured static options like "Personal" and "Review" are always available for worksheet and category.
+  - Clarified Notes (for bookkeeper context) and Questions (for uncertainties/AI) field usage.
+  - Ensured "Review" is always an option for category and worksheet, supporting LLM/AI workflow.
+  - Fixed KeyError for `classification_method` and made the form robust for both add and change views.
+
+- **Workflow and Field Usage Clarification:**
+  - Transaction type is critical for positive/negative logic and uses canonical values.
+  - Classification method defaults to "Human Override" on manual save.
+  - Worksheet always allows "Personal" and "Review".
+  - Notes are for bookkeeper context, not used by AI unless included in prompt.
+  - Questions are for uncertainties or follow-up, for both AI and bookkeepers.
+  - Once a transaction is marked as "Human Override", it is not reclassified by AI unless explicitly requested.
+
+## Current State
+- Admin form is robust, user-friendly, and supports both AI and manual workflows.
+- IRS 6A report displays all relevant categories, including unmapped business categories.
+- User confirmed improvements and requested to return to the original task list.
+
+## Next Steps
+- Resume work on the original task list as requested by the user.
+- Ready to proceed with further tasks as needed.
+
 # Active Context (Updated)
 
 ## Current Focus
