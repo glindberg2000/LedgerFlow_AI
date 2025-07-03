@@ -385,9 +385,6 @@ def call_agent(
     from openai import OpenAI
 
     logger = logging.getLogger(__name__)
-    if model is None:
-        model = os.environ.get("OPENAI_MODEL_PRECISE", "o4-mini")
-    logger.info(f"Using OpenAI model: {model}")
     try:
         agent = Agent.objects.get(name=agent_name)
         # Ensure tool_definitions is always defined
@@ -461,6 +458,21 @@ def call_agent(
         # Log the actual prompts being sent
         logger.info(f"System Prompt Sent: {system_prompt!r}")
         logger.info(f"User Prompt Sent: {user_prompt!r}")
+        # Model selection logic: ONLY use agent.llm.model from UI
+        if not (agent.llm and agent.llm.model):
+            logger.error(
+                f"Agent '{agent_name}' does not have an LLM model configured in the UI. Aborting."
+            )
+            raise ValueError(
+                f"Agent '{agent_name}' does not have an LLM model configured in the UI."
+            )
+        model = agent.llm.model
+        # Log the actual model and tools used right before the API call
+        logger.info(f"Using OpenAI model: {model}")
+        if tool_definitions:
+            logger.info(f"Tools passed to LLM: {[t['name'] for t in tool_definitions]}")
+        else:
+            logger.info("No tools passed to LLM for this agent.")
         # ... existing code to call LLM ...
         try:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -474,9 +486,10 @@ def call_agent(
                 tools = None
             max_tool_calls = 3
             tool_call_count = 0
+            tool_usage_counter = {}
             while True:
                 payload = {
-                    "model": agent.llm.model,
+                    "model": model,
                     "messages": messages,
                     "response_format": {"type": "json_object"},
                 }
@@ -536,6 +549,10 @@ def call_agent(
                                 tool_function = getattr(module, tool_name)
                             tool_result = tool_function(**tool_args)
                             logger.info(f"Tool result: {tool_result}")
+                            # Track tool usage
+                            tool_usage_counter[tool_name] = (
+                                tool_usage_counter.get(tool_name, 0) + 1
+                            )
                         except Exception as e:
                             logger.error(f"Error executing tool {tool_name}: {str(e)}")
                             raise
@@ -548,11 +565,14 @@ def call_agent(
                             }
                         )
                         tool_call_count += 1
-                    continue  # Loop again to get the next LLM response
+                    continue
                 # If the LLM returns a final content message, parse and return it
                 if msg.content:
                     try:
-                        return json.loads(msg.content)
+                        result = json.loads(msg.content)
+                        if tool_usage_counter:
+                            result["_tool_usage"] = tool_usage_counter
+                        return result
                     except Exception as e:
                         logger.warning(
                             f"[PROMPT] LLM returned non-JSON content: {msg.content!r} (error: {e})"
@@ -602,14 +622,27 @@ def process_transactions(modeladmin, request, queryset):
         agent = Agent.objects.get(id=agent_id)
         for transaction in queryset:
             response = call_agent(agent.name, transaction)
+            logger.info(f"Agent response: {response}")
+            # Robust agent_type mapping
+            purpose = (
+                getattr(agent, "purpose", "").lower()
+                if hasattr(agent, "purpose")
+                else ""
+            )
+            name = getattr(agent, "name", "").lower() if hasattr(agent, "name") else ""
+            if "payee" in purpose or "payee" in name:
+                agent_type = "payee"
+            else:
+                agent_type = "classification"
+            # Detect tool usage from response if present
+            tool_usage = None
+            if isinstance(response, dict) and "_tool_usage" in response:
+                tool_usage = response.pop("_tool_usage")
             update_fields = get_update_fields_from_response(
                 agent,
                 response,
-                (
-                    getattr(agent, "purpose", "").lower()
-                    if hasattr(agent, "purpose")
-                    else "classification"
-                ),
+                agent_type,
+                tool_usage=tool_usage,
             )
             logger.info(
                 f"Update fields for transaction {transaction.id}: {update_fields}"
@@ -1127,10 +1160,15 @@ class TransactionAdmin(admin.ModelAdmin):
                         agent_type = "payee"
                     else:
                         agent_type = "classification"
+                    # Detect tool usage from response if present
+                    tool_usage = None
+                    if isinstance(response, dict) and "_tool_usage" in response:
+                        tool_usage = response.pop("_tool_usage")
                     update_fields = get_update_fields_from_response(
                         agent,
                         response,
                         agent_type,
+                        tool_usage=tool_usage,
                     )
                     logger.info(
                         f"Update fields for transaction {transaction.id}: {update_fields}"
