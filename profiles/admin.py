@@ -749,6 +749,30 @@ class TransactionAdminForm(forms.ModelForm):
         required=False,
         label="Classification Type",
     )
+    worksheet = forms.ChoiceField(choices=[], required=False, label="Worksheet")
+    transaction_type = forms.ChoiceField(
+        choices=[], required=False, label="Transaction Type"
+    )
+    payee_extraction_method = forms.ChoiceField(
+        choices=[
+            ("AI", "AI Only"),
+            ("AI+Search", "AI with Search"),
+            ("Human", "Human Override"),
+            ("None", "Not Processed"),
+        ],
+        required=False,
+        label="Payee Extraction Method",
+    )
+    classification_method = forms.ChoiceField(
+        choices=[
+            ("AI", "AI Only"),
+            ("Human", "Human Override"),
+            ("None", "Not Processed"),
+        ],
+        required=False,
+        label="Classification Method",
+        disabled=True,
+    )
     CLASSIFICATION_TYPE_CHOICES = [
         ("business", "Business"),
         ("personal", "Personal"),
@@ -783,7 +807,7 @@ class TransactionAdminForm(forms.ModelForm):
 
     class Meta:
         model = Transaction
-        fields = "__all__"
+        fields = "__all__"  # Ensure all model fields, including classification_method, are present
         widgets = {
             "business_percentage": forms.NumberInput(attrs={"min": 0, "max": 100}),
             "confidence": forms.Select(
@@ -801,9 +825,42 @@ class TransactionAdminForm(forms.ModelForm):
         self.fields["classification_type"].choices = (
             self._get_classification_type_choices(current_classification)
         )
+        # Worksheet dropdown: all active IRSWorksheet names
+        worksheet_choices = [
+            (w.name, w.name) for w in IRSWorksheet.objects.filter(is_active=True)
+        ]
+        if self.instance.worksheet and self.instance.worksheet not in [
+            c[0] for c in worksheet_choices
+        ]:
+            worksheet_choices = [
+                (self.instance.worksheet, f"Current: {self.instance.worksheet}")
+            ] + worksheet_choices
+        self.fields["worksheet"].choices = worksheet_choices
+        # Transaction type dropdown: all distinct non-empty transaction_type values
+        tx_types = list(
+            Transaction.objects.exclude(transaction_type__isnull=True)
+            .exclude(transaction_type="")
+            .values_list("transaction_type", flat=True)
+            .distinct()
+        )
+        tx_type_choices = [(t, t) for t in tx_types]
+        if self.instance.transaction_type and self.instance.transaction_type not in [
+            c[0] for c in tx_type_choices
+        ]:
+            tx_type_choices = [
+                (
+                    self.instance.transaction_type,
+                    f"Current: {self.instance.transaction_type}",
+                )
+            ] + tx_type_choices
+        tx_type_choices = [("", "--- Select ---")] + tx_type_choices
+        self.fields["transaction_type"].choices = tx_type_choices
         # Make classification_method readonly (never user-editable)
+        # Defensive: Only set .disabled if field is present (prevents KeyError)
         if "classification_method" in self.fields:
             self.fields["classification_method"].disabled = True
+        # If not present, something is wrong with Meta.fields or admin fieldsets
+        # (This prevents admin add/change form from crashing)
 
     def clean_category(self):
         # Only save the value, not the label
@@ -912,24 +969,13 @@ class TransactionAdmin(admin.ModelAdmin):
         "classification_type",
         "worksheet",
     )
-    readonly_fields = (
-        "transaction_date",
-        "amount",
-        "description",
-        "normalized_description",
-        "payee",
-        "worksheet",
-        "payee_extraction_method",
-        "reasoning",
-        "payee_reasoning",
-        "classification_method",  # Always readonly
-    )
-    # Remove 'business_context' from readonly, add 'notes' as editable
+    readonly_fields = ("classification_method",)  # Only this should be readonly
     fieldsets = (
         (
             None,
             {
                 "fields": (
+                    "client",
                     "transaction_date",
                     "amount",
                     "description",
@@ -940,8 +986,17 @@ class TransactionAdmin(admin.ModelAdmin):
                     "worksheet",
                     "business_percentage",
                     "confidence",
-                    "classification_method",
+                    "account_number",
+                    "transaction_type",
+                    "file_path",
+                    "source",
+                    "statement_start_date",
+                    "statement_end_date",
+                    "parser_name",
+                    "statement_file",
+                    "questions",
                     "payee_extraction_method",
+                    "classification_method",
                     "reasoning",
                     "payee_reasoning",
                     "notes",
@@ -953,6 +1008,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "reset_processing_status",
         "batch_payee_lookup",
         "batch_classify",
+        "batch_escalate_classification",
         "mark_as_personal",
         "mark_as_business",
         "mark_as_unclassified",
@@ -1082,6 +1138,48 @@ class TransactionAdmin(admin.ModelAdmin):
                 )
 
     batch_classify.short_description = "Create batch classification task"
+
+    def batch_escalate_classification(self, request, queryset):
+        """Create a batch processing task for classification escalation."""
+        if not queryset:
+            messages.error(request, "No transactions selected.")
+            return
+
+        # Group transactions by client
+        client_transactions = {}
+        for transaction in queryset:
+            if transaction.client_id not in client_transactions:
+                client_transactions[transaction.client_id] = {
+                    "client": transaction.client,
+                    "transactions": [],
+                    "transaction_ids": [],
+                }
+            client_transactions[transaction.client_id]["transactions"].append(
+                transaction
+            )
+            client_transactions[transaction.client_id]["transaction_ids"].append(
+                transaction.id
+            )
+
+        # Create a task for each client's transactions
+        for client_id, data in client_transactions.items():
+            with db_transaction.atomic():
+                task = ProcessingTask.objects.create(
+                    task_type="classification_escalation",
+                    client=data["client"],
+                    transaction_count=len(data["transactions"]),
+                    status="pending",
+                    task_metadata={
+                        "description": f"Batch escalation classification for {len(data['transactions'])} transactions"
+                    },
+                )
+                task.transactions.add(*data["transaction_ids"])
+                messages.success(
+                    request,
+                    f"Created escalation classification task for client {client_id} with {len(data['transactions'])} transactions",
+                )
+
+    batch_escalate_classification.short_description = "Create batch escalation task"
 
     def mark_as_personal(self, request, queryset):
         updated = queryset.update(
