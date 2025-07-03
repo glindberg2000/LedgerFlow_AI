@@ -26,11 +26,37 @@
 <h3>Client: {{ selected_client.client_id }}</h3>
 <h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
 
-{% for worksheet in worksheets %}
-<div class="module">
-    <h2><a
-            href="{% url 'admin:reports_reportsproxy_worksheet' name=worksheet.name %}?client={{ selected_client.client_id }}">{{
-            worksheet.name }}</a></h2>
+{% if worksheets %}
+    {% for worksheet in worksheets %}
+    <div class="module">
+        <h2><a
+                href="{% url 'admin:reports_reportsproxy_worksheet' name=worksheet.name %}?client={{ selected_client.client_id }}">{{
+                worksheet.name }}</a></h2>
+        <table style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th style="text-align: right;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for category, data in worksheet.categories.items %}
+                <tr>
+                    <td>{{ category }}</td>
+                    <td style="text-align: right;">${{ data.total|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="border-top: 2px solid #ccc;">
+                    <td style="font-weight: bold;">Worksheet Total</td>
+                    <td style="text-align: right; font-weight: bold;">${{ worksheet.total|floatformat:2 }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% endfor %}
+{% elif categories %}
     <table style="width: 100%;">
         <thead>
             <tr>
@@ -39,26 +65,45 @@
             </tr>
         </thead>
         <tbody>
-            {% for category, data in worksheet.categories.items %}
+            {% for cat in categories %}
             <tr>
-                <td>{{ category }}</td>
-                <td style="text-align: right;">${{ data.total|floatformat:2 }}</td>
+                <td>{{ cat.name }}</td>
+                <td style="text-align: right;">${{ cat.subtotal|floatformat:2 }}</td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr style="border-top: 2px solid #ccc;">
-                <td style="font-weight: bold;">Worksheet Total</td>
-                <td style="text-align: right; font-weight: bold;">${{ worksheet.total|floatformat:2 }}</td>
+                <td style="font-weight: bold;">Grand Total</td>
+                <td style="text-align: right; font-weight: bold;">${{ total|floatformat:2 }}</td>
             </tr>
         </tfoot>
     </table>
-</div>
-{% endfor %}
-
-<div class="module" style="margin-top: 2em; background-color: #f0f0f0; padding: 15px;">
-    <h2 style="font-size: 1.5em;">Grand Total: ${{ grand_total|floatformat:2 }}</h2>
-</div>
+    {% if business_categories %}
+        <h4 style="margin-top:2em;">Other Business Expense Categories (User-Defined)</h4>
+        {% if unmapped_business_cats %}
+        <p style="color: orange;">Note: Some business categories are not mapped to IRS categories and may not appear above.</p>
+        {% endif %}
+        <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
+            <tr>
+                <th style="width:60%">Category</th>
+                <th style="width:30%">Subtotal</th>
+            </tr>
+            {% for bcat in business_categories %}
+                {% if not bcat.mapped %}
+                <tr>
+                    <td>{{ bcat.name }}</td>
+                    <td style="position:relative;">
+                        <a href="{{ bcat.tx_url }}" target="_blank" class="subtotal-link">${{ bcat.subtotal|floatformat:2 }}</a>
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
+    {% endif %}
+{% else %}
+    <p>No data available for this client and period.</p>
+{% endif %}
 
 {% else %}
 <p>Please select a client from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports dashboard</a> to
