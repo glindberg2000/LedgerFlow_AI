@@ -736,13 +736,14 @@ class TransactionAdminForm(forms.ModelForm):
             }
         ),
         label="Notes",
-        help_text="Optional: Add any additional notes or context for this transaction (for bookkeeper use).",
+        help_text="Bookkeeper context or explanation for this transaction. Not used by AI unless explicitly included in the prompt.",
     )
     # Explicitly define as ChoiceField to force dropdown rendering in admin
     category = forms.ChoiceField(
         choices=[],  # Will be set dynamically in __init__
         required=False,
         label="Category",
+        help_text="Select the most specific category. Use 'Review' if no category fits and propose a new one in notes.",
     )
     classification_type = forms.ChoiceField(
         choices=[],  # Will be set dynamically in __init__
@@ -767,6 +768,7 @@ class TransactionAdminForm(forms.ModelForm):
         choices=[
             ("AI", "AI Only"),
             ("Human", "Human Override"),
+            ("Manual", "Manual"),
             ("None", "Not Processed"),
         ],
         required=False,
@@ -776,6 +778,13 @@ class TransactionAdminForm(forms.ModelForm):
     CLASSIFICATION_TYPE_CHOICES = [
         ("business", "Business"),
         ("personal", "Personal"),
+    ]
+    CANONICAL_TRANSACTION_TYPE_CHOICES = [
+        ("debit", "Debit (Money Out)"),
+        ("credit", "Credit (Money In)"),
+        ("purchase", "Purchase"),
+        ("refund", "Refund"),
+        ("other", "Other/Custom"),
     ]
 
     def _get_category_choices(self, current_value=None):
@@ -790,7 +799,8 @@ class TransactionAdminForm(forms.ModelForm):
             (cat.category_name, f"Business: {cat.category_name}") for cat in biz_cats
         ]
         personal_choice = [("Personal", "--- Personal ---")]
-        choices = irs_choices + biz_choices + personal_choice
+        review_choice = [("Review", "Review (propose a new category)")]
+        choices = irs_choices + biz_choices + personal_choice + review_choice
         if not choices:
             choices = [("", "--- No categories available ---")]
         if current_value and current_value not in [c[0] for c in choices]:
@@ -825,9 +835,14 @@ class TransactionAdminForm(forms.ModelForm):
         self.fields["classification_type"].choices = (
             self._get_classification_type_choices(current_classification)
         )
-        # Worksheet dropdown: all active IRSWorksheet names
+        # Worksheet dropdown: all active IRSWorksheet names + static options
         worksheet_choices = [
             (w.name, w.name) for w in IRSWorksheet.objects.filter(is_active=True)
+        ]
+        # Always add Personal and Review as static options
+        worksheet_choices += [
+            ("Personal", "Personal"),
+            ("Review", "Review (propose a new worksheet)"),
         ]
         if self.instance.worksheet and self.instance.worksheet not in [
             c[0] for c in worksheet_choices
@@ -836,14 +851,18 @@ class TransactionAdminForm(forms.ModelForm):
                 (self.instance.worksheet, f"Current: {self.instance.worksheet}")
             ] + worksheet_choices
         self.fields["worksheet"].choices = worksheet_choices
-        # Transaction type dropdown: all distinct non-empty transaction_type values
+        # Transaction type dropdown: canonical choices + legacy/custom values
         tx_types = list(
             Transaction.objects.exclude(transaction_type__isnull=True)
             .exclude(transaction_type="")
             .values_list("transaction_type", flat=True)
             .distinct()
         )
-        tx_type_choices = [(t, t) for t in tx_types]
+        tx_type_choices = self.CANONICAL_TRANSACTION_TYPE_CHOICES.copy()
+        # Add legacy/custom values if not already present
+        for t in tx_types:
+            if t and t not in [c[0] for c in tx_type_choices]:
+                tx_type_choices.append((t, f"Legacy/Custom: {t}"))
         if self.instance.transaction_type and self.instance.transaction_type not in [
             c[0] for c in tx_type_choices
         ]:
@@ -856,11 +875,13 @@ class TransactionAdminForm(forms.ModelForm):
         tx_type_choices = [("", "--- Select ---")] + tx_type_choices
         self.fields["transaction_type"].choices = tx_type_choices
         # Make classification_method readonly (never user-editable)
-        # Defensive: Only set .disabled if field is present (prevents KeyError)
         if "classification_method" in self.fields:
             self.fields["classification_method"].disabled = True
-        # If not present, something is wrong with Meta.fields or admin fieldsets
-        # (This prevents admin add/change form from crashing)
+        # Questions field help text
+        if "questions" in self.fields:
+            self.fields["questions"].help_text = (
+                "For AI or bookkeeper to record uncertainties or follow-up questions about this classification."
+            )
 
     def clean_category(self):
         # Only save the value, not the label
