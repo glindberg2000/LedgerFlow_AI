@@ -235,6 +235,11 @@ def get_update_fields_from_response(agent, response, agent_type, tool_usage=None
         return update_fields
     elif agent_type == "classification":
         update_fields["classification_method"] = method_str
+        # Map category from LLM response if present
+        if "category_id" in update_fields and not update_fields.get("category"):
+            update_fields["category"] = update_fields["category_id"]
+        elif "category_name" in update_fields and not update_fields.get("category"):
+            update_fields["category"] = update_fields["category_name"]
         logger.info(
             f"[Classification] Returning update_fields: {update_fields}, tool_usage: {tool_usage}"
         )
