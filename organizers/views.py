@@ -3,6 +3,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import OrganizerWorkbook, OrganizerOutput
 from .forms import OrganizerWorkbookForm
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -11,7 +14,10 @@ def upload_workbook(request):
         form = OrganizerWorkbookForm(request.POST, request.FILES)
         if form.is_valid():
             workbook = form.save()
-            messages.success(request, "Workbook uploaded and queued for processing.")
+            messages.success(
+                request,
+                "Workbook uploaded. To process, select it in the admin and use 'Create Extraction Task'.",
+            )
             return redirect("organizer_workbook_detail", pk=workbook.id)
     else:
         form = OrganizerWorkbookForm()

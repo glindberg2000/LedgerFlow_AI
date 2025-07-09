@@ -11,6 +11,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.conf import settings
 import re
+from django.contrib import admin
 
 # Canonical value for unclassified transactions. Use this everywhere a transaction is unclassified or not processed.
 CLASSIFICATION_METHOD_UNCLASSIFIED = "None"
@@ -464,6 +465,7 @@ class ProcessingTask(models.Model):
     TASK_TYPES = [
         ("payee_lookup", "Payee Lookup"),
         ("classification", "Classification"),
+        ("organizer_extraction", "Organizer Extraction"),
     ]
 
     task_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
@@ -734,3 +736,53 @@ class TaxYear(models.Model):
 
     def __str__(self):
         return f"{self.business_profile.company_name} - {self.year}"
+
+
+class BinderRowTemplate(models.Model):
+    """Template for a standard binder row (field) that can be reused across binders."""
+
+    section = models.CharField(
+        max_length=255, blank=True
+    )  # e.g., "Form 15", "Schedule C"
+    label = models.CharField(max_length=255)  # e.g., "Charitable Contributions"
+    description = models.TextField(blank=True)
+    is_generated = models.BooleanField(default=False)
+    calculation_query = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+
+    def __str__(self):
+        if self.section:
+            return f"{self.section}: {self.label}"
+        return self.label
+
+
+class BinderRow(models.Model):
+    tax_year = models.ForeignKey(
+        TaxYear, related_name="binder_rows", on_delete=models.CASCADE
+    )
+    template = models.ForeignKey(
+        BinderRowTemplate, related_name="binder_rows", on_delete=models.CASCADE
+    )
+    is_generated = models.BooleanField(default=False)
+    value = models.CharField(
+        max_length=255, blank=True
+    )  # Single-line input for numeric or short text
+    reference_file = models.FileField(upload_to="binder_refs/", blank=True, null=True)
+    order = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+
+    @admin.display(description="Previous year value", ordering="tax_year__year")
+    def previous_year_value(self):
+        prev_year = str(int(self.tax_year.year) - 1)
+        prev_row = BinderRow.objects.filter(
+            tax_year__business_profile=self.tax_year.business_profile,
+            tax_year__year=prev_year,
+            template=self.template,
+        ).first()
+        return prev_row.value if prev_row else None
+
+    def __str__(self):
+        if self.template:
+            return f"{self.template.section}: {self.template.label} ({'Generated' if self.is_generated else 'Fillable'})"
+        return "BinderRow (no template)"
