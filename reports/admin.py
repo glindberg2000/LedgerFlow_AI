@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.contrib.admin.views.decorators import staff_member_required
 from django.utils.html import format_html
 from django.db import models
-from profiles.models import BusinessProfile, TaxChecklistItem
+from profiles.models import BusinessProfile
 from .forms import ClientSelectForm
 from .views import (
     irs_report,

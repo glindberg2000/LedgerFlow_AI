@@ -15,10 +15,9 @@ from .models import (
     CLASSIFICATION_METHOD_UNCLASSIFIED,
     PAYEE_EXTRACTION_METHOD_UNPROCESSED,
     ParsingRun,
-    TaxChecklistItem,
     TaxYear,
-    BinderRowTemplate,
-    BinderRow,
+    BinderItem,
+    BinderItemField,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -43,11 +42,10 @@ from django.db import transaction as db_transaction
 from django import forms
 from django.utils.html import format_html
 import re
-from .utils import (
-    extract_pdf_metadata,
-    get_update_fields_from_response,
-    sync_transaction_id_sequence,
-)
+from profiles.utils.utils import get_update_fields_from_response
+from profiles.utils.utils import sync_transaction_id_sequence
+from profiles.utils.utils import extract_pdf_metadata
+from profiles.utils.binder_item_options import get_all_binder_item_options
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
 from django.utils.safestring import mark_safe
@@ -2131,58 +2129,79 @@ class ParsingRunAdmin(admin.ModelAdmin):
     short_error.short_description = "Error Message"
 
 
-@admin.register(TaxChecklistItem)
-class TaxChecklistItemAdmin(admin.ModelAdmin):
-    list_display = (
-        "business_profile",
-        "tax_year",
-        "form_code",
-        "status",
-        "enabled",
-        "date_modified",
-    )
-    search_fields = (
-        "business_profile__company_name",
-        "tax_year",
-        "form_code",
-        "status",
-    )
-    list_filter = ("business_profile", "tax_year", "status", "enabled")
-
-
-@admin.register(BinderRowTemplate)
-class BinderRowTemplateAdmin(admin.ModelAdmin):
-    list_display = ("section", "label", "is_generated", "order")
-    search_fields = ("section", "label", "description")
-    list_filter = ("section", "is_generated")
+class BinderItemFieldInline(admin.TabularInline):
+    model = BinderItemField
+    extra = 1
+    fields = ("label", "value", "status", "category_code", "order", "notes")
     ordering = ("order",)
 
 
-class BinderRowInline(admin.TabularInline):
-    model = BinderRow
-    extra = 1
-    fields = (
-        "template",
+class BinderItemAdminForm(forms.ModelForm):
+    class Meta:
+        model = BinderItem
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        options = get_all_binder_item_options(grouped=True)
+        choices = [("", "---------")]
+        if options["workbook"]:
+            choices.append(
+                (
+                    "Organizer Forms",
+                    [(o["form_id"], o["label"]) for o in options["workbook"]],
+                )
+            )
+        if options["ad_hoc"]:
+            choices.append(
+                (
+                    "Ad Hoc Items",
+                    [(o["form_id"], o["label"]) for o in options["ad_hoc"]],
+                )
+            )
+        self.fields["form_id"].choices = choices
+        self.fields["form_id"].required = False
+        self.fields["form_id"].widget.attrs["style"] = "width: 350px;"
+        # Allow freeform entry
+        self.fields["form_id"].widget.can_add_related = True
+
+
+@admin.register(BinderItem)
+class BinderItemAdmin(admin.ModelAdmin):
+    form = BinderItemAdminForm
+    list_display = (
+        "tax_year",
+        "type",
+        "label",
+        "form_id",
+        "status",
+        "order",
         "is_generated",
-        "value",
         "reference_file",
         "previous_year_value",
+        "updated_at",
     )
-    readonly_fields = ("is_generated", "previous_year_value")
-    autocomplete_fields = ("template",)
-    verbose_name = "Binder Field"
-    verbose_name_plural = "Binder Fields"
-    formfield_overrides = {
-        models.CharField: {
-            "widget": TextInput(attrs={"size": "12", "style": "width: 120px;"})
-        },
-    }
+    list_filter = ("tax_year", "type", "status")
+    search_fields = ("label", "form_id", "notes")
+    inlines = [BinderItemFieldInline]
+    ordering = ("tax_year", "order")
 
-    def is_generated(self, obj):
-        return obj.is_generated
 
-    is_generated.short_description = "Generated?"
-    is_generated.boolean = True
+class BinderItemInline(admin.TabularInline):
+    model = BinderItem
+    extra = 1
+    fields = (
+        "type",
+        "label",
+        "form_id",
+        "status",
+        "order",
+        "is_generated",
+        "reference_file",
+        "previous_year_value",
+        "notes",
+    )
+    ordering = ("order",)
 
 
 @admin.register(TaxYear)
@@ -2190,30 +2209,7 @@ class TaxYearAdmin(admin.ModelAdmin):
     list_display = ("business_profile", "year", "status", "created_at", "updated_at")
     list_filter = ("business_profile", "year", "status")
     search_fields = ("business_profile__company_name", "year", "notes")
-    inlines = [BinderRowInline]
-
-
-@admin.register(BinderRow)
-class BinderRowAdmin(admin.ModelAdmin):
-    list_display = (
-        "tax_year",
-        "template_section",
-        "template_label",
-        "is_generated",
-        "value",
-        "previous_year_value",
-        "order",
-    )
-    list_filter = ("tax_year", "template__section", "template__label", "is_generated")
-    search_fields = ("template__label", "template__description", "value")
-    readonly_fields = ("previous_year_value",)
-
-    def template_section(self, obj):
-        return obj.template.section if obj.template else ""
-
-    template_section.short_description = "Section"
-
-    def template_label(self, obj):
-        return obj.template.label if obj.template else ""
-
-    template_label.short_description = "Label"
+    inlines = [BinderItemInline]
+    ordering = ("-year",)
+    verbose_name = "Binder"
+    verbose_name_plural = "Binders"

@@ -8,7 +8,11 @@ from django.conf import settings
 from profiles.models import ProcessingTask, Transaction, Agent
 from profiles.admin import call_agent
 from django.db import transaction
-from profiles.utils import get_update_fields_from_response
+from profiles.utils.utils import get_update_fields_from_response
+
+# Add these imports for organizer extraction
+from organizers.models import OrganizerWorkbook, OrganizerOutput
+from dataextractai.parsers.organizer_extractor import OrganizerExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,67 @@ class Command(BaseCommand):
         try:
             logger.info(f"STARTING TASK {task_id}")
 
+            if task.task_type == "organizer_extraction":
+                # --- ORGANIZER EXTRACTION LOGIC ---
+                try:
+                    workbook_id = task.task_metadata.get("workbook_id")
+                    workbook = OrganizerWorkbook.objects.get(id=workbook_id)
+                    workbook.status = "processing"
+                    workbook.save()
+                    task.status = "processing"
+                    task.save()
+
+                    # Set up output directory
+                    output_dir = os.path.join(
+                        settings.MEDIA_ROOT, "organizers", "outputs", str(workbook.id)
+                    )
+                    os.makedirs(output_dir, exist_ok=True)
+
+                    # Run the extractor
+                    extractor = OrganizerExtractor(
+                        workbook.original_file.path, output_dir
+                    )
+                    result = extractor.extract()
+
+                    # Look for cleaned manifest
+                    cleaned_manifest_path = os.path.join(
+                        output_dir, "all_fields_manifest_cleaned.json"
+                    )
+                    if os.path.exists(cleaned_manifest_path):
+                        # Save as OrganizerOutput
+                        OrganizerOutput.objects.create(
+                            workbook=workbook,
+                            output_type="manifest",
+                            file=os.path.relpath(
+                                cleaned_manifest_path, settings.MEDIA_ROOT
+                            ),
+                        )
+                        workbook.status = "completed"
+                        task.status = "completed"
+                        task.error_details = {}
+                        logger.info(
+                            f"Organizer extraction completed for workbook {workbook.id}"
+                        )
+                    else:
+                        workbook.status = "failed"
+                        task.status = "failed"
+                        task.error_details = {
+                            "error": "Manifest not found after extraction."
+                        }
+                        logger.error(f"Manifest not found for workbook {workbook.id}")
+                    workbook.save()
+                    task.save()
+                except Exception as e:
+                    logger.error(f"Organizer extraction failed: {e}")
+                    if "workbook" in locals():
+                        workbook.status = "failed"
+                        workbook.save()
+                    task.status = "failed"
+                    task.error_details = {"error": str(e)}
+                    task.save()
+                return
+
+            # --- EXISTING TRANSACTION-BASED LOGIC ---
             # Get the appropriate agent
             if task.task_type == "payee_lookup":
                 agent = Agent.objects.get(name="Payee Lookup Agent")

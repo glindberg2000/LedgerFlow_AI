@@ -153,4 +153,7 @@ tasks/
 **/*.csv
 
 # Added by Claude Task Master
-data/ 
+data/
+
+# Added by Claude Task Master
+.cursor/ 

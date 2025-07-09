@@ -7,7 +7,7 @@ from profiles.admin import call_agent
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from django.conf import settings
-from profiles.utils import get_update_fields_from_response
+from profiles.utils.utils import get_update_fields_from_response
 
 logger = logging.getLogger(__name__)
 

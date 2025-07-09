@@ -17,7 +17,7 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from .utils import sync_transaction_id_sequence
+from profiles.utils.utils import sync_transaction_id_sequence
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ import os
 from django.conf import settings
 import time
 from django.db import transaction
-from profiles.utils import get_update_fields_from_response
+from profiles.utils.utils import get_update_fields_from_response
 
 logger = logging.getLogger(__name__)
 
