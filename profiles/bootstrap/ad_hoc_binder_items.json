@@ -1,0 +1,94 @@
+[
+    {
+        "form_id": "BalanceSheet",
+        "label": "Balance Sheet"
+    },
+    {
+        "form_id": "ProfitLoss",
+        "label": "Profit & Loss"
+    },
+    {
+        "form_id": "GeneralLedger",
+        "label": "General Ledger"
+    },
+    {
+        "form_id": "K1",
+        "label": "K-1: Partnership/S-Corp/Trust"
+    },
+    {
+        "form_id": "CryptoSaleSummary",
+        "label": "Cryptocurrency Sale Summary"
+    },
+    {
+        "form_id": "SchC_Bookkeeping",
+        "label": "Sch C Bookkeeping Income/Expense"
+    },
+    {
+        "form_id": "RentalIncomeExpense",
+        "label": "Rental Income/Expense"
+    },
+    {
+        "form_id": "HomeOfficeExpense",
+        "label": "Home Office Expense (insurance, repairs & maintenance, utilities, etc)"
+    },
+    {
+        "form_id": "1098",
+        "label": "Form 1098: Mortgage Interest"
+    },
+    {
+        "form_id": "MedicalExpenses",
+        "label": "Medical Expenses"
+    },
+    {
+        "form_id": "Donation",
+        "label": "Donation"
+    },
+    {
+        "form_id": "1099INT",
+        "label": "1099-Int (Interest Income)"
+    },
+    {
+        "form_id": "1099",
+        "label": "1099"
+    },
+    {
+        "form_id": "Assetmark_13587894",
+        "label": "Assetmark Acct 13587894"
+    },
+    {
+        "form_id": "WellsFargo_50708135",
+        "label": "Wells Fargo Advisors Acct 5070-8135"
+    },
+    {
+        "form_id": "1099DIV_AXA",
+        "label": "1099-DIV: AXA"
+    },
+    {
+        "form_id": "1099R",
+        "label": "1099-R"
+    },
+    {
+        "form_id": "CA_TeachersRetirement",
+        "label": "California State Teachers' Retirement"
+    },
+    {
+        "form_id": "ContraCosta_CountyEmployees",
+        "label": "Contra Costa County Employees'"
+    },
+    {
+        "form_id": "Assetmark_1028",
+        "label": "Assetmark Trust Company Acct xxx1028"
+    },
+    {
+        "form_id": "Assetmark_4662",
+        "label": "Assetmark Trust Company Acct xxx4662"
+    },
+    {
+        "form_id": "1099SSA",
+        "label": "1099-SSA Social Security Benefit Statement"
+    },
+    {
+        "form_id": "W2",
+        "label": "W2: Wage and Tax Statement"
+    }
+]

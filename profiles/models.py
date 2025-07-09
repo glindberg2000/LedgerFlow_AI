@@ -656,62 +656,6 @@ def delete_statementfile_file(sender, instance, **kwargs):
         instance.file.delete(save=False)
 
 
-class TaxChecklistItem(models.Model):
-    STATUS_CHOICES = [
-        ("not_started", "Not Started"),
-        ("in_progress", "In Progress"),
-        ("complete", "Complete"),
-        ("needs_review", "Needs Review"),
-    ]
-
-    business_profile = models.ForeignKey(
-        BusinessProfile, on_delete=models.CASCADE, related_name="tax_checklist_items"
-    )
-    tax_year = models.CharField(
-        max_length=8
-    )  # e.g., "2023"; change to FK if you have a TaxYear model
-    form_code = models.CharField(max_length=10)
-    enabled = models.BooleanField(default=True)
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="not_started"
-    )
-    notes = models.TextField(blank=True, null=True)
-    current_year_value = models.TextField(blank=True, null=True)
-    date_modified = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        unique_together = ("business_profile", "tax_year", "form_code")
-        verbose_name = "Tax Checklist Item"
-        verbose_name_plural = "Tax Checklist Items"
-        ordering = ["business_profile", "tax_year", "form_code"]
-
-    def __str__(self):
-        return f"{self.business_profile} - {self.tax_year} - {self.form_code} ({self.get_status_display()})"
-
-    @classmethod
-    def enabled_for_client_year(cls, business_profile, tax_year):
-        return cls.objects.filter(
-            business_profile=business_profile, tax_year=tax_year, enabled=True
-        )
-
-
-class ChecklistAttachment(models.Model):
-    checklist_item = models.ForeignKey(
-        "TaxChecklistItem",
-        on_delete=models.CASCADE,
-        related_name="checklist_attachments",
-    )
-    file = models.FileField(upload_to="tax_checklist_attachments/")
-    tag = models.CharField(
-        max_length=100,
-        help_text="Type or description of the document (e.g., W-2, 1099, Receipt)",
-    )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.tag} ({self.file.name})"
-
-
 class TaxYear(models.Model):
     STATUS_CHOICES = [
         ("not_started", "Not Started"),
@@ -733,56 +677,69 @@ class TaxYear(models.Model):
     class Meta:
         unique_together = ["business_profile", "year"]
         ordering = ["-year"]
+        verbose_name = "Binder"
+        verbose_name_plural = "Binders"
 
     def __str__(self):
         return f"{self.business_profile.company_name} - {self.year}"
 
 
-class BinderRowTemplate(models.Model):
-    """Template for a standard binder row (field) that can be reused across binders."""
-
-    section = models.CharField(
-        max_length=255, blank=True
-    )  # e.g., "Form 15", "Schedule C"
-    label = models.CharField(max_length=255)  # e.g., "Charitable Contributions"
-    description = models.TextField(blank=True)
-    is_generated = models.BooleanField(default=False)
-    calculation_query = models.CharField(max_length=255, blank=True)
-    order = models.PositiveIntegerField(default=0)
-    notes = models.TextField(blank=True)
-
-    def __str__(self):
-        if self.section:
-            return f"{self.section}: {self.label}"
-        return self.label
-
-
-class BinderRow(models.Model):
+class BinderItem(models.Model):
     tax_year = models.ForeignKey(
-        TaxYear, related_name="binder_rows", on_delete=models.CASCADE
+        "TaxYear", related_name="binder_items", on_delete=models.CASCADE
     )
-    template = models.ForeignKey(
-        BinderRowTemplate, related_name="binder_rows", on_delete=models.CASCADE
+    type = models.CharField(
+        max_length=32,
+        choices=[
+            ("attachment", "Attachment"),
+            ("form", "Form"),
+            ("report", "Report"),
+            ("other", "Other"),
+        ],
+        default="form",
     )
-    is_generated = models.BooleanField(default=False)
-    value = models.CharField(
-        max_length=255, blank=True
-    )  # Single-line input for numeric or short text
+    label = models.CharField(max_length=255)
+    form_id = models.CharField(max_length=64, blank=True, null=True)
+    status = models.CharField(
+        max_length=32,
+        choices=[
+            ("not_started", "Not Started"),
+            ("incomplete", "Incomplete"),
+            ("complete", "Complete"),
+            ("missing", "Missing"),
+        ],
+        default="not_started",
+    )
     reference_file = models.FileField(upload_to="binder_refs/", blank=True, null=True)
+    notes = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_generated = models.BooleanField(default=False)
+    previous_year_value = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.label} ({self.tax_year})"
+
+
+class BinderItemField(models.Model):
+    binder_item = models.ForeignKey(
+        BinderItem, related_name="fields", on_delete=models.CASCADE
+    )
+    label = models.CharField(max_length=255)
+    value = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=32,
+        choices=[
+            ("filled", "Filled"),
+            ("missing", "Missing"),
+            ("n/a", "N/A"),
+        ],
+        default="missing",
+    )
+    category_code = models.CharField(max_length=64, blank=True, null=True)
     order = models.PositiveIntegerField(default=0)
     notes = models.TextField(blank=True)
 
-    @admin.display(description="Previous year value", ordering="tax_year__year")
-    def previous_year_value(self):
-        prev_year = str(int(self.tax_year.year) - 1)
-        prev_row = BinderRow.objects.filter(
-            tax_year__business_profile=self.tax_year.business_profile,
-            tax_year__year=prev_year,
-            template=self.template,
-        ).first()
-        return prev_row.value if prev_row else None
-
     def __str__(self):
-        if self.template:
-            return f"{self.template.section}: {self.template.label} ({'Generated' if self.is_generated else 'Fillable'})"
-        return "BinderRow (no template)"
+        return f"{self.label} ({self.binder_item})"

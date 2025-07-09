@@ -13,6 +13,8 @@ from profiles.models import (
     LLMConfig,
     Tool,
     TaxYear,
+    BinderItem,
+    BinderItemField,
 )
 from django.core.files import File
 from profiles.models import StatementFile, Transaction
@@ -287,6 +289,28 @@ class Command(BaseCommand):
                 taxyear_objs.append(
                     f"{taxyear.year} ({'created' if created_ty else 'existing'})"
                 )
+
+                # --- Add demo BinderItem and BinderItemFields for worksheet 6A ---
+                binder_item = BinderItem.objects.create(
+                    tax_year=taxyear,
+                    type="form",
+                    label="Schedule C: Business Expenses",
+                    form_id="6A",
+                    status="not_started",
+                    order=1,
+                    is_generated=True,
+                    notes="Demo Schedule C binder item for worksheet 6A.",
+                )
+                for idx, cat in enumerate(categories_6a):
+                    BinderItemField.objects.create(
+                        binder_item=binder_item,
+                        label=cat["name"],
+                        value="",
+                        status="missing",
+                        category_code=cat.get("worksheet", "6A"),
+                        order=idx,
+                        notes="",
+                    )
             created["TaxYears"] = taxyear_objs
             self.stdout.write(
                 self.style.SUCCESS(f"Demo TaxYear binders created: {taxyear_objs}")
@@ -389,6 +413,27 @@ class Command(BaseCommand):
                         )
                     )
                     raise
+
+            # --- Create demo ad hoc BinderItems for the default company ---
+            ad_hoc_path = os.path.join(
+                os.path.dirname(__file__), "../../bootstrap/ad_hoc_binder_items.json"
+            )
+            with open(ad_hoc_path, "r") as f:
+                ad_hoc_items = json.load(f)
+            for year in years:
+                taxyear = TaxYear.objects.get(business_profile=bp_obj, year=year)
+                for item in ad_hoc_items:
+                    BinderItem.objects.get_or_create(
+                        tax_year=taxyear,
+                        form_id=item["form_id"],
+                        defaults={
+                            "type": "attachment",
+                            "label": item["label"],
+                            "status": "not_started",
+                            "order": 100,
+                        },
+                    )
+            # --- END PATCH ---
 
             # --- PATCH: Initialize Tax Checklist for Demo Company ---
             try:

@@ -8,7 +8,7 @@ from django.conf import settings
 from profiles.models import ProcessingTask, Transaction, Agent
 from profiles.admin import call_agent
 from django.db import transaction
-from profiles.utils import get_update_fields_from_response
+from profiles.utils.utils import get_update_fields_from_response
 
 logger = logging.getLogger(__name__)
 
