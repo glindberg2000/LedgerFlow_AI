@@ -68,6 +68,9 @@ class Command(BaseCommand):
             for idx, page in enumerate(pages):
                 form_id = page.get("label")
                 label = page.get("Title") or form_id
+                # Ensure label is a short string (max 255 chars)
+                if label and len(label) > 255:
+                    label = label[:252] + "..."
                 notes = page.get("summary", "")
                 page_number = page.get("page_number")
                 # Fix media file paths
@@ -104,29 +107,28 @@ class Command(BaseCommand):
                     },
                 )
                 updated = False
-                if not created:
-                    # Update fields if changed
-                    for field, value in [
-                        ("label", label),
-                        ("notes", notes),
-                        ("page_number", page_number),
-                        ("thumbnail_file", thumbnail_file),
-                        ("pdf_page_file", pdf_page_file),
-                        ("has_user_data", has_user_data),
-                    ]:
-                        try:
-                            if (
-                                hasattr(binder_item, field)
-                                and getattr(binder_item, field) != value
-                            ):
-                                setattr(binder_item, field, value)
-                                updated = True
-                        except FieldDoesNotExist:
-                            continue
-                    if updated:
-                        binder_item.save()
-                        updated_count += 1
-                else:
+                # Always update all fields from manifest for existing items
+                for field, value in [
+                    ("label", label),
+                    ("notes", notes),
+                    ("page_number", page_number),
+                    ("thumbnail_file", thumbnail_file),
+                    ("pdf_page_file", pdf_page_file),
+                    ("has_user_data", has_user_data),
+                ]:
+                    try:
+                        if (
+                            hasattr(binder_item, field)
+                            and getattr(binder_item, field) != value
+                        ):
+                            setattr(binder_item, field, value)
+                            updated = True
+                    except FieldDoesNotExist:
+                        continue
+                if updated:
+                    binder_item.save()
+                    updated_count += 1
+                elif created:
                     if has_user_data:
                         created_count += 1
                 # Ingest fields (unchanged)
@@ -144,6 +146,9 @@ class Command(BaseCommand):
                         if isinstance(field_value, (dict, list))
                         else str(field_value)
                     )
+                    # Ensure field_label is not too long
+                    if len(field_label) > 255:
+                        field_label = field_label[:252] + "..."
                     field_obj, f_created = BinderItemField.objects.get_or_create(
                         binder_item=binder_item,
                         label=field_label,

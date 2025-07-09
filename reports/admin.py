@@ -118,22 +118,23 @@ class ReportsAdmin(admin.ModelAdmin):
         ]
 
         # Add Tax Checklist link if client is selected
-        if selected_client:
-            checklist_url = (
-                reverse("admin:profiles_taxchecklistitem_changelist")
-                + f"?business_profile__id__exact={selected_client.id}"
-            )
-            if tax_year:
-                checklist_url += f"&tax_year__exact={tax_year}"
-            reports_list.append(
-                {
-                    "title": "Tax Checklist",
-                    "url_name": None,
-                    "url": checklist_url,
-                    "icon": "✅",
-                    "description": "View and manage the tax checklist for this client.",
-                }
-            )
+        # (Removed: TaxChecklistItem model no longer exists)
+        # if selected_client:
+        #     checklist_url = (
+        #         reverse("admin:profiles_taxchecklistitem_changelist")
+        #         + f"?business_profile__id__exact={selected_client.id}"
+        #     )
+        #     if tax_year:
+        #         checklist_url += f"&tax_year__exact={tax_year}"
+        #     reports_list.append(
+        #         {
+        #             "title": "Tax Checklist",
+        #             "url_name": None,
+        #             "url": checklist_url,
+        #             "icon": "✅",
+        #             "description": "View and manage the tax checklist for this client.",
+        #         }
+        #     )
 
         # Add client_id to report URLs if a client is selected
         for report in reports_list:
