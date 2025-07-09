@@ -717,6 +717,10 @@ class BinderItem(models.Model):
     previous_year_value = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    page_number = models.IntegerField(null=True, blank=True)
+    thumbnail_file = models.CharField(max_length=255, null=True, blank=True)
+    pdf_page_file = models.CharField(max_length=255, null=True, blank=True)
+    has_user_data = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.label} ({self.tax_year})"
