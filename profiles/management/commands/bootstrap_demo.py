@@ -438,6 +438,37 @@ class Command(BaseCommand):
                     )
             # --- END PATCH ---
 
+            # --- Create demo BinderItem and BinderItemFields for ALL organizer forms ---
+            # Load all organizer forms from special_page_configs.json
+            special_page_path = os.path.join(
+                os.path.dirname(__file__), "../../bootstrap/special_page_configs.json"
+            )
+            with open(special_page_path, "r") as f:
+                special_page_configs = json.load(f)
+            for year in years:
+                taxyear = TaxYear.objects.get(business_profile=bp_obj, year=year)
+                order_counter = 1
+                for form_id, config in special_page_configs.items():
+                    if form_id == "default":
+                        continue
+                    label = config.get("Title", form_id)
+                    # Avoid duplicate creation (e.g., 6A already created above)
+                    if not BinderItem.objects.filter(
+                        tax_year=taxyear, form_id=form_id
+                    ).exists():
+                        BinderItem.objects.create(
+                            tax_year=taxyear,
+                            type="form",
+                            label=label,
+                            form_id=form_id,
+                            status="not_started",
+                            order=order_counter,
+                            is_generated=True,
+                            notes=f"Auto-created from organizer form config for {form_id}.",
+                        )
+                    order_counter += 1
+            # --- END PATCH ---
+
             # --- PATCH: Initialize Tax Checklist for Demo Company ---
             try:
                 from django.core.management import call_command
