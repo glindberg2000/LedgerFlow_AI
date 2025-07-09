@@ -17,6 +17,8 @@ from .models import (
     ParsingRun,
     TaxChecklistItem,
     TaxYear,
+    BinderRowTemplate,
+    BinderRow,
 )
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpResponseRedirect
@@ -57,6 +59,8 @@ import pandas as pd
 import tempfile
 from profiles.prompt_utils import get_fallback_payee_prompts
 import jinja2
+from django.forms import TextInput
+from django.db import models
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -2146,8 +2150,70 @@ class TaxChecklistItemAdmin(admin.ModelAdmin):
     list_filter = ("business_profile", "tax_year", "status", "enabled")
 
 
+@admin.register(BinderRowTemplate)
+class BinderRowTemplateAdmin(admin.ModelAdmin):
+    list_display = ("section", "label", "is_generated", "order")
+    search_fields = ("section", "label", "description")
+    list_filter = ("section", "is_generated")
+    ordering = ("order",)
+
+
+class BinderRowInline(admin.TabularInline):
+    model = BinderRow
+    extra = 1
+    fields = (
+        "template",
+        "is_generated",
+        "value",
+        "reference_file",
+        "previous_year_value",
+    )
+    readonly_fields = ("is_generated", "previous_year_value")
+    autocomplete_fields = ("template",)
+    verbose_name = "Binder Field"
+    verbose_name_plural = "Binder Fields"
+    formfield_overrides = {
+        models.CharField: {
+            "widget": TextInput(attrs={"size": "12", "style": "width: 120px;"})
+        },
+    }
+
+    def is_generated(self, obj):
+        return obj.is_generated
+
+    is_generated.short_description = "Generated?"
+    is_generated.boolean = True
+
+
 @admin.register(TaxYear)
 class TaxYearAdmin(admin.ModelAdmin):
     list_display = ("business_profile", "year", "status", "created_at", "updated_at")
     list_filter = ("business_profile", "year", "status")
     search_fields = ("business_profile__company_name", "year", "notes")
+    inlines = [BinderRowInline]
+
+
+@admin.register(BinderRow)
+class BinderRowAdmin(admin.ModelAdmin):
+    list_display = (
+        "tax_year",
+        "template_section",
+        "template_label",
+        "is_generated",
+        "value",
+        "previous_year_value",
+        "order",
+    )
+    list_filter = ("tax_year", "template__section", "template__label", "is_generated")
+    search_fields = ("template__label", "template__description", "value")
+    readonly_fields = ("previous_year_value",)
+
+    def template_section(self, obj):
+        return obj.template.section if obj.template else ""
+
+    template_section.short_description = "Section"
+
+    def template_label(self, obj):
+        return obj.template.label if obj.template else ""
+
+    template_label.short_description = "Label"
