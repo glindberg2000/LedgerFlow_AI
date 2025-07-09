@@ -15,9 +15,10 @@ from profiles.models import (
     TaxYear,
     BinderItem,
     BinderItemField,
+    StatementFile,
 )
 from django.core.files import File
-from profiles.models import StatementFile, Transaction
+from profiles.models import Transaction
 import shutil
 import csv
 import datetime
@@ -62,6 +63,8 @@ class Command(BaseCommand):
             IRSWorksheet,
             IRSExpenseCategory,
             BusinessExpenseCategory,
+            StatementFile,
+            Transaction,
         )
 
         force = options["force"]
