@@ -2177,14 +2177,105 @@ class BinderItemAdmin(admin.ModelAdmin):
         "status",
         "order",
         "is_generated",
+        "page_number",
+        "has_user_data",
+        "thumbnail_preview",
+        "fields_preview",
         "reference_file",
         "previous_year_value",
         "updated_at",
     )
-    list_filter = ("tax_year", "type", "status")
+    list_filter = ("tax_year", "type", "status", "has_user_data")
     search_fields = ("label", "form_id", "notes")
     inlines = [BinderItemFieldInline]
     ordering = ("tax_year", "order")
+
+    def thumbnail_preview(self, obj):
+        # Handle missing or relative paths for thumbnails and PDF links
+        if obj.thumbnail_file:
+            thumb_url = obj.thumbnail_file
+            if not thumb_url.startswith("/media/") and not thumb_url.startswith(
+                "http"
+            ):  # assume local media
+                thumb_url = (
+                    f"/media/{thumb_url}"
+                    if not thumb_url.startswith("media/")
+                    else f"/{thumb_url}"
+                )
+            link_url = obj.pdf_page_file or obj.thumbnail_file
+            if (
+                link_url
+                and not link_url.startswith("/media/")
+                and not link_url.startswith("http")
+            ):
+                link_url = (
+                    f"/media/{link_url}"
+                    if not link_url.startswith("media/")
+                    else f"/{link_url}"
+                )
+            return format_html(
+                '<a href="{}" target="_blank"><img src="{}" style="width:180px;max-width:180px;max-height:220px;object-fit:contain;border:1px solid #ccc;box-shadow:1px 1px 4px #eee;"/></a>',
+                link_url,
+                thumb_url,
+            )
+        return ""
+
+    thumbnail_preview.short_description = "Thumbnail"
+    thumbnail_preview.allow_tags = True
+
+    def fields_preview(self, obj):
+        import json
+        from django.utils.html import escape
+
+        fields = obj.fields.all()
+        if not fields:
+            return ""
+        preview_parts = []
+        tooltips = []
+        for f in fields[:3]:
+            val = f.value
+            pretty_val = val
+            short_val = val
+            # Try to parse JSON dict/list
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    items = list(parsed.items())[:2]
+                    short_val = ", ".join(f"{k}={v}" for k, v in items)
+                    pretty_val = json.dumps(parsed, indent=2)
+                elif isinstance(parsed, list):
+                    items = parsed[:2]
+                    short_val = ", ".join(str(x) for x in items)
+                    pretty_val = json.dumps(parsed, indent=2)
+            except Exception:
+                pass
+            preview_parts.append(f"{f.label}: {short_val}")
+            tooltips.append(f"{f.label}: {pretty_val}")
+        preview = ", ".join(preview_parts)
+        tooltip = "\n".join(tooltips)
+        if fields.count() > 3:
+            preview += ", ..."
+            # Add remaining fields to tooltip
+            for f in fields[3:]:
+                val = f.value
+                pretty_val = val
+                try:
+                    parsed = json.loads(val)
+                    if isinstance(parsed, dict) or isinstance(parsed, list):
+                        pretty_val = json.dumps(parsed, indent=2)
+                except Exception:
+                    pass
+                tooltips.append(f"{f.label}: {pretty_val}")
+            tooltip = "\n".join(tooltips)
+        # Truncate preview to 120 chars (about the width of the thumbnail)
+        max_len = 120
+        if len(preview) > max_len:
+            preview = preview[: max_len - 3] + "..."
+        # Escape for HTML, preserve line breaks in tooltip
+        tooltip_html = escape(tooltip).replace("\n", "<br>")
+        return format_html('<span title="{}">{}</span>', tooltip_html, preview)
+
+    fields_preview.short_description = "Fields Preview"
 
 
 class BinderItemInline(admin.TabularInline):
