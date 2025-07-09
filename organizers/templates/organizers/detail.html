@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>{{ workbook.title }}</h1>
+<p>Status: {{ workbook.get_status_display }}</p>
+<p>Uploaded: {{ workbook.upload_date }}</p>
+<p>Client: {{ workbook.business_profile }}</p>
+{% if workbook.tax_year %}
+<p>Attached to: {{ workbook.tax_year.year }} Tax Year</p>
+{% endif %}
+
+<h2>Outputs</h2>
+{% if outputs %}
+    <h3>Thumbnails</h3>
+    <div class="thumbnail-grid">
+        {% for output in outputs %}
+            {% if output.output_type == 'thumbnail' %}
+                <div class="thumbnail">
+                    <img src="{{ output.file.url }}" alt="Page {{ output.page_number }}">
+                    <p>Page {{ output.page_number }}</p>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    <h3>Page PDFs</h3>
+    <ul>
+        {% for output in outputs %}
+            {% if output.output_type == 'page_pdf' %}
+                <li><a href="{{ output.file.url }}" target="_blank">Page {{ output.page_number }}</a></li>
+            {% endif %}
+        {% endfor %}
+    </ul>
+    <h3>Manifest</h3>
+    {% for output in outputs %}
+        {% if output.output_type == 'manifest' %}
+            <a href="{{ output.file.url }}" target="_blank">Download Manifest</a>
+        {% endif %}
+    {% endfor %}
+{% else %}
+    <p>No outputs available yet. The workbook may still be processing.</p>
+{% endif %}
+{% endblock %} 
