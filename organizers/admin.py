@@ -12,6 +12,7 @@ from profiles.models import BinderItem
 import os
 import json
 from django.core.files.base import ContentFile
+from django.utils.html import format_html
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -141,21 +142,20 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     list_display = (
         "title",
         "business_profile",
+        "tax_year",
         "upload_date",
         "status",
-        "manifest_hash",
         "manifest_page_count",
         "short_manifest_summary",
+        "short_manifest_hash",
     )
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
-    readonly_fields = [
-        "upload_date",
-        "status",
+    readonly_fields = (
         "manifest_hash",
         "manifest_page_count",
         "manifest_file_summary",
-    ]
+    )
     inlines = [OrganizerOutputInline]
     actions = [delete_all_checklist_items, import_manifest_to_checklist]
 
@@ -187,14 +187,30 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "Create Extraction Task for selected workbooks"
     )
 
+    def short_manifest_hash(self, obj):
+        if obj.manifest_hash:
+            return format_html(
+                '<span title="{}">{}...</span>',
+                obj.manifest_hash,
+                obj.manifest_hash[:8],
+            )
+        return ""
+
+    short_manifest_hash.short_description = "Manifest Hash"
+    short_manifest_hash.admin_order_field = "manifest_hash"
+
     def short_manifest_summary(self, obj):
         if obj.manifest_file_summary:
-            return obj.manifest_file_summary[:80] + (
-                "..." if len(obj.manifest_file_summary) > 80 else ""
+            short = obj.manifest_file_summary[:60].replace("\n", " ")
+            return format_html(
+                '<span title="{}">{}</span>',
+                obj.manifest_file_summary,
+                short + ("..." if len(obj.manifest_file_summary) > 60 else ""),
             )
         return ""
 
     short_manifest_summary.short_description = "Manifest Summary"
+    short_manifest_summary.admin_order_field = "manifest_file_summary"
 
     def save_model(self, request, obj, form, change):
         file = form.cleaned_data.get("original_file")
