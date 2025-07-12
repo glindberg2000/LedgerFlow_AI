@@ -60,6 +60,20 @@ class Command(BaseCommand):
             )
             return
 
+        # Load manifest and extract new top-level fields
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+        manifest_title = manifest.get("Title")
+        manifest_summary = manifest.get("file_summary")
+        manifest_tax_year = manifest.get("Tax_Year")
+
+        # Use manifest_tax_year for binder lookup/creation
+        tax_year = (
+            str(manifest_tax_year)
+            if manifest_tax_year
+            else str(options.get("tax_year"))
+        )
+
         try:
             binder = TaxYear.objects.get(business_profile=client, year=tax_year)
         except TaxYear.DoesNotExist:
@@ -69,9 +83,6 @@ class Command(BaseCommand):
                 )
             )
             return
-
-        with open(manifest_path, "r") as f:
-            manifest = json.load(f)
 
         pages = manifest.get("pages", [])
         created_count = 0
