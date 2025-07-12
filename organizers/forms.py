@@ -5,7 +5,7 @@ from .models import OrganizerWorkbook
 class OrganizerWorkbookForm(forms.ModelForm):
     class Meta:
         model = OrganizerWorkbook
-        fields = ["business_profile", "tax_year", "title", "original_file", "notes"]
+        fields = ["business_profile", "tax_year", "original_file", "notes"]
 
     def clean_original_file(self):
         file = self.cleaned_data["original_file"]
@@ -21,24 +21,32 @@ class OrganizerWorkbookForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         file = cleaned_data.get("original_file")
-        title = cleaned_data.get("title")
+        title = None
         if file and file.name.lower().endswith(".json"):
             import json
-
             try:
                 file.seek(0)
                 manifest = json.load(file)
                 # Try to extract a title from the manifest
-                doc_title = None
-                if "pages" in manifest and manifest["pages"]:
-                    cover = manifest["pages"][0]
-                    doc_title = cover.get("data", {}).get("document_title")
-                if not doc_title:
-                    doc_title = manifest.get("file_summary")
-                if not doc_title:
-                    doc_title = file.name
-                cleaned_data["title"] = doc_title[:255]
+                title = (
+                    manifest.get("document_title")
+                    or (manifest.get("pages") and manifest["pages"][0]["data"].get("document_title"))
+                    or None
+                )
             except Exception:
-                if not title:
-                    cleaned_data["title"] = file.name[:255]
+                title = None
+        # Fallbacks
+        if not title and file:
+            title = file.name
+        if not title:
+            title = "TAX ORGANIZER"
+        cleaned_data["title"] = title
         return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # Set the title from cleaned_data
+        instance.title = self.cleaned_data.get("title")
+        if commit:
+            instance.save()
+        return instance
