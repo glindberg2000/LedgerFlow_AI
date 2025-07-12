@@ -13,6 +13,7 @@ import os
 import json
 from django.core.files.base import ContentFile
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -190,27 +191,23 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     def short_manifest_hash(self, obj):
         if obj.manifest_hash:
             return format_html(
-                '<span title="{}">{}...</span>',
+                '<span>{}</span> <span style="cursor:pointer;" title="{}">&#9432;</span>',
+                obj.manifest_hash[:8] + "...",
                 obj.manifest_hash,
-                obj.manifest_hash[:8],
             )
-        return ""
+        return "-"
 
     short_manifest_hash.short_description = "Manifest Hash"
-    short_manifest_hash.admin_order_field = "manifest_hash"
 
     def short_manifest_summary(self, obj):
         if obj.manifest_file_summary:
-            short = obj.manifest_file_summary[:60].replace("\n", " ")
             return format_html(
-                '<span title="{}">{}</span>',
+                '<span style="cursor:pointer;" title="{}">&#9432;</span>',
                 obj.manifest_file_summary,
-                short + ("..." if len(obj.manifest_file_summary) > 60 else ""),
             )
-        return ""
+        return "-"
 
-    short_manifest_summary.short_description = "Manifest Summary"
-    short_manifest_summary.admin_order_field = "manifest_file_summary"
+    short_manifest_summary.short_description = "Summary"
 
     def save_model(self, request, obj, form, change):
         file = form.cleaned_data.get("original_file")
