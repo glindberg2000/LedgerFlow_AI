@@ -3,10 +3,28 @@
 {% block content %}
 <h1>Upload Organizer Workbook or Manifest</h1>
 <p>You can upload either an <strong>Organizer PDF</strong> (to extract and process) or a <strong>Manifest JSON</strong> (to directly create checklist items).</p>
-<p><em>If you upload a manifest JSON, the title will be auto-filled from the manifest's metadata.</em></p>
+<p><em>Title will be auto-filled from the manifest or file name.</em></p>
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Upload and Process</button>
+    {{ form.non_field_errors }}
+    <table>
+        <tr>
+            <th>{{ form.business_profile.label_tag }}</th>
+            <td>{{ form.business_profile }}</td>
+        </tr>
+        <tr>
+            <th>{{ form.tax_year.label_tag }}</th>
+            <td>{{ form.tax_year }}</td>
+        </tr>
+        <tr>
+            <th>{{ form.original_file.label_tag }}</th>
+            <td>{{ form.original_file }}</td>
+        </tr>
+        <tr>
+            <th>{{ form.notes.label_tag }}</th>
+            <td>{{ form.notes }}</td>
+        </tr>
+    </table>
+    <button type="submit">Upload</button>
 </form>
 {% endblock %} 
