@@ -4,12 +4,19 @@ import json
 import os
 from django.db import transaction
 from django.core.exceptions import FieldDoesNotExist
+from organizers.models import OrganizerWorkbook
 
 
 class Command(BaseCommand):
     help = "Ingest a manifest JSON and create BinderItems and BinderItemFields for a client and tax year."
 
     def add_arguments(self, parser):
+        super().add_arguments(parser)
+        parser.add_argument(
+            "--delete-existing",
+            action="store_true",
+            help="Delete all BinderItems for this binder before ingesting",
+        )
         parser.add_argument(
             "--manifest", type=str, required=True, help="Path to manifest JSON file"
         )
@@ -21,6 +28,17 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--tax_year", type=str, required=True, help="Tax year (e.g., 2023)"
+        )
+        parser.add_argument(
+            "--organizer-workbook-id",
+            type=int,
+            help="ID of OrganizerWorkbook to link items to",
+        )
+        parser.add_argument("--manifest-hash", type=str, help="Hash of the manifest")
+        parser.add_argument(
+            "--overwrite",
+            action="store_true",
+            help="Delete all BinderItems for this organizer before ingesting",
         )
 
     def handle(self, *args, **options):
@@ -64,7 +82,65 @@ class Command(BaseCommand):
         # Set the subdirectory for media files
         media_subdir = "organizers/outputs/4/"
 
+        if options.get("delete_existing"):
+            BinderItem.objects.filter(tax_year=tax_year).delete()
+
+        organizer_workbook = None
+        if options.get("organizer_workbook_id"):
+            from organizers.models import OrganizerWorkbook
+
+            try:
+                organizer_workbook = OrganizerWorkbook.objects.get(
+                    id=options["organizer_workbook_id"]
+                )
+            except OrganizerWorkbook.DoesNotExist:
+                self.stderr.write(
+                    self.style.ERROR(
+                        f"OrganizerWorkbook with id={options['organizer_workbook_id']} does not exist. Aborting."
+                    )
+                )
+                return
+        else:
+            self.stderr.write(
+                self.style.ERROR("No organizer_workbook_id provided. Aborting.")
+            )
+            return
+        manifest_hash = options.get("manifest_hash")
+        if options.get("overwrite") and organizer_workbook:
+            # Delete all BinderItems for this binder and organizer_workbook
+            BinderItem.objects.filter(
+                tax_year=binder, organizer_workbook=organizer_workbook
+            ).delete()
+
         with transaction.atomic():
+            # --- BEGIN: Workflow mapping config ---
+            # Example: Map form_id or label to action_type and related fields
+            CALCULATED_REPORTS = {
+                "6A": {"action_type": "calculated", "calculated_by_report": "6A"},
+                "6A Worksheet": {
+                    "action_type": "calculated",
+                    "calculated_by_report": "6A",
+                },
+            }
+            UPLOAD_DOCS = {
+                "W2": {"action_type": "upload", "required_document_type": "W2"},
+                "1099": {"action_type": "upload", "required_document_type": "1099"},
+            }
+            INFO_ONLY_PAGES = {
+                "Cover_Sheet": {"action_type": "info_only"},
+                "Mail/Presentation Sheet": {"action_type": "info_only"},
+            }
+            IGNORED_PAGES = {
+                "Sample_Page": {"action_type": "ignore"},
+            }
+            # --- END: Workflow mapping config ---
+            # Always use the business_profile from OrganizerWorkbook or the client argument
+            if organizer_workbook:
+                business_profile = organizer_workbook.business_profile
+            else:
+                business_profile = client
+            # (Removed fallback logic that tried to get client_id from manifest)
+
             for idx, page in enumerate(pages):
                 form_id = page.get("label")
                 label = page.get("Title") or form_id
@@ -85,13 +161,44 @@ class Command(BaseCommand):
                 ):
                     pdf_page_file = media_subdir + pdf_page_file
                 has_user_data = page.get("has_user_data", False)
+                # --- BEGIN: Set workflow fields ---
+                # Defaults
+                action_type = "manual"
+                calculated_by_report = None
+                required_document_type = None
+                source = "Organizer"
+                # Check for calculated reports
+                mapping = CALCULATED_REPORTS.get(form_id) or CALCULATED_REPORTS.get(
+                    label
+                )
+                if mapping:
+                    action_type = mapping.get("action_type", action_type)
+                    calculated_by_report = mapping.get("calculated_by_report")
+                    source = "Report"
+                # Check for upload docs
+                mapping = UPLOAD_DOCS.get(form_id) or UPLOAD_DOCS.get(label)
+                if mapping:
+                    action_type = mapping.get("action_type", action_type)
+                    required_document_type = mapping.get("required_document_type")
+                    source = "Upload"
+                # --- END: Set workflow fields ---
+                # Determine action_type and display_in_checklist
+                display_in_checklist = True
+                if form_id in INFO_ONLY_PAGES or label in INFO_ONLY_PAGES:
+                    action_type = "info_only"
+                    display_in_checklist = False
+                elif form_id in IGNORED_PAGES or label in IGNORED_PAGES:
+                    action_type = "ignore"
+                    display_in_checklist = False
                 if not form_id:
                     self.stderr.write(
                         self.style.WARNING(f"Page {idx+1} missing 'label', skipping.")
                     )
                     continue
+                # Use both tax_year and organizer_workbook for uniqueness
                 binder_item, created = BinderItem.objects.get_or_create(
                     tax_year=binder,
+                    organizer_workbook=organizer_workbook,
                     form_id=form_id,
                     defaults={
                         "type": "form",
@@ -104,6 +211,13 @@ class Command(BaseCommand):
                         "thumbnail_file": thumbnail_file,
                         "pdf_page_file": pdf_page_file,
                         "has_user_data": has_user_data,
+                        # New workflow fields
+                        "action_type": action_type,
+                        "calculated_by_report": calculated_by_report,
+                        "required_document_type": required_document_type,
+                        "source": source,
+                        "display_in_checklist": display_in_checklist,
+                        "manifest_hash": manifest_hash,
                     },
                 )
                 updated = False
@@ -115,6 +229,13 @@ class Command(BaseCommand):
                     ("thumbnail_file", thumbnail_file),
                     ("pdf_page_file", pdf_page_file),
                     ("has_user_data", has_user_data),
+                    # New workflow fields
+                    ("action_type", action_type),
+                    ("calculated_by_report", calculated_by_report),
+                    ("required_document_type", required_document_type),
+                    ("source", source),
+                    ("display_in_checklist", display_in_checklist),
+                    ("manifest_hash", manifest_hash),
                 ]:
                     try:
                         if (
@@ -125,12 +246,27 @@ class Command(BaseCommand):
                             updated = True
                     except FieldDoesNotExist:
                         continue
+                # Always ensure correct linkage
+                if binder_item.tax_year != binder:
+                    binder_item.tax_year = binder
+                    updated = True
+                if binder_item.organizer_workbook != organizer_workbook:
+                    binder_item.organizer_workbook = organizer_workbook
+                    updated = True
+                if (
+                    business_profile
+                    and getattr(binder_item, "business_profile", None)
+                    != business_profile
+                ):
+                    binder_item.business_profile = business_profile
+                    updated = True
                 if updated:
                     binder_item.save()
                     updated_count += 1
                 elif created:
                     if has_user_data:
                         created_count += 1
+                    binder_item.save()
                 # Ingest fields (unchanged)
                 data = page.get("data", {})
                 if isinstance(data, dict):
