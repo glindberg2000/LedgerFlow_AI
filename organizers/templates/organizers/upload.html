@@ -1,7 +1,9 @@
 {% extends "admin/base_site.html" %}
 
 {% block content %}
-<h1>Upload Organizer Workbook</h1>
+<h1>Upload Organizer Workbook or Manifest</h1>
+<p>You can upload either an <strong>Organizer PDF</strong> (to extract and process) or a <strong>Manifest JSON</strong> (to directly create checklist items).</p>
+<p><em>If you upload a manifest JSON, the title will be auto-filled from the manifest's metadata.</em></p>
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {{ form.as_p }}
