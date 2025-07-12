@@ -35,31 +35,46 @@ class OrganizerWorkbook(models.Model):
     # -----------------------------
 
     def save(self, *args, **kwargs):
-        if not self.title or self.title.strip() == "":
+        # Auto-fill title and summary from manifest if blank
+        if (not self.title or self.title.strip() == "") or (
+            not self.manifest_file_summary or self.manifest_file_summary.strip() == ""
+        ):
             if self.original_file and self.original_file.name.lower().endswith(".json"):
                 try:
                     self.original_file.seek(0)
+                    import json
+
                     manifest = json.load(self.original_file)
-                    pages = manifest.get("pages", [])
-                    if pages and isinstance(pages, list):
-                        cover = pages[0]
-                        doc_title = (
-                            cover.get("document_title")
-                            or cover.get("Title")
-                            or cover.get("label")
-                        )
-                        if doc_title:
-                            self.title = str(doc_title)
-                        else:
-                            self.title = os.path.basename(self.original_file.name)
-                    else:
-                        self.title = os.path.basename(self.original_file.name)
+                    # Prefer top-level Title and file_summary
+                    manifest_title = manifest.get("Title")
+                    manifest_summary = manifest.get("file_summary")
+                    if (not self.title or self.title.strip() == "") and manifest_title:
+                        self.title = manifest_title
+                    if (
+                        not self.manifest_file_summary
+                        or self.manifest_file_summary.strip() == ""
+                    ) and manifest_summary:
+                        self.manifest_file_summary = manifest_summary
+                    # Fallback to cover page title if needed
+                    if not self.title or self.title.strip() == "":
+                        pages = manifest.get("pages", [])
+                        if pages and isinstance(pages, list):
+                            cover = pages[0]
+                            doc_title = cover.get("Title") or cover.get(
+                                "document_title"
+                            )
+                            if doc_title:
+                                self.title = doc_title
+                    # Fallback to filename
+                    if not self.title or self.title.strip() == "":
+                        self.title = os.path.splitext(
+                            os.path.basename(self.original_file.name)
+                        )[0]
                 except Exception:
-                    self.title = os.path.basename(self.original_file.name)
-            else:
-                self.title = (
-                    os.path.basename(self.original_file.name) or "TAX ORGANIZER"
-                )
+                    if not self.title or self.title.strip() == "":
+                        self.title = os.path.splitext(
+                            os.path.basename(self.original_file.name)
+                        )[0]
         super().save(*args, **kwargs)
 
     def __str__(self):
