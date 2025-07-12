@@ -14,6 +14,7 @@ import json
 from django.core.files.base import ContentFile
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from .forms import OrganizerWorkbookForm
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -140,6 +141,7 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
+    form = OrganizerWorkbookForm
     list_display = (
         "title",
         "business_profile",
@@ -159,6 +161,24 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     )
     inlines = [OrganizerOutputInline]
     actions = [delete_all_checklist_items, import_manifest_to_checklist]
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "binder",
+                    "title",
+                    "original_file",
+                    "notes",
+                    "status",
+                    "manifest_hash",
+                    "manifest_page_count",
+                    "manifest_file_summary",
+                )
+            },
+        ),
+    )
 
     def create_extraction_task(self, request, queryset):
         created = 0
@@ -210,16 +230,18 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     short_manifest_summary.short_description = "Summary"
 
     def save_model(self, request, obj, form, change):
+        # Set business_profile and tax_year from binder
+        binder = form.cleaned_data.get("binder")
+        if binder:
+            obj.tax_year = binder
+            obj.business_profile = binder.business_profile
         file = form.cleaned_data.get("original_file")
         if file and file.name.lower().endswith(".json"):
-            # Read the uploaded file into memory
-            file.seek(0)
-            manifest_bytes = file.read()
             try:
-                manifest_data = json.loads(manifest_bytes.decode("utf-8"))
-            except Exception:
-                manifest_data = None
-            if manifest_data:
+                file.seek(0)
+                import json
+
+                manifest_data = json.load(file)
                 obj.manifest_hash = manifest_data.get("file_hash")
                 obj.manifest_file_summary = manifest_data.get("file_summary")
                 # Try to get page count from manifest structure
@@ -229,12 +251,21 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                     obj.manifest_page_count = len(manifest_data["items"])
                 else:
                     obj.manifest_page_count = None
+                # Prefer top-level Title, fallback to cover page title
+                manifest_title = manifest_data.get("Title")
+                if not manifest_title:
+                    pages = manifest_data.get("pages", [])
+                    if pages and isinstance(pages, list):
+                        cover = pages[0]
+                        manifest_title = cover.get("Title") or cover.get(
+                            "document_title"
+                        )
+                if manifest_title:
+                    obj.title = manifest_title
                 obj.status = "manifest_ready"
-            else:
+            except Exception:
                 obj.manifest_hash = None
                 obj.manifest_file_summary = None
                 obj.manifest_page_count = None
                 obj.status = "pending"
-            # Rewind file pointer for model save
-            file.seek(0)
         super().save_model(request, obj, form, change)
