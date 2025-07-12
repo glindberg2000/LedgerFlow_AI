@@ -145,7 +145,8 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     list_display = (
         "title",
         "business_profile",
-        "tax_year",
+        "binder",
+        "tax_year_value",
         "upload_date",
         "status",
         "manifest_page_count",
@@ -179,6 +180,16 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    def binder(self, obj):
+        return str(obj.tax_year) if obj.tax_year else "-"
+
+    binder.short_description = "Binder"
+
+    def tax_year_value(self, obj):
+        return obj.tax_year.year if obj.tax_year else "-"
+
+    tax_year_value.short_description = "Tax Year"
 
     def create_extraction_task(self, request, queryset):
         created = 0
