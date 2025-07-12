@@ -3,9 +3,15 @@ from .models import OrganizerWorkbook
 
 
 class OrganizerWorkbookForm(forms.ModelForm):
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        help_text="Optional. If left blank, the title will be auto-filled from the manifest or file name.",
+    )
+
     class Meta:
         model = OrganizerWorkbook
-        fields = ["business_profile", "tax_year", "original_file", "notes"]
+        fields = ["business_profile", "tax_year", "title", "original_file", "notes"]
 
     def clean_original_file(self):
         file = self.cleaned_data["original_file"]
@@ -24,13 +30,17 @@ class OrganizerWorkbookForm(forms.ModelForm):
         title = None
         if file and file.name.lower().endswith(".json"):
             import json
+
             try:
                 file.seek(0)
                 manifest = json.load(file)
                 # Try to extract a title from the manifest
                 title = (
                     manifest.get("document_title")
-                    or (manifest.get("pages") and manifest["pages"][0]["data"].get("document_title"))
+                    or (
+                        manifest.get("pages")
+                        and manifest["pages"][0]["data"].get("document_title")
+                    )
                     or None
                 )
             except Exception:

@@ -1,5 +1,7 @@
 from django.db import models
 from profiles.models import BusinessProfile, TaxYear
+import os
+import json
 
 
 class OrganizerWorkbook(models.Model):
@@ -9,7 +11,7 @@ class OrganizerWorkbook(models.Model):
     tax_year = models.ForeignKey(
         TaxYear, on_delete=models.CASCADE, related_name="organizer_workbooks"
     )
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=255, blank=True)
     original_file = models.FileField(upload_to="organizers/originals/")
     upload_date = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
@@ -31,6 +33,34 @@ class OrganizerWorkbook(models.Model):
     manifest_page_count = models.IntegerField(blank=True, null=True)
     manifest_file_summary = models.TextField(blank=True, null=True)
     # -----------------------------
+
+    def save(self, *args, **kwargs):
+        if not self.title or self.title.strip() == "":
+            if self.original_file and self.original_file.name.lower().endswith(".json"):
+                try:
+                    self.original_file.seek(0)
+                    manifest = json.load(self.original_file)
+                    pages = manifest.get("pages", [])
+                    if pages and isinstance(pages, list):
+                        cover = pages[0]
+                        doc_title = (
+                            cover.get("document_title")
+                            or cover.get("Title")
+                            or cover.get("label")
+                        )
+                        if doc_title:
+                            self.title = str(doc_title)
+                        else:
+                            self.title = os.path.basename(self.original_file.name)
+                    else:
+                        self.title = os.path.basename(self.original_file.name)
+                except Exception:
+                    self.title = os.path.basename(self.original_file.name)
+            else:
+                self.title = (
+                    os.path.basename(self.original_file.name) or "TAX ORGANIZER"
+                )
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.business_profile} - {self.tax_year} - {self.title}"
