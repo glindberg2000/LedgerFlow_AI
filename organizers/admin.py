@@ -12,9 +12,6 @@ from profiles.models import BinderItem
 import os
 import json
 from django.core.files.base import ContentFile
-from django.utils.html import format_html
-from django.utils.safestring import mark_safe
-from .forms import OrganizerWorkbookForm
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -58,14 +55,8 @@ def delete_all_checklist_items(modeladmin, request, queryset):
     )
 
 
-@admin.action(
-    description="Import Manifest to Checklist (auto-create/update Binder and BinderItems)"
-)
+@admin.action(description="Import Manifest to Checklist (overwrite existing items)")
 def import_manifest_to_checklist(modeladmin, request, queryset):
-    import json
-    from profiles.models import TaxYear, BinderItem
-    from django.db import transaction
-
     count = 0
     for organizer in queryset:
         if organizer.status != "manifest_ready" or not organizer.manifest_hash:
@@ -74,55 +65,16 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
                 f"Organizer '{organizer}' is not ready for manifest import or missing hash.",
             )
             continue
-        # Read manifest and extract tax year
+        # Delete previous BinderItems for this organizer
+        BinderItem.objects.filter(organizer_workbook=organizer).delete()
+        # Ingest manifest
         manifest_path = organizer.original_file.path
         try:
-            with open(manifest_path, "r") as f:
-                manifest_data = json.load(f)
-            # Try to extract tax year from cover sheet
-            tax_year = None
-            for page in manifest_data.get("pages", []):
-                data = page.get("data", {})
-                if isinstance(data, dict) and "tax_year" in data:
-                    tax_year = str(data["tax_year"]).strip()
-                    break
-            if not tax_year:
-                messages.error(
-                    request,
-                    f"No tax year found in manifest for '{organizer}'. Aborting.",
-                )
-                continue
-            # Look up or create Binder (TaxYear)
-            client = organizer.business_profile
-            binder, created = TaxYear.objects.get_or_create(
-                business_profile=client,
-                year=tax_year,
-                defaults={"status": "not_started"},
-            )
-            if created:
-                messages.info(
-                    request, f"Created new Binder (TaxYear) {tax_year} for {client}."
-                )
-            # Link organizer to binder if not already (and save immediately)
-            if organizer.tax_year != binder:
-                organizer.tax_year = binder
-                organizer.save()
-            # Warn if overwriting existing BinderItems
-            existing_items = BinderItem.objects.filter(
-                tax_year=binder, organizer_workbook=organizer
-            )
-            if existing_items.exists():
-                messages.warning(
-                    request,
-                    f"Overwriting {existing_items.count()} existing BinderItems for '{organizer}'.",
-                )
-                existing_items.delete()
-            # Ingest manifest and create BinderItems
             ingest_cmd = IngestManifestCommand()
             ingest_cmd.handle(
                 manifest=manifest_path,
-                tax_year=tax_year,
-                client_id=client.client_id,
+                tax_year=organizer.title,
+                client_id=organizer.business_profile.client_id,  # <-- fix: pass client_id
                 organizer_workbook_id=organizer.id,
                 manifest_hash=organizer.manifest_hash,
                 overwrite=True,
@@ -141,55 +93,26 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
-    form = OrganizerWorkbookForm
     list_display = (
         "title",
         "business_profile",
-        "binder",
-        "tax_year_value",
         "upload_date",
         "status",
+        "manifest_hash",
         "manifest_page_count",
         "short_manifest_summary",
-        "short_manifest_hash",
     )
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
-    readonly_fields = (
+    readonly_fields = [
+        "upload_date",
+        "status",
         "manifest_hash",
         "manifest_page_count",
         "manifest_file_summary",
-    )
+    ]
     inlines = [OrganizerOutputInline]
     actions = [delete_all_checklist_items, import_manifest_to_checklist]
-
-    fieldsets = (
-        (
-            None,
-            {
-                "fields": (
-                    "binder",
-                    "title",
-                    "original_file",
-                    "notes",
-                    "status",
-                    "manifest_hash",
-                    "manifest_page_count",
-                    "manifest_file_summary",
-                )
-            },
-        ),
-    )
-
-    def binder(self, obj):
-        return str(obj.tax_year) if obj.tax_year else "-"
-
-    binder.short_description = "Binder"
-
-    def tax_year_value(self, obj):
-        return obj.tax_year.year if obj.tax_year else "-"
-
-    tax_year_value.short_description = "Tax Year"
 
     def create_extraction_task(self, request, queryset):
         created = 0
@@ -219,40 +142,26 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "Create Extraction Task for selected workbooks"
     )
 
-    def short_manifest_hash(self, obj):
-        if obj.manifest_hash:
-            return format_html(
-                '<span>{}</span> <span style="cursor:pointer;" title="{}">&#9432;</span>',
-                obj.manifest_hash[:8] + "...",
-                obj.manifest_hash,
-            )
-        return "-"
-
-    short_manifest_hash.short_description = "Manifest Hash"
-
     def short_manifest_summary(self, obj):
         if obj.manifest_file_summary:
-            return format_html(
-                '<span style="cursor:pointer;" title="{}">&#9432;</span>',
-                obj.manifest_file_summary,
+            return obj.manifest_file_summary[:80] + (
+                "..." if len(obj.manifest_file_summary) > 80 else ""
             )
-        return "-"
+        return ""
 
-    short_manifest_summary.short_description = "Summary"
+    short_manifest_summary.short_description = "Manifest Summary"
 
     def save_model(self, request, obj, form, change):
-        # Set business_profile and tax_year from binder
-        binder = form.cleaned_data.get("binder")
-        if binder:
-            obj.tax_year = binder
-            obj.business_profile = binder.business_profile
         file = form.cleaned_data.get("original_file")
         if file and file.name.lower().endswith(".json"):
+            # Read the uploaded file into memory
+            file.seek(0)
+            manifest_bytes = file.read()
             try:
-                file.seek(0)
-                import json
-
-                manifest_data = json.load(file)
+                manifest_data = json.loads(manifest_bytes.decode("utf-8"))
+            except Exception:
+                manifest_data = None
+            if manifest_data:
                 obj.manifest_hash = manifest_data.get("file_hash")
                 obj.manifest_file_summary = manifest_data.get("file_summary")
                 # Try to get page count from manifest structure
@@ -262,21 +171,12 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                     obj.manifest_page_count = len(manifest_data["items"])
                 else:
                     obj.manifest_page_count = None
-                # Prefer top-level Title, fallback to cover page title
-                manifest_title = manifest_data.get("Title")
-                if not manifest_title:
-                    pages = manifest_data.get("pages", [])
-                    if pages and isinstance(pages, list):
-                        cover = pages[0]
-                        manifest_title = cover.get("Title") or cover.get(
-                            "document_title"
-                        )
-                if manifest_title:
-                    obj.title = manifest_title
                 obj.status = "manifest_ready"
-            except Exception:
+            else:
                 obj.manifest_hash = None
                 obj.manifest_file_summary = None
                 obj.manifest_page_count = None
                 obj.status = "pending"
+            # Rewind file pointer for model save
+            file.seek(0)
         super().save_model(request, obj, form, change)
