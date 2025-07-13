@@ -84,6 +84,7 @@ searxng-fresh/
 *.sql
 *.sql.gz
 *.dump
+*.sqlite3
 
 # Exclude all backup and archive directories
 backups/
@@ -156,4 +157,4 @@ tasks/
 data/
 
 # Added by Claude Task Master
-.cursor/ 
+.cursor/ *.sqlite3
