@@ -40,6 +40,12 @@
     <p>No outputs available yet. The workbook may still be processing.</p>
 {% endif %}
 
+<!-- Add a button/link to view all generated checklist items for this workbook in the admin -->
+<h3>View All Checklist Items</h3>
+<p>
+    <a href="/admin/profiles/binderitem/?organizer_workbook__id__exact={{ workbook.id }}" target="_blank" class="button" style="font-size:1.1em;padding:8px 18px;background:#2d6cdf;color:white;border-radius:5px;text-decoration:none;">View Checklist Items for This Workbook</a>
+</p>
+
 <h2>Generated Checklist Items</h2>
 {% with binder_items=workbook.tax_year.binder_items.all|dictsort:"order" %}
     {% if binder_items %}

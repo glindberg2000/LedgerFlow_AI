@@ -14,6 +14,7 @@ import json
 from django.core.files.base import ContentFile
 from .forms import OrganizerWorkbookForm
 from django import forms
+from django.utils.html import format_html
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -108,14 +109,51 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
     readonly_fields = [
+        "business_profile",
+        "tax_year",
+        "title",
+        "original_file",
         "upload_date",
         "status",
         "manifest_hash",
         "manifest_page_count",
         "manifest_file_summary",
+        "binder_items_status",
+        "binder_items_link",
     ]
-    inlines = [OrganizerOutputInline]
     actions = [delete_all_checklist_items, import_manifest_to_checklist]
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            # On creation: show binder, title, original_file
+            return ((None, {"fields": ("binder", "title", "original_file")}),)
+        # On change: show all as read-only
+        return (
+            (
+                None,
+                {"fields": ("business_profile", "tax_year", "title", "original_file")},
+            ),
+            (
+                "Status & Metadata",
+                {
+                    "fields": (
+                        "upload_date",
+                        "status",
+                        "manifest_hash",
+                        "manifest_page_count",
+                        "manifest_file_summary",
+                        "binder_items_status",
+                        "binder_items_link",
+                    )
+                },
+            ),
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            # On creation, nothing is read-only
+            return []
+        return self.readonly_fields
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
@@ -162,6 +200,31 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         return ""
 
     short_manifest_summary.short_description = "Manifest Summary"
+
+    def binder_items_status(self, obj):
+        if obj.status == "checklist_created":
+            return format_html(
+                '<span style="color:green;font-weight:bold;">Binder Items imported</span>'
+            )
+        elif obj.status == "manifest_ready":
+            return format_html(
+                '<span style="color:orange;">Manifest uploaded, not yet imported to Binder Items</span>'
+            )
+        else:
+            return format_html('<span style="color:gray;">Not processed</span>')
+
+    binder_items_status.short_description = "Binder Items Import Status"
+
+    def binder_items_link(self, obj):
+        if not obj.pk or obj.status != "checklist_created":
+            return ""
+        url = f"/admin/profiles/binderitem/?organizer_workbook__id__exact={obj.pk}"
+        return format_html(
+            '<a href="{}" target="_blank" class="button" style="font-size:1.1em;padding:8px 18px;background:#2d6cdf;color:white;border-radius:5px;text-decoration:none;">View Binder Items for This Workbook</a>',
+            url,
+        )
+
+    binder_items_link.short_description = "Binder Items for This Workbook"
 
     def save_model(self, request, obj, form, change):
         file = form.cleaned_data.get("original_file")

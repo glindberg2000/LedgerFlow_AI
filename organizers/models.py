@@ -78,7 +78,15 @@ class OrganizerWorkbook(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.business_profile} - {self.tax_year} - {self.title}"
+        # Avoid duplicate business/year in string
+        parts = []
+        if self.business_profile:
+            parts.append(str(self.business_profile))
+        if self.tax_year:
+            parts.append(str(self.tax_year.year))
+        if self.title:
+            parts.append(self.title)
+        return " – ".join(parts)
 
 
 class OrganizerOutput(models.Model):

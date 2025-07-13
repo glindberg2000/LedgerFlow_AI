@@ -21,7 +21,15 @@ class OrganizerWorkbookForm(forms.ModelForm):
 
     class Meta:
         model = OrganizerWorkbook
-        fields = ["binder", "title", "original_file", "notes"]
+        fields = ["binder", "title", "original_file"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            # On change, remove binder, title, and file fields (all are read-only in admin)
+            for field in ["binder", "title", "original_file"]:
+                if field in self.fields:
+                    self.fields.pop(field)
 
     def clean_original_file(self):
         file = self.cleaned_data["original_file"]
@@ -38,13 +46,12 @@ class OrganizerWorkbookForm(forms.ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        # Set the title from cleaned_data (may be blank)
-        instance.title = self.cleaned_data.get("title")
-        # Set binder linkage
-        binder = self.cleaned_data.get("binder")
-        if binder:
-            instance.tax_year = binder
-            instance.business_profile = binder.business_profile
+        # Set binder linkage on creation
+        if not instance.pk:
+            binder = self.cleaned_data.get("binder")
+            if binder:
+                instance.tax_year = binder
+                instance.business_profile = binder.business_profile
         if commit:
             instance.save()
         return instance
