@@ -9,12 +9,15 @@
     {{ form.non_field_errors }}
     <table>
         <tr>
-            <th>{{ form.business_profile.label_tag }}</th>
-            <td>{{ form.business_profile }}</td>
+            <th>{{ form.binder.label_tag|safe }}</th>
+            <td>{{ form.binder|safe }}
+                <a href="/admin/profiles/taxyear/add/" target="_blank" style="margin-left:1em;" class="button">+ Create New Binder</a>
+                <br><small>{{ form.binder.help_text|safe }}</small>
+            </td>
         </tr>
         <tr>
-            <th>{{ form.tax_year.label_tag }}</th>
-            <td>{{ form.tax_year }}</td>
+            <th>{{ form.title.label_tag }}</th>
+            <td>{{ form.title }}</td>
         </tr>
         <tr>
             <th>{{ form.original_file.label_tag }}</th>

@@ -2260,7 +2260,38 @@ class TaxYearAdmin(admin.ModelAdmin):
     list_display = ("business_profile", "year", "status", "created_at", "updated_at")
     list_filter = ("business_profile", "year", "status")
     search_fields = ("business_profile__company_name", "year", "notes")
-    inlines = [BinderItemInline]
+    # inlines = [BinderItemInline]  # Removed to avoid showing inline BinderItems table
     ordering = ("-year",)
     verbose_name = "Binder"
     verbose_name_plural = "Binders"
+
+    def view_binder_items_link(self, obj):
+        from django.urls import reverse
+        from django.utils.html import format_html
+
+        url = (
+            reverse("admin:profiles_binderitem_changelist")
+            + f"?tax_year__id__exact={obj.id}"
+        )
+        return format_html(
+            '<a class="button" href="{}">View/Edit Items for this Binder</a>', url
+        )
+
+    view_binder_items_link.short_description = "Binder Items"
+    view_binder_items_link.allow_tags = True
+
+    readonly_fields = ("view_binder_items_link",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "business_profile",
+                    "year",
+                    "status",
+                    "notes",
+                    "view_binder_items_link",
+                )
+            },
+        ),
+    )
