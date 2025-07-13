@@ -158,7 +158,7 @@ class Command(BaseCommand):
                 # Ensure label is a short string (max 255 chars)
                 if label and len(label) > 255:
                     label = label[:252] + "..."
-                notes = page.get("summary", "")
+                summary = page.get("summary", "")
                 page_number = page.get("page_number")
                 # Fix media file paths
                 thumbnail_file = page.get("thumbnail_file")
@@ -217,7 +217,8 @@ class Command(BaseCommand):
                         "status": "not_started",
                         "order": idx + 1,
                         "is_generated": True,
-                        "notes": notes,
+                        "summary": summary,
+                        "notes": "",
                         "page_number": page_number,
                         "thumbnail_file": thumbnail_file,
                         "pdf_page_file": pdf_page_file,
@@ -235,7 +236,7 @@ class Command(BaseCommand):
                 # Always update all fields from manifest for existing items
                 for field, value in [
                     ("label", label),
-                    ("notes", notes),
+                    ("summary", summary),
                     ("page_number", page_number),
                     ("thumbnail_file", thumbnail_file),
                     ("pdf_page_file", pdf_page_file),

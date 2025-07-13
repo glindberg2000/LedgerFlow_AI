@@ -12,6 +12,8 @@ from profiles.models import BinderItem
 import os
 import json
 from django.core.files.base import ContentFile
+from .forms import OrganizerWorkbookForm
+from django import forms
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -93,6 +95,7 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
+    form = OrganizerWorkbookForm
     list_display = (
         "title",
         "business_profile",
@@ -113,6 +116,15 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     ]
     inlines = [OrganizerOutputInline]
     actions = [delete_all_checklist_items, import_manifest_to_checklist]
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        # Hide business_profile and tax_year fields if present
+        if "business_profile" in form.base_fields:
+            form.base_fields["business_profile"].widget = forms.HiddenInput()
+        if "tax_year" in form.base_fields:
+            form.base_fields["tax_year"].widget = forms.HiddenInput()
+        return form
 
     def create_extraction_task(self, request, queryset):
         created = 0

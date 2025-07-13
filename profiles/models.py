@@ -727,6 +727,9 @@ class BinderItem(models.Model):
         blank=True,
         help_text="Hash of the manifest that created this item, if any.",
     )
+    summary = models.TextField(
+        blank=True, null=True, help_text="Summary from manifest for this item."
+    )
     # --- New workflow fields ---
     ACTION_TYPE_CHOICES = [
         ("manual", "Manual"),
@@ -771,6 +774,17 @@ class BinderItem(models.Model):
         on_delete=models.SET_NULL,
         related_name="binder_items",
         help_text="The organizer workbook this item was created from, if any.",
+    )
+    PRIORITY_CHOICES = [
+        ("high", "High"),
+        ("medium", "Medium"),
+        ("low", "Low"),
+    ]
+    priority = models.CharField(
+        max_length=10,
+        choices=PRIORITY_CHOICES,
+        default="medium",
+        help_text="Priority for this item (affects checklist order and color).",
     )
 
     def __str__(self):

@@ -2170,9 +2170,12 @@ class BinderItemAdminForm(forms.ModelForm):
 class BinderItemAdmin(admin.ModelAdmin):
     form = BinderItemAdminForm
     list_display = (
+        "label",
+        "priority_badge",
+        "status_badge",
+        "summary_tooltip",  # Only one summary/info icon column
         "tax_year",
         "type",
-        "label",
         "form_id",
         "status",
         "order",
@@ -2184,10 +2187,19 @@ class BinderItemAdmin(admin.ModelAdmin):
         "summary_preview",
         "updated_at",
     )
-    list_filter = ("tax_year", "type", "status", "has_user_data")
+    list_filter = (
+        "tax_year",
+        "type",
+        "status",
+        "has_user_data",
+        "priority",
+    )  # Only field names here
+    list_filter_classes = [
+        "ActionableListFilter",
+    ]
     search_fields = ("label", "form_id", "notes")
     inlines = [BinderItemFieldInline]
-    ordering = ("tax_year", "order")
+    ordering = ("-priority", "status", "tax_year", "order")
 
     actions = [
         "set_status_not_started",
@@ -2269,15 +2281,71 @@ class BinderItemAdmin(admin.ModelAdmin):
     thumbnail_preview.allow_tags = True
 
     def summary_preview(self, obj):
-        # Show only an info icon with the full summary as a tooltip
-        summary = obj.notes or ""
+        summary = obj.summary or ""
         if summary:
             return format_html(
                 '<span style="cursor:pointer;" title="{}">&#9432;</span>', summary
             )
-        return "-"
+        return ""
 
     summary_preview.short_description = "Summary"
+
+    def priority_badge(self, obj):
+        color = {
+            "high": "red",
+            "medium": "orange",
+            "low": "green",
+        }.get(obj.priority, "gray")
+        return format_html(
+            '<span style="color:white;background:{};padding:2px 6px;border-radius:4px;font-weight:bold">{}</span>',
+            color,
+            obj.get_priority_display(),
+        )
+
+    priority_badge.short_description = "Priority"
+
+    def status_badge(self, obj):
+        color = {
+            "not_started": "gray",
+            "incomplete": "orange",
+            "complete": "green",
+            "missing": "red",
+        }.get(obj.status, "gray")
+        return format_html(
+            '<span style="color:white;background:{};padding:2px 6px;border-radius:4px;font-weight:bold">{}</span>',
+            color,
+            obj.get_status_display(),
+        )
+
+    status_badge.short_description = "Status"
+
+    def summary_tooltip(self, obj):
+        if obj.summary:
+            return format_html(
+                '<span title="{}" style="cursor:help;">&#9432;</span>', obj.summary
+            )
+        return ""
+
+    summary_tooltip.short_description = "Summary"
+
+    class ActionableListFilter(admin.SimpleListFilter):
+        title = "Actionable"
+        parameter_name = "actionable"
+
+        def lookups(self, request, model_admin):
+            return (
+                ("yes", "Actionable"),
+                ("no", "Not Actionable"),
+            )
+
+        def queryset(self, request, queryset):
+            if self.value() == "yes":
+                return queryset.exclude(type="cover_page")
+            if self.value() == "no":
+                return queryset.filter(type="cover_page")
+            return queryset
+
+    actionable = ActionableListFilter
 
 
 class BinderItemInline(admin.TabularInline):
