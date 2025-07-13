@@ -2189,16 +2189,53 @@ class BinderItemAdmin(admin.ModelAdmin):
     inlines = [BinderItemFieldInline]
     ordering = ("tax_year", "order")
 
+    actions = [
+        "set_status_not_started",
+        "set_status_incomplete",
+        "set_status_complete",
+        "set_status_missing",
+    ]
+
+    def set_status_not_started(self, request, queryset):
+        updated = queryset.update(status="not_started")
+        self.message_user(
+            request, f"Set status to 'Not Started' for {updated} Binder Items."
+        )
+
+    set_status_not_started.short_description = "Set status to Not Started"
+
+    def set_status_incomplete(self, request, queryset):
+        updated = queryset.update(status="incomplete")
+        self.message_user(
+            request, f"Set status to 'Incomplete' for {updated} Binder Items."
+        )
+
+    set_status_incomplete.short_description = "Set status to Incomplete"
+
+    def set_status_complete(self, request, queryset):
+        updated = queryset.update(status="complete")
+        self.message_user(
+            request, f"Set status to 'Complete' for {updated} Binder Items."
+        )
+
+    set_status_complete.short_description = "Set status to Complete"
+
+    def set_status_missing(self, request, queryset):
+        updated = queryset.update(status="missing")
+        self.message_user(
+            request, f"Set status to 'Missing' for {updated} Binder Items."
+        )
+
+    set_status_missing.short_description = "Set status to Missing"
+
     class Media:
         css = {"all": ("admin/binderitem_custom.css",)}
 
     def thumbnail_preview(self, obj):
-        # Handle missing or relative paths for thumbnails and PDF links
+        # Show a small thumbnail (80x100px) with magnifier on hover
         if obj.thumbnail_file:
             thumb_url = obj.thumbnail_file
-            if not thumb_url.startswith("/media/") and not thumb_url.startswith(
-                "http"
-            ):  # assume local media
+            if not thumb_url.startswith("/media/") and not thumb_url.startswith("http"):
                 thumb_url = (
                     f"/media/{thumb_url}"
                     if not thumb_url.startswith("media/")
@@ -2215,11 +2252,10 @@ class BinderItemAdmin(admin.ModelAdmin):
                     if not link_url.startswith("media/")
                     else f"/{link_url}"
                 )
-            # Add a magnifier overlay on hover
             return format_html(
-                '<div class="binder-thumb-wrap">'
+                '<div class="binder-thumb-wrap" style="display:inline-block;max-width:90px;">'
                 '<a href="{}" target="_blank">'
-                '<img class="binder-thumb" src="{}" />'
+                '<img class="binder-thumb" src="{}" style="width:80px;height:100px;object-fit:contain;border:1px solid #ccc;box-shadow:1px 1px 4px #eee;" />'
                 '<span class="binder-thumb-magnify"><img src="{}" /></span>'
                 "</a>"
                 "</div>",
@@ -2233,7 +2269,13 @@ class BinderItemAdmin(admin.ModelAdmin):
     thumbnail_preview.allow_tags = True
 
     def summary_preview(self, obj):
-        return obj.notes or ""
+        # Show only an info icon with the full summary as a tooltip
+        summary = obj.notes or ""
+        if summary:
+            return format_html(
+                '<span style="cursor:pointer;" title="{}">&#9432;</span>', summary
+            )
+        return "-"
 
     summary_preview.short_description = "Summary"
 
