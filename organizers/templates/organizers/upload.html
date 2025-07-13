@@ -5,7 +5,10 @@
 <p>You can upload either an <strong>Organizer PDF</strong> (to extract and process) or a <strong>Manifest JSON</strong> (to directly create checklist items).</p>
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    {{ form.as_p }}
+    <div>{{ form.binder.label_tag }} {{ form.binder }}<br><small>{{ form.binder.help_text|safe }}</small></div>
+    <div>{{ form.title.label_tag }} {{ form.title }}<br><small>{{ form.title.help_text }}</small></div>
+    <div>{{ form.original_file.label_tag }} {{ form.original_file }}</div>
+    <div>{{ form.notes.label_tag }} {{ form.notes }}</div>
     <button type="submit">Upload and Process</button>
 </form>
 {% endblock %} 

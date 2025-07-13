@@ -39,4 +39,19 @@
 {% else %}
     <p>No outputs available yet. The workbook may still be processing.</p>
 {% endif %}
+
+<h2>Generated Checklist Items</h2>
+{% with binder_items=workbook.tax_year.binder_items.all|dictsort:"order" %}
+    {% if binder_items %}
+        <ul>
+        {% for item in binder_items %}
+            {% if item.organizer_workbook_id == workbook.id %}
+                <li><a href="/admin/profiles/binderitem/{{ item.id }}/change/" target="_blank">{{ item.label }}</a> (Page {{ item.page_number }})</li>
+            {% endif %}
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No checklist items generated for this workbook yet.</p>
+    {% endif %}
+{% endwith %}
 {% endblock %} 

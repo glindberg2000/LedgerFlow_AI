@@ -34,36 +34,11 @@ class OrganizerWorkbookForm(forms.ModelForm):
             self.is_manifest = ext == "json"
         return file
 
-    def clean(self):
-        cleaned_data = super().clean()
-        file = cleaned_data.get("original_file")
-        title = None
-        if file and file.name.lower().endswith(".json"):
-            import json
-
-            try:
-                file.seek(0)
-                manifest = json.load(file)
-                title = (
-                    manifest.get("document_title")
-                    or (
-                        manifest.get("pages")
-                        and manifest["pages"][0]["data"].get("document_title")
-                    )
-                    or None
-                )
-            except Exception:
-                title = None
-        if not title and file:
-            title = file.name
-        if not title:
-            title = "TAX ORGANIZER"
-        cleaned_data["title"] = title
-        return cleaned_data
+    # Remove the clean() override that sets title; let the model handle it
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        # Set the title from cleaned_data
+        # Set the title from cleaned_data (may be blank)
         instance.title = self.cleaned_data.get("title")
         # Set binder linkage
         binder = self.cleaned_data.get("binder")
