@@ -21,7 +21,11 @@ def upload_workbook(request):
             return redirect("organizer_workbook_detail", pk=workbook.id)
     else:
         form = OrganizerWorkbookForm()
-    return render(request, "organizers/upload.html", {"form": form})
+    return render(
+        request,
+        "organizers/upload.html",
+        {"form": form, "binder_create_url": "/admin/profiles/taxyear/add/"},
+    )
 
 
 @login_required

@@ -721,6 +721,57 @@ class BinderItem(models.Model):
     thumbnail_file = models.CharField(max_length=255, null=True, blank=True)
     pdf_page_file = models.CharField(max_length=255, null=True, blank=True)
     has_user_data = models.BooleanField(default=False)
+    manifest_hash = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text="Hash of the manifest that created this item, if any.",
+    )
+    # --- New workflow fields ---
+    ACTION_TYPE_CHOICES = [
+        ("manual", "Manual"),
+        ("calculated", "Calculated"),
+        ("upload", "Upload"),
+        ("external", "External"),
+        ("info_only", "Info Only"),
+        ("ignore", "Ignore"),
+    ]
+    action_type = models.CharField(
+        max_length=32,
+        choices=ACTION_TYPE_CHOICES,
+        default="manual",
+        help_text="Type of action required for this item. 'Info Only' and 'Ignore' will be hidden from the main checklist by default.",
+    )
+    display_in_checklist = models.BooleanField(
+        default=True,
+        help_text="If False, this item is hidden from the main checklist but visible in audit views.",
+    )
+    calculated_by_report = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        help_text="If calculated, the report or worksheet that fills this item.",
+    )
+    required_document_type = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        help_text="If upload, the type of document required (e.g., W2, 1099, P&L).",
+    )
+    source = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Source of this item: Organizer, Report, Standalone, etc.",
+    )
+    organizer_workbook = models.ForeignKey(
+        "organizers.OrganizerWorkbook",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="binder_items",
+        help_text="The organizer workbook this item was created from, if any.",
+    )
 
     def __str__(self):
         return f"{self.label} ({self.tax_year})"
