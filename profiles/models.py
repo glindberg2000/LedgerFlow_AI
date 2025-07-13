@@ -25,11 +25,11 @@ class BusinessProfile(models.Model):
     # Default 'id' integer PK is used
     client_id = models.CharField(
         max_length=64,
-        unique=True,
+        unique=False,  # No longer unique
         editable=False,
-        blank=False,
-        null=False,
-        help_text="Unique, URL-safe identifier for this client. Used for lookups and URLs, but not the primary key.",
+        blank=True,  # Now optional
+        null=True,  # Now optional
+        help_text="Unique, URL-safe identifier for this client. Used for lookups and URLs, but not the primary key. Auto-set after save.",
     )
     company_name = models.CharField(
         max_length=255,
@@ -59,13 +59,23 @@ class BusinessProfile(models.Model):
         return self.company_name
 
     def clean(self):
-        # Ensure client_id is URL-safe
-        if not re.match(r"^[a-zA-Z0-9_-]+$", self.client_id):
+        # Only validate client_id if it exists
+        if self.client_id and not re.match(r"^[a-zA-Z0-9_-]+$", self.client_id):
             raise ValidationError(
                 {
                     "client_id": "Client ID must be URL-safe (letters, numbers, underscores, hyphens only)."
                 }
             )
+
+    def save(self, *args, **kwargs):
+        # Save first to get an ID if new
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        # Auto-set client_id if not set
+        if not self.client_id:
+            self.client_id = str(self.id)
+            # Avoid recursion: only update client_id
+            super().save(update_fields=["client_id"])
 
 
 class ClientExpenseCategory(models.Model):
