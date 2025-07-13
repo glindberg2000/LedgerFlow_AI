@@ -121,7 +121,11 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "binder_items_status",
         "binder_items_link",
     ]
-    actions = [delete_all_checklist_items, import_manifest_to_checklist]
+    actions = [
+        delete_all_checklist_items,
+        import_manifest_to_checklist,
+        "create_extraction_task",
+    ]
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
