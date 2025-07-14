@@ -62,18 +62,18 @@
 
         <form method="get" action="">
             {{ form.as_p }}
-            <input type="submit" value="Select Client" />
+            <input type="submit" value="Select Binder" />
         </form>
 
-        {% if selected_client %}
-        <h2 style="margin-top: 20px;">Reports for {{ selected_client.client_id }}</h2>
+        {% if selected_binder %}
+        <h2 style="margin-top: 20px;">Reports for {{ selected_binder.business_profile.company_name }} – {{ selected_binder.year }}</h2>
         {% else %}
-        <p style="color: var(--error-fg); margin-top: 20px;">Please select a client to view reports.</p>
+        <p style="color: var(--error-fg); margin-top: 20px;">Please select a binder to view reports.</p>
         {% endif %}
 
         <div class="reports-grid">
             {% for report in reports %}
-            <a href="{{ report.url }}" class="report-card {% if not selected_client %}disabled{% endif %}">
+            <a href="{{ report.url }}" class="report-card {% if not selected_binder %}disabled{% endif %}">
                 <div class="report-icon">{{ report.icon }}</div>
                 <div class="report-title">{{ report.title }}</div>
                 <div class="report-description">{{ report.description }}</div>
