@@ -189,6 +189,7 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     get_binder_name.admin_order_field = "tax_year__year"
 
     list_display = (
+        "get_binder_name",  # Show binder name (company + year), clickable
         "tax_year",
         "id",
         "title_with_width",
