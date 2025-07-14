@@ -147,20 +147,16 @@ def attach_manifest(modeladmin, request, queryset):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
-    def get_business_name(self, obj):
-        if (
-            hasattr(obj, "business_profile")
-            and obj.business_profile
-            and getattr(obj.business_profile, "name", None)
-        ):
-            return obj.business_profile.name
-        return f"Organizer {obj.id}"
+    def get_binder_name(self, obj):
+        if obj.tax_year:
+            return str(obj.tax_year)
+        return f"Binder for Organizer {obj.id}"
 
-    get_business_name.short_description = "Business Name"
-    get_business_name.admin_order_field = "business_profile__name"
+    get_binder_name.short_description = "Binder (Client – Year)"
+    get_binder_name.admin_order_field = "tax_year__year"
 
     list_display = (
-        "get_business_name",  # Show business name or fallback
+        "get_binder_name",  # Show binder name (company + year)
         "id",
         "title",
         "upload_date",
@@ -169,7 +165,7 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "manifest_page_count",
         "manifest_file_summary",
     )
-    list_display_links = ("get_business_name",)  # Make business name clickable
+    list_display_links = ("get_binder_name",)  # Make binder name clickable
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
     readonly_fields = [
