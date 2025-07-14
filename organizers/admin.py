@@ -190,14 +190,14 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     get_binder_name.admin_order_field = "tax_year__year"
 
     list_display = (
-        "get_binder_name",
-        "tax_year",
+        "get_binder_name",  # Binder (Client – Year), clickable
+        "tax_year_display",  # Just the year
         "id",
         "title_with_width",
         "upload_date",
         "status",
         "manifest_page_count",
-        "manifest_file_summary_icon",
+        "manifest_summary_icon",
         "manifest_hash_icon",
     )
     list_display_links = ("get_binder_name",)
@@ -474,6 +474,13 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     binder_items_link.short_description = "Binder Items for This Workbook"
 
+    def tax_year_display(self, obj):
+        # Show just the year (assumes TaxYear has a 'year' field)
+        return getattr(obj.tax_year, "year", str(obj.tax_year) or "-")
+
+    tax_year_display.short_description = "Tax year"
+    tax_year_display.admin_order_field = "tax_year__year"
+
     def title_with_width(self, obj):
         return format_html(
             '<div style="min-width: 300px; max-width: 600px; white-space: normal;">{}</div>',
@@ -483,31 +490,21 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     title_with_width.short_description = "Title"
     title_with_width.admin_order_field = "title"
 
-    def manifest_file_summary_tooltip(self, obj):
-        summary = obj.manifest_file_summary or "-"
-        display = summary[:40] + ("..." if len(summary) > 40 else "")
-        return format_html('<span title="{}">{}</span>', summary, display)
-
-    manifest_file_summary_tooltip.short_description = "Manifest file summary"
-    manifest_file_summary_tooltip.admin_order_field = "manifest_file_summary"
-
-    def manifest_file_summary_icon(self, obj):
-        summary = obj.manifest_file_summary or None
-        if summary:
+    def manifest_summary_icon(self, obj):
+        summary = obj.manifest_file_summary or ""
+        if summary.strip():
             return format_html('<span title="{}">📄</span>', summary)
         return "-"
 
-    manifest_file_summary_icon.short_description = "Manifest summary"
-    manifest_file_summary_icon.admin_order_field = "manifest_file_summary"
+    manifest_summary_icon.short_description = "Manifest summary"
 
     def manifest_hash_icon(self, obj):
-        hashval = obj.manifest_hash or None
-        if hashval:
-            return format_html('<span title="{}">#</span>', hashval)
+        hashval = obj.manifest_hash or ""
+        if hashval.strip():
+            return format_html('<span title="{}">🔑</span>', hashval)
         return "-"
 
     manifest_hash_icon.short_description = "Manifest hash"
-    manifest_hash_icon.admin_order_field = "manifest_hash"
 
     def save_model(self, request, obj, form, change):
         # Auto-set business_profile from tax_year on add, robust to missing relation
