@@ -496,6 +496,10 @@ class ProcessingTask(models.Model):
     def __str__(self):
         return f"{self.task_type} task for {self.client.client_id} ({self.status})"
 
+    @property
+    def pages_to_parse(self):
+        return self.task_metadata.get("pages_to_parse", "")
+
 
 class SearchResult(models.Model):
     """Model to store search results from SearXNG."""

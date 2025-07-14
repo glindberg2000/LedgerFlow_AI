@@ -18,6 +18,7 @@ class OrganizerWorkbookForm(forms.ModelForm):
         required=False,
         help_text="Optional. If left blank, the title will be auto-filled from the manifest or file name.",
     )
+    # Add the optional pages_to_parse field
     pages_to_parse = forms.CharField(
         required=False,
         label="Pages to Parse (optional)",
@@ -35,12 +36,6 @@ class OrganizerWorkbookForm(forms.ModelForm):
             for field in ["binder", "title", "original_file", "pages_to_parse"]:
                 if field in self.fields:
                     self.fields.pop(field)
-        else:
-            # On add, add a reminder to re-select the file if the form reloads
-            self.fields["original_file"].help_text = (
-                (self.fields["original_file"].help_text or "")
-                + "<br><span style='color:red;'>If the form reloads due to an error, you must re-select the file before submitting again.</span>"
-            )
 
     def clean_original_file(self):
         file = self.cleaned_data["original_file"]
@@ -56,11 +51,11 @@ class OrganizerWorkbookForm(forms.ModelForm):
     def clean_pages_to_parse(self):
         value = self.cleaned_data.get("pages_to_parse", "").strip()
         if not value:
-            return ""  # treat blank as no restriction
+            return ""
         import re
 
-        # Accept formats like 1-5,8,10-12
-        pattern = r"^\s*\d+\s*(-\s*\d+\s*)?(\s*,\s*\d+\s*(-\s*\d+\s*)?)*\s*$"
+        # Accepts formats like: 1-5,8,10-12
+        pattern = r"^\s*\d+\s*(-\s*\d+)?(\s*,\s*\d+\s*(-\s*\d+)?)*\s*$"
         if not re.match(pattern, value):
             raise forms.ValidationError(
                 "Invalid page range format. Use e.g. 1-5,8,10-12 or leave blank."

@@ -1424,6 +1424,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "error_count",
         "created_at",
         "updated_at",
+        "pages_to_parse",
     )
     list_filter = (
         "task_type",
@@ -1450,6 +1451,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "updated_at",
         "error_details",
         "task_metadata",
+        "pages_to_parse",
     )
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
 
@@ -1663,6 +1665,11 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
                 "opts": self.model._meta,
             },
         )
+
+    def pages_to_parse(self, obj):
+        return obj.pages_to_parse or "-"
+
+    pages_to_parse.short_description = "Pages to Parse"
 
 
 # Restore the original StatementFileAdminForm for single-file upload
