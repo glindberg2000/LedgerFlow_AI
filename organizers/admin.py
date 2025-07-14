@@ -100,7 +100,7 @@ class AttachManifestForm(forms.Form):
     manifest_file = forms.FileField(label="Manifest JSON file")
 
 
-@admin.action(description="Attach Manifest JSON to selected organizer")
+@admin.action(description="Attach Manifest JSON to selected organizer (full import)")
 def attach_manifest(modeladmin, request, queryset):
     if queryset.count() != 1:
         modeladmin.message_user(
@@ -114,6 +114,12 @@ def attach_manifest(modeladmin, request, queryset):
         form = AttachManifestForm(request.POST, request.FILES)
         if form.is_valid():
             manifest_file = form.cleaned_data["manifest_file"]
+            # Save manifest file to original_file (overwrite)
+            filename = f"organizer_{organizer.id}_manifest.json"
+            organizer.original_file.save(
+                filename, ContentFile(manifest_file.read()), save=False
+            )
+            manifest_file.seek(0)
             try:
                 manifest = json.load(manifest_file)
                 organizer.manifest_hash = manifest.get("file_hash")
@@ -126,10 +132,29 @@ def attach_manifest(modeladmin, request, queryset):
                     organizer.manifest_page_count = None
                 organizer.status = "manifest_ready"
                 organizer.save()
-                modeladmin.message_user(
-                    request,
-                    f"Manifest attached and fields updated for organizer '{organizer}'.",
-                )
+                # Immediately import manifest to checklist (same as PDF flow)
+                try:
+                    ingest_cmd = IngestManifestCommand()
+                    ingest_cmd.handle(
+                        manifest=organizer.original_file.path,
+                        tax_year=organizer.tax_year.year,
+                        client_id=organizer.business_profile.client_id,
+                        organizer_workbook_id=organizer.id,
+                        manifest_hash=organizer.manifest_hash,
+                        overwrite=True,
+                    )
+                    organizer.status = "checklist_created"
+                    organizer.save()
+                    modeladmin.message_user(
+                        request,
+                        f"Manifest attached, fields updated, and checklist imported for organizer '{organizer}'.",
+                    )
+                except Exception as e:
+                    modeladmin.message_user(
+                        request,
+                        f"Manifest attached but failed to import checklist: {e}",
+                        level=messages.ERROR,
+                    )
                 return
             except Exception as e:
                 modeladmin.message_user(
