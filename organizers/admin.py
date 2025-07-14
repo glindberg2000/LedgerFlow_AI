@@ -181,8 +181,6 @@ class ManifestUploadForm(forms.Form):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
-    form = OrganizerWorkbookForm
-
     def get_binder_name(self, obj):
         if obj.tax_year:
             return str(obj.tax_year)
@@ -198,9 +196,10 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "title_with_width",
         "upload_date",
         "status",
-        "manifest_page_count",
+        "manifest_page_count_column",
         "manifest_summary_icon",
         "manifest_hash_icon",
+        "pages_to_parse_column",  # <-- Add this
     )
     list_display_links = ("get_binder_name",)
     list_filter = ["status", "upload_date"]
@@ -374,18 +373,11 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
-            # On creation: show tax_year, title, original_file, pages_to_parse
+            # On creation: show binder, title, original_file, pages_to_parse
             return (
                 (
                     None,
-                    {
-                        "fields": (
-                            "tax_year",
-                            "title",
-                            "original_file",
-                            "pages_to_parse",
-                        )
-                    },
+                    {"fields": ("binder", "title", "original_file", "pages_to_parse")},
                 ),
             )
         # On change: show all as read-only
@@ -417,14 +409,10 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         return self.readonly_fields
 
     def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        # Only hide on change, not add
-        if obj is not None:
-            if "business_profile" in form.base_fields:
-                form.base_fields["business_profile"].widget = forms.HiddenInput()
-            if "tax_year" in form.base_fields:
-                form.base_fields["tax_year"].widget = forms.HiddenInput()
-        return form
+        if obj is None:
+            # Use the custom form with extra fields for the add view
+            kwargs["form"] = OrganizerWorkbookForm
+        return super().get_form(request, obj, **kwargs)
 
     def create_extraction_task(self, request, queryset):
         created = 0
@@ -510,7 +498,7 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
             return format_html('<span title="{}">📄</span>', summary)
         return "-"
 
-    manifest_summary_icon.short_description = "Manifest summary"
+    manifest_summary_icon.short_description = "Summary"
 
     def manifest_hash_icon(self, obj):
         hashval = obj.manifest_hash or ""
@@ -518,7 +506,29 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
             return format_html('<span title="{}">🔑</span>', hashval)
         return "-"
 
-    manifest_hash_icon.short_description = "Manifest hash"
+    manifest_hash_icon.short_description = "Hash"
+
+    def manifest_page_count_column(self, obj):
+        return obj.manifest_page_count
+
+    manifest_page_count_column.short_description = "Pages"
+
+    def pages_to_parse_column(self, obj):
+        # Find the related ProcessingTask for this workbook (if any)
+        from profiles.models import ProcessingTask
+
+        task = (
+            ProcessingTask.objects.filter(
+                task_type="organizer_extraction", task_metadata__workbook_id=obj.id
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if task:
+            return task.pages_to_parse or "All"
+        return "-"
+
+    pages_to_parse_column.short_description = "Range"
 
     def save_model(self, request, obj, form, change):
         # Auto-set business_profile from tax_year on add, robust to missing relation

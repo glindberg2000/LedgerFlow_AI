@@ -9,6 +9,16 @@
 <p>Attached to: {{ workbook.tax_year.year }} Tax Year</p>
 {% endif %}
 
+{# Show page range for extraction job if present #}
+{% with tasks=workbook.business_profile.processingtask_set.all %}
+    {% for task in tasks %}
+        {% if task.task_type == 'organizer_extraction' and task.task_metadata.workbook_id == workbook.id %}
+            <p><strong>Pages to Parse:</strong> {{ task.pages_to_parse|default:'All' }}</p>
+            {% break %}
+        {% endif %}
+    {% endfor %}
+{% endwith %}
+
 <h2>Outputs</h2>
 {% if outputs %}
     <h3>Thumbnails</h3>
