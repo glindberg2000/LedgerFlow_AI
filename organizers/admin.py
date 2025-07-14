@@ -306,6 +306,14 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     def change_view(self, request, object_id, form_url="", extra_context=None):
         obj = self.get_object(request, object_id)
         if request.method == "POST" and "manifest_upload" in request.POST:
+            # --- PATCH: Robust manifest upload handling for multi-form admin page ---
+            # Always redirect after POST to avoid file loss and double submission
+            import logging
+
+            logger = logging.getLogger("organizers.admin")
+            logger.debug(
+                f"Manifest upload POST: FILES={request.FILES}, POST={request.POST}"
+            )
             manifest_form = ManifestUploadForm(request.POST, request.FILES)
             manifest_file = request.FILES.get("manifest_file")
             if not manifest_file or not getattr(manifest_file, "size", 0):
