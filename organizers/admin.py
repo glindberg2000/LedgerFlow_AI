@@ -19,6 +19,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.template.response import TemplateResponse
 import logging
+from profiles.utils.utils import ingest_manifest_to_organizer
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -77,14 +78,15 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
         # Ingest manifest
         manifest_path = organizer.original_file.path
         try:
-            ingest_cmd = IngestManifestCommand()
-            ingest_cmd.handle(
-                manifest=manifest_path,
-                tax_year=organizer.title,
-                client_id=organizer.business_profile.client_id,  # <-- fix: pass client_id
-                organizer_workbook_id=organizer.id,
+            # Load manifest JSON
+            with open(organizer.original_file.path, "r") as f:
+                manifest = json.load(f)
+            result = ingest_manifest_to_organizer(
+                manifest=manifest,
+                organizer_workbook=organizer,
+                binder=organizer.tax_year,
+                business_profile=organizer.business_profile,
                 manifest_hash=organizer.manifest_hash,
-                overwrite=True,
             )
             organizer.status = "checklist_created"
             organizer.save()
@@ -136,14 +138,14 @@ def attach_manifest(modeladmin, request, queryset):
                 organizer.save()
                 # Immediately import manifest to checklist (same as PDF flow)
                 try:
-                    ingest_cmd = IngestManifestCommand()
-                    ingest_cmd.handle(
-                        manifest=organizer.original_file.path,
-                        tax_year=organizer.tax_year.year,
-                        client_id=organizer.business_profile.client_id,
-                        organizer_workbook_id=organizer.id,
+                    with open(organizer.original_file.path, "r") as f:
+                        manifest = json.load(f)
+                    result = ingest_manifest_to_organizer(
+                        manifest=manifest,
+                        organizer_workbook=organizer,
+                        binder=organizer.tax_year,
+                        business_profile=organizer.business_profile,
                         manifest_hash=organizer.manifest_hash,
-                        overwrite=True,
                     )
                     organizer.status = "checklist_created"
                     organizer.save()
@@ -274,23 +276,25 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                     obj.save()
                     # Immediately import manifest to checklist (same as PDF flow)
                     try:
-                        ingest_cmd = IngestManifestCommand()
-                        ingest_cmd.handle(
-                            manifest=obj.original_file.path,
-                            tax_year=obj.tax_year.year,
-                            client_id=obj.business_profile.client_id,
-                            organizer_workbook_id=obj.id,
+                        with open(obj.original_file.path, "r") as f:
+                            manifest = json.load(f)
+                        result = ingest_manifest_to_organizer(
+                            manifest=manifest,
+                            organizer_workbook=obj,
+                            binder=obj.tax_year,
+                            business_profile=obj.business_profile,
                             manifest_hash=obj.manifest_hash,
-                            overwrite=True,
                         )
                         obj.status = "checklist_created"
                         obj.save()
-                        context["manifest_upload_success"] = (
-                            f"Manifest attached, fields updated, and checklist imported for organizer '{obj}'."
+                        messages.success(
+                            request,
+                            f"Manifest uploaded and checklist imported for organizer '{obj}'.",
                         )
                     except Exception as e:
-                        context["manifest_upload_error"] = (
-                            f"Manifest attached but failed to import checklist: {e}"
+                        messages.error(
+                            request,
+                            f"Manifest uploaded but failed to import checklist: {e}",
                         )
                 else:
                     context["manifest_upload_error"] = "Invalid manifest upload form."
@@ -333,14 +337,14 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                 obj.save()
                 # Immediately import manifest to checklist (same as PDF flow)
                 try:
-                    ingest_cmd = IngestManifestCommand()
-                    ingest_cmd.handle(
-                        manifest=obj.original_file.path,
-                        tax_year=obj.tax_year.year,
-                        client_id=obj.business_profile.client_id,
-                        organizer_workbook_id=obj.id,
+                    with open(obj.original_file.path, "r") as f:
+                        manifest = json.load(f)
+                    result = ingest_manifest_to_organizer(
+                        manifest=manifest,
+                        organizer_workbook=obj,
+                        binder=obj.tax_year,
+                        business_profile=obj.business_profile,
                         manifest_hash=obj.manifest_hash,
-                        overwrite=True,
                     )
                     obj.status = "checklist_created"
                     obj.save()
