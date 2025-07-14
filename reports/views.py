@@ -211,6 +211,38 @@ def irs_report(request, worksheet=None):
                 business_categories.append(entry)
                 if not entry["mapped"]:
                     unmapped_business_cats.append(entry)
+    # PDF download logic
+    if (
+        "download" in request.GET
+        and request.GET["download"] == "pdf"
+        and selected_client
+    ):
+        from .pdf_utils import generate_irs_pdf
+        from django.http import HttpResponse
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="irs_6a_report_{selected_client.client_id}.pdf"'
+        )
+        # Prepare context for PDF
+        pdf_context = {
+            "categories": categories,
+            "total": total,
+            "client": selected_client,
+        }
+        # The generate_irs_pdf expects a context with income_items, expense_items, etc.
+        # For 6A, treat all categories as expense_items
+        pdf_context = {
+            "income_items": [],
+            "expense_items": [
+                {"name": cat["name"], "total": cat["subtotal"]} for cat in categories
+            ],
+            "total_income": 0,
+            "total_expenses": total,
+            "net_income": -total,
+        }
+        generate_irs_pdf(response, selected_client, pdf_context)
+        return response
     context = _get_base_context(request)
     context.update(
         {
@@ -226,7 +258,6 @@ def irs_report(request, worksheet=None):
     )
     if hasattr(request, "admin_site_context"):
         context.update(request.admin_site_context)
-
     return render(request, "reports/irs_report.html", context)
 
 
