@@ -18,6 +18,11 @@ class OrganizerWorkbookForm(forms.ModelForm):
         required=False,
         help_text="Optional. If left blank, the title will be auto-filled from the manifest or file name.",
     )
+    pages_to_parse = forms.CharField(
+        required=False,
+        label="Pages to Parse (optional)",
+        help_text="Enter a page range (e.g. 1-5,8,10-12) or leave blank to parse all pages.",
+    )
 
     class Meta:
         model = OrganizerWorkbook
@@ -26,8 +31,8 @@ class OrganizerWorkbookForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
-            # On change, remove binder, title, and file fields (all are read-only in admin)
-            for field in ["binder", "title", "original_file"]:
+            # On change, remove binder, title, file, and pages_to_parse fields (all are read-only in admin)
+            for field in ["binder", "title", "original_file", "pages_to_parse"]:
                 if field in self.fields:
                     self.fields.pop(field)
 
@@ -42,7 +47,19 @@ class OrganizerWorkbookForm(forms.ModelForm):
             self.is_manifest = ext == "json"
         return file
 
-    # Remove the clean() override that sets title; let the model handle it
+    def clean_pages_to_parse(self):
+        value = self.cleaned_data.get("pages_to_parse", "").strip()
+        if not value:
+            return ""
+        import re
+
+        # Accepts formats like: 1-5,8,10-12
+        pattern = r"^\s*\d+\s*(-\s*\d+)?(\s*,\s*\d+\s*(-\s*\d+)?)*\s*$"
+        if not re.match(pattern, value):
+            raise forms.ValidationError(
+                "Invalid page range format. Use e.g. 1-5,8,10-12 or leave blank."
+            )
+        return value
 
     def save(self, commit=True):
         instance = super().save(commit=False)
