@@ -62,10 +62,10 @@ def delete_all_checklist_items(modeladmin, request, queryset):
 def import_manifest_to_checklist(modeladmin, request, queryset):
     count = 0
     for organizer in queryset:
-        if organizer.status != "manifest_ready" or not organizer.manifest_hash:
+        if not organizer.manifest_hash:
             messages.warning(
                 request,
-                f"Organizer '{organizer}' is not ready for manifest import or missing hash.",
+                f"Organizer '{organizer}' is missing manifest hash and cannot be imported.",
             )
             continue
         # Delete previous BinderItems for this organizer
