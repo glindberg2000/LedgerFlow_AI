@@ -189,14 +189,14 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     get_binder_name.admin_order_field = "tax_year__year"
 
     list_display = (
-        "get_binder_name",  # Show binder name (company + year)
+        "tax_year",
         "id",
-        "title",
+        "title_with_width",
         "upload_date",
         "status",
         "manifest_hash",
         "manifest_page_count",
-        "manifest_file_summary",
+        "manifest_file_summary_tooltip",
     )
     list_display_links = ("get_binder_name",)  # Make binder name clickable
     list_filter = ["status", "upload_date"]
@@ -471,6 +471,22 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         )
 
     binder_items_link.short_description = "Binder Items for This Workbook"
+
+    def title_with_width(self, obj):
+        return f'<div style="min-width: 300px; max-width: 600px; white-space: normal;">{obj.title or "-"}</div>'
+
+    title_with_width.allow_tags = True
+    title_with_width.short_description = "Title"
+    title_with_width.admin_order_field = "title"
+
+    def manifest_file_summary_tooltip(self, obj):
+        summary = obj.manifest_file_summary or "-"
+        display = summary[:40] + ("..." if len(summary) > 40 else "")
+        return f'<span title="{summary}">{display}</span>'
+
+    manifest_file_summary_tooltip.allow_tags = True
+    manifest_file_summary_tooltip.short_description = "Manifest file summary"
+    manifest_file_summary_tooltip.admin_order_field = "manifest_file_summary"
 
     def save_model(self, request, obj, form, change):
         # Auto-set business_profile from tax_year on add, robust to missing relation
