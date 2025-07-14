@@ -958,26 +958,31 @@ class TransactionAdmin(admin.ModelAdmin):
         "business_percentage",
         "confidence",
         "source",
-        "file_path",
+        "parser_name",  # Show parser used
+        "transaction_type",  # Show type
+        "bank_name",  # Custom method for bank
+        "original_file_name",  # Custom method for original file name
         "account_number",
-        "short_reasoning",  # Use icon if present
-        "short_payee_reasoning",  # Use icon if present
+        "short_reasoning",
+        "short_payee_reasoning",
         "classification_method",
         "payee_extraction_method",
     )
     list_filter = (
         ClientFilter,
         ProcessedFilter,
-        NeedsAccountNumberFilter,  # Add our new filter
+        NeedsAccountNumberFilter,
         "transaction_date",
         "classification_type",
         "worksheet",
         "confidence",
         "category",
         "source",
+        "parser_name",
         "transaction_type",
         "classification_method",
         "payee_extraction_method",
+        # Optionally add a custom filter for bank if needed
     )
     search_fields = (
         "description",
@@ -1362,6 +1367,18 @@ class TransactionAdmin(admin.ModelAdmin):
         return super().changeform_view(
             request, object_id, form_url, extra_context=extra_context
         )
+
+    def original_file_name(self, obj):
+        if obj.statement_file and obj.statement_file.original_filename:
+            return obj.statement_file.original_filename
+        return "-"
+    original_file_name.short_description = "Original File Name"
+
+    def bank_name(self, obj):
+        if obj.statement_file and obj.statement_file.bank:
+            return obj.statement_file.bank
+        return "-"
+    bank_name.short_description = "Bank"
 
 
 @admin.register(LLMConfig)
