@@ -149,14 +149,15 @@ def attach_manifest(modeladmin, request, queryset):
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
     form = OrganizerWorkbookForm
     list_display = (
+        "id",  # Show DB ID for easy cross-reference
         "title",
-        "business_profile",
         "upload_date",
         "status",
         "manifest_hash",
         "manifest_page_count",
-        "short_manifest_summary",
+        "manifest_file_summary",
     )
+    list_display_links = ("title",)  # Make title clickable
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
     readonly_fields = [
