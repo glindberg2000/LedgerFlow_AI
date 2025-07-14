@@ -147,9 +147,21 @@ def attach_manifest(modeladmin, request, queryset):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
-    form = OrganizerWorkbookForm
+    def get_business_name(self, obj):
+        if (
+            hasattr(obj, "business_profile")
+            and obj.business_profile
+            and getattr(obj.business_profile, "name", None)
+        ):
+            return obj.business_profile.name
+        return f"Organizer {obj.id}"
+
+    get_business_name.short_description = "Business Name"
+    get_business_name.admin_order_field = "business_profile__name"
+
     list_display = (
-        "id",  # Show DB ID for easy cross-reference
+        "get_business_name",  # Show business name or fallback
+        "id",
         "title",
         "upload_date",
         "status",
@@ -157,7 +169,7 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "manifest_page_count",
         "manifest_file_summary",
     )
-    list_display_links = ("title",)  # Make title clickable
+    list_display_links = ("get_business_name",)  # Make business name clickable
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
     readonly_fields = [
