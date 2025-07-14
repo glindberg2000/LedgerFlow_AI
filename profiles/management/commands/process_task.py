@@ -102,7 +102,28 @@ class Command(BaseCommand):
                     extractor = OrganizerExtractor(
                         workbook.original_file.path, output_dir
                     )
-                    result = extractor.extract()
+                    # Get page range from task_metadata if present
+                    pages_to_parse = task.task_metadata.get(
+                        "pages_to_parse", ""
+                    ).strip()
+                    page_numbers = None
+                    if pages_to_parse:
+                        # Parse string like "1-5,8,10-12" into a list of ints
+                        import re
+
+                        page_numbers = set()
+                        for part in pages_to_parse.split(","):
+                            part = part.strip()
+                            if "-" in part:
+                                start, end = part.split("-")
+                                page_numbers.update(range(int(start), int(end) + 1))
+                            elif part:
+                                page_numbers.add(int(part))
+                        page_numbers = sorted(page_numbers)
+                    # Run extraction with or without page_numbers
+                    result = extractor.extract_all_fields_manifest(
+                        page_numbers=page_numbers
+                    )
 
                     # Look for cleaned manifest
                     cleaned_manifest_path = os.path.join(
@@ -131,13 +152,25 @@ class Command(BaseCommand):
                                 workbook.manifest_page_count = len(manifest["items"])
                             else:
                                 workbook.manifest_page_count = None
+                            # --- INGEST MANIFEST TO CREATE BINDER ITEMS ---
+                            from profiles.utils.utils import (
+                                ingest_manifest_to_organizer,
+                            )
+
+                            ingest_manifest_to_organizer(
+                                manifest=manifest,
+                                organizer_workbook=workbook,
+                                binder=workbook.tax_year,
+                                business_profile=workbook.business_profile,
+                                manifest_hash=workbook.manifest_hash,
+                            )
                             workbook.status = "manifest_ready"
                             logger.info(
-                                f"Updated OrganizerWorkbook {workbook.id} with manifest metadata."
+                                f"Updated OrganizerWorkbook {workbook.id} with manifest metadata and ingested BinderItems."
                             )
                         except Exception as e:
                             logger.error(
-                                f"Failed to update OrganizerWorkbook with manifest: {e}"
+                                f"Failed to update OrganizerWorkbook with manifest or ingest BinderItems: {e}"
                             )
                         # --- END PATCH ---
                         workbook.status = "completed"
