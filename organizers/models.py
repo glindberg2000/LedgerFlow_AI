@@ -77,6 +77,13 @@ class OrganizerWorkbook(models.Model):
                         )[0]
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        # Delete only BinderItems created by this organizer
+        from profiles.models import BinderItem
+
+        BinderItem.objects.filter(organizer_workbook=self).delete()
+        super().delete(*args, **kwargs)
+
     def __str__(self):
         # Avoid duplicate business/year in string
         parts = []

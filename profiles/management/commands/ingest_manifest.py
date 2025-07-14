@@ -178,6 +178,8 @@ class Command(BaseCommand):
                 calculated_by_report = None
                 required_document_type = None
                 source = "Organizer"
+                # New: priority field
+                priority = page.get("priority", "medium")
                 # Check for calculated reports
                 mapping = CALCULATED_REPORTS.get(form_id) or CALCULATED_REPORTS.get(
                     label
@@ -230,6 +232,7 @@ class Command(BaseCommand):
                         "source": source,
                         "display_in_checklist": display_in_checklist,
                         "manifest_hash": manifest_hash,
+                        "priority": priority,
                     },
                 )
                 updated = False
@@ -248,6 +251,7 @@ class Command(BaseCommand):
                     ("source", source),
                     ("display_in_checklist", display_in_checklist),
                     ("manifest_hash", manifest_hash),
+                    ("priority", priority),
                 ]:
                     try:
                         if (

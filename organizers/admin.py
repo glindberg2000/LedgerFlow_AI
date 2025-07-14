@@ -18,6 +18,7 @@ from django.utils.html import format_html
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.template.response import TemplateResponse
+import logging
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -217,9 +218,31 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         "create_extraction_task",
     ]
 
-    change_form_template = (
-        "admin/organizers/organizerworkbook/change_form_with_manifest.html"
-    )
+    change_form_template = "admin/organizerworkbook/change_form_with_manifest.html"
+
+    def extract_manifest_fields(self, file_obj):
+        """Parse manifest JSON and extract hash, page count, summary, and title."""
+        logger = logging.getLogger(__name__)
+        file_obj.seek(0)
+        try:
+            manifest = json.load(file_obj)
+        except Exception as e:
+            logger.error(f"Failed to parse manifest JSON: {e}")
+            return None, None, None, None
+        manifest_hash = manifest.get("file_hash")
+        manifest_summary = manifest.get("file_summary")
+        manifest_title = manifest.get("Title")
+        if "pages" in manifest:
+            manifest_page_count = len(manifest["pages"])
+        elif "items" in manifest:
+            manifest_page_count = len(manifest["items"])
+        else:
+            manifest_page_count = None
+        if not manifest_hash:
+            logger.warning(f"Manifest missing file_hash: {manifest}")
+        if manifest_page_count is None:
+            logger.warning(f"Manifest missing page count: {manifest}")
+        return manifest_hash, manifest_page_count, manifest_summary, manifest_title
 
     def render_change_form(
         self, request, context, add=False, change=False, form_url="", obj=None
@@ -234,42 +257,40 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                     obj.original_file.save(
                         filename, ContentFile(manifest_file.read()), save=False
                     )
-                    manifest_file.seek(0)
+                    # Re-open the file for parsing
+                    with open(obj.original_file.path, "r") as f:
+                        (
+                            manifest_hash,
+                            manifest_page_count,
+                            manifest_summary,
+                            manifest_title,
+                        ) = self.extract_manifest_fields(f)
+                    obj.manifest_hash = manifest_hash
+                    obj.manifest_page_count = manifest_page_count
+                    obj.manifest_file_summary = manifest_summary
+                    if manifest_title:
+                        obj.title = manifest_title
+                    obj.status = "manifest_ready"
+                    obj.save()
+                    # Immediately import manifest to checklist (same as PDF flow)
                     try:
-                        manifest = json.load(manifest_file)
-                        obj.manifest_hash = manifest.get("file_hash")
-                        obj.manifest_file_summary = manifest.get("file_summary")
-                        if "pages" in manifest:
-                            obj.manifest_page_count = len(manifest["pages"])
-                        elif "items" in manifest:
-                            obj.manifest_page_count = len(manifest["items"])
-                        else:
-                            obj.manifest_page_count = None
-                        obj.status = "manifest_ready"
+                        ingest_cmd = IngestManifestCommand()
+                        ingest_cmd.handle(
+                            manifest=obj.original_file.path,
+                            tax_year=obj.tax_year.year,
+                            client_id=obj.business_profile.client_id,
+                            organizer_workbook_id=obj.id,
+                            manifest_hash=obj.manifest_hash,
+                            overwrite=True,
+                        )
+                        obj.status = "checklist_created"
                         obj.save()
-                        # Immediately import manifest to checklist (same as PDF flow)
-                        try:
-                            ingest_cmd = IngestManifestCommand()
-                            ingest_cmd.handle(
-                                manifest=obj.original_file.path,
-                                tax_year=obj.tax_year.year,
-                                client_id=obj.business_profile.client_id,
-                                organizer_workbook_id=obj.id,
-                                manifest_hash=obj.manifest_hash,
-                                overwrite=True,
-                            )
-                            obj.status = "checklist_created"
-                            obj.save()
-                            context["manifest_upload_success"] = (
-                                f"Manifest attached, fields updated, and checklist imported for organizer '{obj}'."
-                            )
-                        except Exception as e:
-                            context["manifest_upload_error"] = (
-                                f"Manifest attached but failed to import checklist: {e}"
-                            )
+                        context["manifest_upload_success"] = (
+                            f"Manifest attached, fields updated, and checklist imported for organizer '{obj}'."
+                        )
                     except Exception as e:
                         context["manifest_upload_error"] = (
-                            f"Failed to attach manifest: {e}"
+                            f"Manifest attached but failed to import checklist: {e}"
                         )
                 else:
                     context["manifest_upload_error"] = "Invalid manifest upload form."
@@ -277,6 +298,75 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                 manifest_form = ManifestUploadForm()
             context["manifest_upload_form"] = manifest_form
         return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        obj = self.get_object(request, object_id)
+        if request.method == "POST" and "manifest_upload" in request.POST:
+            manifest_form = ManifestUploadForm(request.POST, request.FILES)
+            manifest_file = request.FILES.get("manifest_file")
+            if not manifest_file or not getattr(manifest_file, "size", 0):
+                self.message_user(
+                    request,
+                    "No manifest file selected or file is empty.",
+                    level=messages.ERROR,
+                )
+                return HttpResponseRedirect(request.path)
+            if manifest_form.is_valid():
+                filename = f"organizer_{obj.id}_manifest.json"
+                obj.original_file.save(
+                    filename, ContentFile(manifest_file.read()), save=False
+                )
+                # Re-open the file for parsing
+                with open(obj.original_file.path, "r") as f:
+                    (
+                        manifest_hash,
+                        manifest_page_count,
+                        manifest_summary,
+                        manifest_title,
+                    ) = self.extract_manifest_fields(f)
+                obj.manifest_hash = manifest_hash
+                obj.manifest_page_count = manifest_page_count
+                obj.manifest_file_summary = manifest_summary
+                if manifest_title:
+                    obj.title = manifest_title
+                obj.status = "manifest_ready"
+                obj.save()
+                # Immediately import manifest to checklist (same as PDF flow)
+                try:
+                    ingest_cmd = IngestManifestCommand()
+                    ingest_cmd.handle(
+                        manifest=obj.original_file.path,
+                        tax_year=obj.tax_year.year,
+                        client_id=obj.business_profile.client_id,
+                        organizer_workbook_id=obj.id,
+                        manifest_hash=obj.manifest_hash,
+                        overwrite=True,
+                    )
+                    obj.status = "checklist_created"
+                    obj.save()
+                    self.message_user(
+                        request,
+                        f"Manifest attached, fields updated, and checklist imported for organizer '{obj}'.",
+                        level=messages.SUCCESS,
+                    )
+                except Exception as e:
+                    self.message_user(
+                        request,
+                        f"Manifest attached but failed to import checklist: {e}",
+                        level=messages.ERROR,
+                    )
+                return HttpResponseRedirect(request.path)
+            else:
+                self.message_user(
+                    request,
+                    f"Invalid manifest upload form: {manifest_form.errors}",
+                    level=messages.ERROR,
+                )
+                return HttpResponseRedirect(request.path)
+        # On GET or normal change, show the manifest upload form
+        extra_context = extra_context or {}
+        extra_context["manifest_upload_form"] = ManifestUploadForm()
+        return super().change_view(request, object_id, form_url, extra_context)
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
@@ -383,31 +473,25 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     binder_items_link.short_description = "Binder Items for This Workbook"
 
     def save_model(self, request, obj, form, change):
+        # Auto-set business_profile from tax_year on add, robust to missing relation
+        if (
+            not change
+            and hasattr(obj, "tax_year")
+            and obj.tax_year
+            and not getattr(obj, "business_profile", None)
+        ):
+            obj.business_profile = obj.tax_year.business_profile
+        # If a manifest file is uploaded, extract fields
         file = form.cleaned_data.get("original_file")
         if file and file.name.lower().endswith(".json"):
-            # Read the uploaded file into memory
             file.seek(0)
-            manifest_bytes = file.read()
-            try:
-                manifest_data = json.loads(manifest_bytes.decode("utf-8"))
-            except Exception:
-                manifest_data = None
-            if manifest_data:
-                obj.manifest_hash = manifest_data.get("file_hash")
-                obj.manifest_file_summary = manifest_data.get("file_summary")
-                # Try to get page count from manifest structure
-                if "pages" in manifest_data:
-                    obj.manifest_page_count = len(manifest_data["pages"])
-                elif "items" in manifest_data:
-                    obj.manifest_page_count = len(manifest_data["items"])
-                else:
-                    obj.manifest_page_count = None
-                obj.status = "manifest_ready"
-            else:
-                obj.manifest_hash = None
-                obj.manifest_file_summary = None
-                obj.manifest_page_count = None
-                obj.status = "pending"
-            # Rewind file pointer for model save
-            file.seek(0)
+            manifest_hash, manifest_page_count, manifest_summary, manifest_title = (
+                self.extract_manifest_fields(file)
+            )
+            obj.manifest_hash = manifest_hash
+            obj.manifest_page_count = manifest_page_count
+            obj.manifest_file_summary = manifest_summary
+            if manifest_title:
+                obj.title = manifest_title
+            obj.status = "manifest_ready" if manifest_hash else "pending"
         super().save_model(request, obj, form, change)
