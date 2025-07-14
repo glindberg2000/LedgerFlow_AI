@@ -501,6 +501,29 @@ def generate_irs_pdf(response, client, context):
     story.append(Paragraph(f"Client: {client.client_id}", styles["h2"]))
     story.append(Spacer(1, 24))
 
+    # Table style (modern, readable)
+    modern_table_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 10),
+            ("TOPPADDING", (0, 0), (-1, 0), 12),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+            # Data rows
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 1), (-1, -1), 9),
+            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2C3E50")),
+            ("TOPPADDING", (0, 1), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+            # Borders
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
+            # Alignment
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),  # Amount column right-aligned
+        ]
+    )
+
     # Income Section
     story.append(Paragraph("Part I: Income", styles["h2"]))
     income_data = [["Description", "Amount"]]
@@ -508,6 +531,7 @@ def generate_irs_pdf(response, client, context):
         income_data.append([item["name"], f"${item['total']:,.2f}"])
     income_data.append(["Total Income", f"${context['total_income']:,.2f}"])
     income_table = Table(income_data, colWidths=[4 * inch, 1.5 * inch])
+    income_table.setStyle(modern_table_style)
     story.append(income_table)
     story.append(Spacer(1, 24))
 
@@ -518,6 +542,7 @@ def generate_irs_pdf(response, client, context):
         expense_data.append([item["name"], f"${item['total']:,.2f}"])
     expense_data.append(["Total Expenses", f"${context['total_expenses']:,.2f}"])
     expense_table = Table(expense_data, colWidths=[4 * inch, 1.5 * inch])
+    expense_table.setStyle(modern_table_style)
     story.append(expense_table)
     story.append(Spacer(1, 24))
 
@@ -529,6 +554,7 @@ def generate_irs_pdf(response, client, context):
         ["Net Income", f"${context['net_income']:,.2f}"],
     ]
     summary_table = Table(summary_data, colWidths=[4 * inch, 1.5 * inch])
+    summary_table.setStyle(modern_table_style)
     story.append(summary_table)
 
     doc.build(story)
