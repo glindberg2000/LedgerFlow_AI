@@ -59,6 +59,7 @@ from profiles.prompt_utils import get_fallback_payee_prompts
 import jinja2
 from django.forms import TextInput
 from django.db import models
+from organizers.models import OrganizerWorkbook
 
 # Add the root directory to the Python path
 sys.path.append(
@@ -1418,6 +1419,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "task_id",
         "task_type",
         "client",
+        "tax_year_column",
         "status",
         "transaction_count",
         "processed_count",
@@ -1452,6 +1454,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "error_details",
         "task_metadata",
         "pages_to_parse",
+        "tax_year_column",
     )
     actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
 
@@ -1670,6 +1673,27 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         return obj.pages_to_parse or "-"
 
     pages_to_parse.short_description = "Pages to Parse"
+
+    def tax_year_column(self, obj):
+        # For organizer_extraction, show the tax year (binder) if possible
+        if obj.task_type == "organizer_extraction":
+            workbook_id = obj.task_metadata.get("workbook_id")
+            if workbook_id:
+                try:
+                    workbook = OrganizerWorkbook.objects.get(id=workbook_id)
+                    return getattr(workbook.tax_year, "year", "-")
+                except Exception:
+                    return "-"
+        return "-"
+
+    tax_year_column.short_description = "Tax Year"
+
+    def get_fields(self, request, obj=None):
+        fields = super().get_fields(request, obj)
+        # Remove transactions field from the detail view
+        if "transactions" in fields:
+            fields = tuple(f for f in fields if f != "transactions")
+        return fields
 
 
 # Restore the original StatementFileAdminForm for single-file upload
