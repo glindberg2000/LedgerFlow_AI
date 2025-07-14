@@ -35,6 +35,12 @@ class OrganizerWorkbookForm(forms.ModelForm):
             for field in ["binder", "title", "original_file", "pages_to_parse"]:
                 if field in self.fields:
                     self.fields.pop(field)
+        else:
+            # On add, add a reminder to re-select the file if the form reloads
+            self.fields["original_file"].help_text = (
+                (self.fields["original_file"].help_text or "")
+                + "<br><span style='color:red;'>If the form reloads due to an error, you must re-select the file before submitting again.</span>"
+            )
 
     def clean_original_file(self):
         file = self.cleaned_data["original_file"]
