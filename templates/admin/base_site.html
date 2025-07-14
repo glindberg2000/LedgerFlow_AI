@@ -61,23 +61,23 @@
 {% endblock %}
 
 {% block nav-global %}
-{% get_admin_nav as nav %}
-<ul class="nav-menu">
-    {% for item in nav %}
-    {% if item.models %}
-    <li>
-        <a href="#">{{ item.icon }} {{ item.name }}</a>
-        <ul class="nav-dropdown">
-            {% for model in item.models %}
-            <li><a href="{{ model.url }}">{{ model.name }}</a></li>
-            {% endfor %}
-        </ul>
-    </li>
-    {% else %}
-    <li><a href="{{ item.url }}">{{ item.icon }} {{ item.name }}</a></li>
-    {% endif %}
-    {% endfor %}
-</ul>
+  {% if available_apps %}
+    {% get_admin_nav as nav %}
+    <ul class="nav-menu">
+      {% for item in nav %}
+      {% if item.models %}
+      <li>
+          <a href="#">{{ item.icon }} {{ item.name }}</a>
+          <ul class="nav-dropdown">
+              {% for model in item.models %}
+              <li><a href="{{ model.url }}">{{ model.name }}</a></li>
+              {% endfor %}
+          </ul>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+  {% endif %}
 {% endblock %}
 
 {% block branding %}
