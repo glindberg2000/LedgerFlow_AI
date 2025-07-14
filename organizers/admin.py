@@ -175,7 +175,7 @@ def attach_manifest(modeladmin, request, queryset):
 
 
 class ManifestUploadForm(forms.Form):
-    manifest_file = forms.FileField(label="Manifest JSON file")
+    manifest_file = forms.FileField(label="Manifest JSON file", required=True)
 
 
 @admin.register(OrganizerWorkbook)
@@ -305,25 +305,11 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         obj = self.get_object(request, object_id)
+        manifest_upload_form = ManifestUploadForm()
         if request.method == "POST" and "manifest_upload" in request.POST:
-            # --- PATCH: Robust manifest upload handling for multi-form admin page ---
-            # Always redirect after POST to avoid file loss and double submission
-            import logging
-
-            logger = logging.getLogger("organizers.admin")
-            logger.debug(
-                f"Manifest upload POST: FILES={request.FILES}, POST={request.POST}"
-            )
-            manifest_form = ManifestUploadForm(request.POST, request.FILES)
-            manifest_file = request.FILES.get("manifest_file")
-            if not manifest_file or not getattr(manifest_file, "size", 0):
-                self.message_user(
-                    request,
-                    "No manifest file selected or file is empty.",
-                    level=messages.ERROR,
-                )
-                return HttpResponseRedirect(request.path)
-            if manifest_form.is_valid():
+            form = ManifestUploadForm(request.POST, request.FILES)
+            if form.is_valid():
+                manifest_file = form.cleaned_data["manifest_file"]
                 filename = f"organizer_{obj.id}_manifest.json"
                 obj.original_file.save(
                     filename, ContentFile(manifest_file.read()), save=False
@@ -371,14 +357,16 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
             else:
                 self.message_user(
                     request,
-                    f"Invalid manifest upload form: {manifest_form.errors}",
+                    "No manifest file selected or file is empty.",
                     level=messages.ERROR,
                 )
                 return HttpResponseRedirect(request.path)
-        # On GET or normal change, show the manifest upload form
-        extra_context = extra_context or {}
-        extra_context["manifest_upload_form"] = ManifestUploadForm()
-        return super().change_view(request, object_id, form_url, extra_context)
+        if extra_context is None:
+            extra_context = {}
+        extra_context["manifest_upload_form"] = manifest_upload_form
+        return super().change_view(
+            request, object_id, form_url, extra_context=extra_context
+        )
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
