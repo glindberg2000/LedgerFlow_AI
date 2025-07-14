@@ -474,18 +474,19 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     binder_items_link.short_description = "Binder Items for This Workbook"
 
     def title_with_width(self, obj):
-        return f'<div style="min-width: 300px; max-width: 600px; white-space: normal;">{obj.title or "-"}</div>'
+        return format_html(
+            '<div style="min-width: 300px; max-width: 600px; white-space: normal;">{}</div>',
+            obj.title or "-",
+        )
 
-    title_with_width.allow_tags = True
     title_with_width.short_description = "Title"
     title_with_width.admin_order_field = "title"
 
     def manifest_file_summary_tooltip(self, obj):
         summary = obj.manifest_file_summary or "-"
         display = summary[:40] + ("..." if len(summary) > 40 else "")
-        return f'<span title="{summary}">{display}</span>'
+        return format_html('<span title="{}">{}</span>', summary, display)
 
-    manifest_file_summary_tooltip.allow_tags = True
     manifest_file_summary_tooltip.short_description = "Manifest file summary"
     manifest_file_summary_tooltip.admin_order_field = "manifest_file_summary"
 
