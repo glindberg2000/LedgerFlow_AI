@@ -13,6 +13,7 @@ from profiles.utils.utils import get_update_fields_from_response
 # Add these imports for organizer extraction
 from organizers.models import OrganizerWorkbook, OrganizerOutput
 from dataextractai.parsers.organizer_extractor import OrganizerExtractor
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,29 @@ class Command(BaseCommand):
                                 cleaned_manifest_path, settings.MEDIA_ROOT
                             ),
                         )
+                        # --- PATCH: Parse manifest and update OrganizerWorkbook fields ---
+                        try:
+                            with open(cleaned_manifest_path, "r") as f:
+                                manifest = json.load(f)
+                            workbook.manifest_hash = manifest.get("file_hash")
+                            workbook.manifest_file_summary = manifest.get(
+                                "file_summary"
+                            )
+                            if "pages" in manifest:
+                                workbook.manifest_page_count = len(manifest["pages"])
+                            elif "items" in manifest:
+                                workbook.manifest_page_count = len(manifest["items"])
+                            else:
+                                workbook.manifest_page_count = None
+                            workbook.status = "manifest_ready"
+                            logger.info(
+                                f"Updated OrganizerWorkbook {workbook.id} with manifest metadata."
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to update OrganizerWorkbook with manifest: {e}"
+                            )
+                        # --- END PATCH ---
                         workbook.status = "completed"
                         task.status = "completed"
                         task.error_details = {}

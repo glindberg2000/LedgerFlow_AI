@@ -15,6 +15,8 @@ from django.core.files.base import ContentFile
 from .forms import OrganizerWorkbookForm
 from django import forms
 from django.utils.html import format_html
+from django.shortcuts import render, redirect
+from django.urls import path
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -94,6 +96,55 @@ def import_manifest_to_checklist(modeladmin, request, queryset):
         )
 
 
+class AttachManifestForm(forms.Form):
+    manifest_file = forms.FileField(label="Manifest JSON file")
+
+
+@admin.action(description="Attach Manifest JSON to selected organizer")
+def attach_manifest(modeladmin, request, queryset):
+    if queryset.count() != 1:
+        modeladmin.message_user(
+            request,
+            "Please select exactly one organizer to attach a manifest.",
+            level=messages.WARNING,
+        )
+        return
+    organizer = queryset.first()
+    if request.method == "POST":
+        form = AttachManifestForm(request.POST, request.FILES)
+        if form.is_valid():
+            manifest_file = form.cleaned_data["manifest_file"]
+            try:
+                manifest = json.load(manifest_file)
+                organizer.manifest_hash = manifest.get("file_hash")
+                organizer.manifest_file_summary = manifest.get("file_summary")
+                if "pages" in manifest:
+                    organizer.manifest_page_count = len(manifest["pages"])
+                elif "items" in manifest:
+                    organizer.manifest_page_count = len(manifest["items"])
+                else:
+                    organizer.manifest_page_count = None
+                organizer.status = "manifest_ready"
+                organizer.save()
+                modeladmin.message_user(
+                    request,
+                    f"Manifest attached and fields updated for organizer '{organizer}'.",
+                )
+                return
+            except Exception as e:
+                modeladmin.message_user(
+                    request, f"Failed to attach manifest: {e}", level=messages.ERROR
+                )
+    else:
+        form = AttachManifestForm()
+    context = {
+        "form": form,
+        "organizer": organizer,
+        "title": "Attach Manifest to Organizer",
+    }
+    return render(request, "admin/attach_manifest.html", context)
+
+
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
     form = OrganizerWorkbookForm
@@ -125,6 +176,7 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         delete_all_checklist_items,
         import_manifest_to_checklist,
         "create_extraction_task",
+        attach_manifest,
     ]
 
     def get_fieldsets(self, request, obj=None):
