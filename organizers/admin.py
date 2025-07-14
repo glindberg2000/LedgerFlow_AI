@@ -15,6 +15,7 @@ from django.core.files.base import ContentFile
 from .forms import OrganizerWorkbookForm
 from django import forms
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.template.response import TemplateResponse
@@ -189,17 +190,17 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
     get_binder_name.admin_order_field = "tax_year__year"
 
     list_display = (
-        "get_binder_name",  # Show binder name (company + year), clickable
+        "get_binder_name",
         "tax_year",
         "id",
         "title_with_width",
         "upload_date",
         "status",
-        "manifest_hash",
         "manifest_page_count",
-        "manifest_file_summary_tooltip",
+        "manifest_file_summary_icon",
+        "manifest_hash_icon",
     )
-    list_display_links = ("get_binder_name",)  # Make binder name clickable
+    list_display_links = ("get_binder_name",)
     list_filter = ["status", "upload_date"]
     search_fields = ["title", "business_profile__name"]
     readonly_fields = [
@@ -489,6 +490,24 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     manifest_file_summary_tooltip.short_description = "Manifest file summary"
     manifest_file_summary_tooltip.admin_order_field = "manifest_file_summary"
+
+    def manifest_file_summary_icon(self, obj):
+        summary = obj.manifest_file_summary or None
+        if summary:
+            return format_html('<span title="{}">📄</span>', summary)
+        return "-"
+
+    manifest_file_summary_icon.short_description = "Manifest summary"
+    manifest_file_summary_icon.admin_order_field = "manifest_file_summary"
+
+    def manifest_hash_icon(self, obj):
+        hashval = obj.manifest_hash or None
+        if hashval:
+            return format_html('<span title="{}">#</span>', hashval)
+        return "-"
+
+    manifest_hash_icon.short_description = "Manifest hash"
+    manifest_hash_icon.admin_order_field = "manifest_hash"
 
     def save_model(self, request, obj, form, change):
         # Auto-set business_profile from tax_year on add, robust to missing relation
