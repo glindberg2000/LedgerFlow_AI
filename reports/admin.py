@@ -5,7 +5,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.utils.html import format_html
 from django.db import models
 from profiles.models import BusinessProfile
-from .forms import ClientSelectForm
+from .forms import BinderSelectForm  # Use this if a form is needed
 from .views import (
     irs_report,
     all_categories_report,
@@ -80,14 +80,17 @@ class ReportsAdmin(admin.ModelAdmin):
 
     def reports_dashboard(self, request):
         info = self.model._meta.app_label, self.model._meta.model_name
-        form = ClientSelectForm(request.GET or None)
-        selected_client = None
-        client_id = request.GET.get("client")
-        tax_year = request.GET.get("tax_year")  # Optionally support year filter
-        if client_id:
+        form = BinderSelectForm(request.GET or None)
+        binder_id = request.GET.get("binder")
+        selected_binder = None
+        if binder_id:
+            from profiles.models import TaxYear
+
             try:
-                selected_client = BusinessProfile.objects.get(client_id=client_id)
-            except BusinessProfile.DoesNotExist:
+                selected_binder = TaxYear.objects.select_related(
+                    "business_profile"
+                ).get(id=binder_id)
+            except TaxYear.DoesNotExist:
                 pass
 
         reports_list = [
@@ -117,40 +120,20 @@ class ReportsAdmin(admin.ModelAdmin):
             },
         ]
 
-        # Add Tax Checklist link if client is selected
-        # (Removed: TaxChecklistItem model no longer exists)
-        # if selected_client:
-        #     checklist_url = (
-        #         reverse("admin:profiles_taxchecklistitem_changelist")
-        #         + f"?business_profile__id__exact={selected_client.id}"
-        #     )
-        #     if tax_year:
-        #         checklist_url += f"&tax_year__exact={tax_year}"
-        #     reports_list.append(
-        #         {
-        #             "title": "Tax Checklist",
-        #             "url_name": None,
-        #             "url": checklist_url,
-        #             "icon": "✅",
-        #             "description": "View and manage the tax checklist for this client.",
-        #         }
-        #     )
-
-        # Add client_id to report URLs if a client is selected
+        # Add binder_id to report URLs if a binder is selected
         for report in reports_list:
             if report.get("url_name"):
                 url = reverse(f'admin:{report["url_name"]}')
-                if selected_client:
-                    report["url"] = f"{url}?client={client_id}"
+                if selected_binder:
+                    report["url"] = f"{url}?binder={binder_id}"
                 else:
                     report["url"] = url
-            # else: report["url"] is already set (e.g., Tax Checklist)
 
         context = {
             **self.admin_site.each_context(request),
             "title": "Reports Dashboard",
             "form": form,
-            "selected_client": selected_client,
+            "selected_binder": selected_binder,
             "reports": reports_list,
         }
         return render(request, "admin/reports/reports_dashboard.html", context)
