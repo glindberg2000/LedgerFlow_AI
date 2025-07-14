@@ -181,6 +181,8 @@ class ManifestUploadForm(forms.Form):
 
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
+    form = OrganizerWorkbookForm
+
     def get_binder_name(self, obj):
         if obj.tax_year:
             return str(obj.tax_year)
