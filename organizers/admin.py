@@ -374,8 +374,20 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
-            # On creation: show tax_year, title, original_file
-            return ((None, {"fields": ("tax_year", "title", "original_file")}),)
+            # On creation: show tax_year, title, original_file, pages_to_parse
+            return (
+                (
+                    None,
+                    {
+                        "fields": (
+                            "tax_year",
+                            "title",
+                            "original_file",
+                            "pages_to_parse",
+                        )
+                    },
+                ),
+            )
         # On change: show all as read-only
         return (
             (
