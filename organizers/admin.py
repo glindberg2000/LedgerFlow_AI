@@ -529,3 +529,31 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
                 obj.title = manifest_title
             obj.status = "manifest_ready" if manifest_hash else "pending"
         super().save_model(request, obj, form, change)
+        # --- Wire up pages_to_parse for batch parser job ---
+        if not change:
+            pages = form.cleaned_data.get("pages_to_parse", "").strip()
+            if pages:
+                # Add to ProcessingTask metadata for batch parser
+                ProcessingTask.objects.create(
+                    task_type="organizer_extraction",
+                    client=obj.business_profile,
+                    transaction_count=1,
+                    status="pending",
+                    task_metadata={
+                        "workbook_id": obj.id,
+                        "file": obj.original_file.name,
+                        "pages_to_parse": pages,
+                    },
+                )
+            else:
+                # Default: all pages
+                ProcessingTask.objects.create(
+                    task_type="organizer_extraction",
+                    client=obj.business_profile,
+                    transaction_count=1,
+                    status="pending",
+                    task_metadata={
+                        "workbook_id": obj.id,
+                        "file": obj.original_file.name,
+                    },
+                )
