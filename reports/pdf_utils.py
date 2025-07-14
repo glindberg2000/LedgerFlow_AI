@@ -488,73 +488,80 @@ def generate_categories_pdf(response, client, categories, total_income, total_ex
 
 
 def generate_irs_pdf(response, client, context):
+    from reportlab.platypus import TableStyle
+    from reportlab.lib import colors
+
+    modern_table_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+    )
     doc = SimpleDocTemplate(response, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []
     inch = 1
 
     # Title
-    story.append(Paragraph("IRS-Style Financial Report", styles["h1"]))
+    story.append(Paragraph("IRS 6A Worksheet Report", styles["h1"]))
     story.append(Spacer(1, 12))
 
-    # Client Info
-    story.append(Paragraph(f"Client: {client.client_id}", styles["h2"]))
-    story.append(Spacer(1, 24))
-
-    # Table style (modern, readable)
-    modern_table_style = TableStyle(
-        [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 10),
-            ("TOPPADDING", (0, 0), (-1, 0), 12),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-            # Data rows
-            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-            ("FONTSIZE", (0, 1), (-1, -1), 9),
-            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2C3E50")),
-            ("TOPPADDING", (0, 1), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
-            # Borders
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
-            # Alignment
-            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-            ("ALIGN", (1, 1), (1, -1), "RIGHT"),  # Amount column right-aligned
-        ]
+    # Binder Info
+    company_name = (
+        context.get("company_name")
+        or getattr(client, "company_name", None)
+        or getattr(client, "client_id", "")
     )
+    tax_year = context.get("tax_year")
+    if company_name:
+        story.append(Paragraph(f"Company: {company_name}", styles["h2"]))
+    if tax_year:
+        story.append(Paragraph(f"Tax Year: {tax_year}", styles["h2"]))
+    story.append(Spacer(1, 12))
 
-    # Income Section
-    story.append(Paragraph("Part I: Income", styles["h2"]))
-    income_data = [["Description", "Amount"]]
-    for item in context["income_items"]:
-        income_data.append([item["name"], f"${item['total']:,.2f}"])
-    income_data.append(["Total Income", f"${context['total_income']:,.2f}"])
-    income_table = Table(income_data, colWidths=[4 * inch, 1.5 * inch])
-    income_table.setStyle(modern_table_style)
-    story.append(income_table)
-    story.append(Spacer(1, 24))
+    # Main worksheet table
+    categories = context.get("categories", [])
+    total = context.get("total", "$0.00")
+    if categories:
+        data = (
+            [["Category", "Total"]]
+            + [[str(row[0]), str(row[1])] for row in categories]
+            + [["Grand Total", str(total)]]
+        )
+        t = Table(data, colWidths=[3.5 * inch, 2.5 * inch])
+        t.setStyle(modern_table_style)
+        story.append(t)
+        story.append(Spacer(1, 18))
 
-    # Expense Section
-    story.append(Paragraph("Part II: Expenses", styles["h2"]))
-    expense_data = [["Description", "Amount"]]
-    for item in context["expense_items"]:
-        expense_data.append([item["name"], f"${item['total']:,.2f}"])
-    expense_data.append(["Total Expenses", f"${context['total_expenses']:,.2f}"])
-    expense_table = Table(expense_data, colWidths=[4 * inch, 1.5 * inch])
-    expense_table.setStyle(modern_table_style)
-    story.append(expense_table)
-    story.append(Spacer(1, 24))
+    # User-defined business categories
+    business_categories = context.get("business_categories", [])
+    if business_categories:
+        story.append(
+            Paragraph("Other Business Expense Categories (User-Defined)", styles["h3"])
+        )
+        data = [["Category", "Subtotal"]] + [
+            [str(row[0]), str(row[1])] for row in business_categories
+        ]
+        t2 = Table(data, colWidths=[3.5 * inch, 2.5 * inch])
+        t2.setStyle(modern_table_style)
+        story.append(t2)
+        story.append(Spacer(1, 12))
 
-    # Summary Section
-    story.append(Paragraph("Part III: Summary", styles["h2"]))
-    summary_data = [
-        ["Total Income", f"${context['total_income']:,.2f}"],
-        ["Total Expenses", f"${context['total_expenses']:,.2f}"],
-        ["Net Income", f"${context['net_income']:,.2f}"],
-    ]
-    summary_table = Table(summary_data, colWidths=[4 * inch, 1.5 * inch])
-    summary_table.setStyle(modern_table_style)
-    story.append(summary_table)
+    # Note for unmapped categories
+    if context.get("unmapped_business_cats"):
+        story.append(
+            Paragraph(
+                "<i>Note: Some business categories are not mapped to IRS categories and may not appear above.</i>",
+                styles["Normal"],
+            )
+        )
+        story.append(Spacer(1, 12))
 
     doc.build(story)

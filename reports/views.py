@@ -8,8 +8,9 @@ from profiles.models import (
     IRSExpenseCategory,
     BusinessExpenseCategory,
     StatementFile,
+    TaxYear,
 )
-from .forms import ClientSelectForm
+from .forms import BinderSelectForm
 from django.db.models import Sum, Q
 import re
 from django.http import HttpResponse, Http404
@@ -46,7 +47,7 @@ def download_statement_file(request, file_id):
 def index(request):
     """Landing page for reports showing all available report types."""
     client_id = request.GET.get("client")
-    form = ClientSelectForm(request.GET or None)
+    form = BinderSelectForm(request.GET or None)
     selected_client = None
     if client_id:
         try:
@@ -143,121 +144,90 @@ def _get_base_context(request):
 @staff_member_required
 @login_required
 def irs_report(request, worksheet=None):
-    client_id = request.GET.get("client")
-    form = ClientSelectForm(request.GET or None)
+    binder_id = request.GET.get("binder")
+    form = None  # No need for a form; binder is already selected
     categories = []
     total = 0
+    selected_binder = None
     selected_client = None
     business_categories = []
     worksheet_list = IRSWorksheet.objects.all()
     unmapped_business_cats = []
-    if client_id:
+    if binder_id:
         try:
-            selected_client = BusinessProfile.objects.get(client_id=client_id)
-        except BusinessProfile.DoesNotExist:
-            selected_client = None
-    if selected_client:
-        worksheet = IRSWorksheet.objects.filter(name="6A").first()
-        if worksheet:
-            irs_categories = IRSExpenseCategory.objects.filter(worksheet=worksheet)
-            # Map: IRS category name -> subtotal
-            for cat in irs_categories:
-                subtotal = (
-                    Transaction.objects.filter(
-                        client=selected_client,
-                        worksheet="6A",
-                        classification_type="business",
-                        category=cat.name,
-                    ).aggregate(sum=Sum("amount"))["sum"]
-                    or 0
-                )
-                tx_url = build_transaction_admin_url(
-                    selected_client.client_id, "6A", "business", cat.name
-                )
-                categories.append(
-                    {
-                        "name": cat.name,
-                        "line_number": cat.line_number,
-                        "subtotal": subtotal,
-                        "tx_url": tx_url,
-                    }
-                )
-                total += subtotal
-            categories.sort(key=lambda c: _sort_line_number(c["line_number"]))
-            # Fetch all business expense categories for this client and worksheet 6A
-            business_cats = BusinessExpenseCategory.objects.filter(
-                business=selected_client, worksheet=worksheet
+            selected_binder = TaxYear.objects.select_related("business_profile").get(
+                id=binder_id
             )
-            irs_cat_names = set(cat.name for cat in irs_categories)
+            selected_client = selected_binder.business_profile
+            # Filter transactions by binder (tax year)
+            transactions = Transaction.objects.filter(
+                client=selected_binder.business_profile,
+                transaction_date__year=int(selected_binder.year),
+            )
+            print("Transactions found:", transactions.count())
+            print("Sample transaction:", transactions.first())
+            print(
+                "Categories in transactions:",
+                list(transactions.values_list("category", flat=True).distinct()),
+            )
+            # Calculate worksheet categories (6A)
+            categories, total = calculate_6a_categories(transactions)
+
+            # Build business categories from BusinessExpenseCategory model
+            from profiles.models import BusinessExpenseCategory
+
+            business_cats = BusinessExpenseCategory.objects.filter(
+                business=selected_binder.business_profile
+            )
+            business_categories = []
             for bcat in business_cats:
-                subtotal = (
-                    Transaction.objects.filter(
-                        client=selected_client,
-                        worksheet="6A",
-                        classification_type="business",
-                        category=bcat.category_name,
-                    ).aggregate(sum=Sum("amount"))["sum"]
-                    or 0
+                matching_txs = transactions.filter(category=bcat.category_name)
+                subtotal = matching_txs.aggregate(sum=Sum("amount"))["sum"] or 0
+                print(
+                    f"Business category: {bcat.category_name}, count: {matching_txs.count()}, subtotal: {subtotal}"
                 )
-                tx_url = build_transaction_admin_url(
-                    selected_client.client_id, "6A", "business", bcat.category_name
-                )
-                entry = {
-                    "name": bcat.category_name,
-                    "subtotal": subtotal,
-                    "tx_url": tx_url,
-                    "mapped": bcat.category_name in irs_cat_names,
-                }
-                business_categories.append(entry)
-                if not entry["mapped"]:
-                    unmapped_business_cats.append(entry)
+                business_categories.append((bcat.category_name, f"${subtotal:,.2f}"))
+
+            # Unmapped business categories for the note (optional)
+            irs_cat_names = set(cat[0] for cat in categories)
+            unmapped_business_cats = [
+                cat for cat, _ in business_categories if cat not in irs_cat_names
+            ]
+        except TaxYear.DoesNotExist:
+            pass
     # PDF download logic
     if (
         "download" in request.GET
         and request.GET["download"] == "pdf"
-        and selected_client
+        and selected_binder
     ):
         from .pdf_utils import generate_irs_pdf
         from django.http import HttpResponse
 
         response = HttpResponse(content_type="application/pdf")
         response["Content-Disposition"] = (
-            f'attachment; filename="irs_6a_report_{selected_client.client_id}.pdf"'
+            f'attachment; filename="irs_6a_report_{selected_client.company_name}_{selected_binder.year}.pdf"'
         )
-        # Prepare context for PDF
         pdf_context = {
             "categories": categories,
             "total": total,
-            "client": selected_client,
-        }
-        # The generate_irs_pdf expects a context with income_items, expense_items, etc.
-        # For 6A, treat all categories as expense_items
-        pdf_context = {
-            "income_items": [],
-            "expense_items": [
-                {"name": cat["name"], "total": cat["subtotal"]} for cat in categories
-            ],
-            "total_income": 0,
-            "total_expenses": total,
-            "net_income": -total,
+            "business_categories": business_categories,
+            "unmapped_business_cats": unmapped_business_cats,
+            "tax_year": selected_binder.year,
+            "company_name": selected_client.company_name,
         }
         generate_irs_pdf(response, selected_client, pdf_context)
         return response
-    context = _get_base_context(request)
-    context.update(
-        {
-            "client_id": client_id,
-            "form": form,
-            "categories": categories,
-            "total": total,
-            "selected_client": selected_client,
-            "business_categories": business_categories,
-            "worksheet_list": worksheet_list,
-            "unmapped_business_cats": unmapped_business_cats,
-        }
-    )
-    if hasattr(request, "admin_site_context"):
-        context.update(request.admin_site_context)
+    context = {
+        "title": "IRS 6A Report",
+        "selected_binder": selected_binder,
+        "categories": categories,
+        "total": total,
+        "business_categories": business_categories,
+        "unmapped_business_cats": unmapped_business_cats,
+        "worksheet_list": worksheet_list,
+        # No form, no redundant selector
+    }
     return render(request, "reports/irs_report.html", context)
 
 
@@ -286,7 +256,7 @@ def personal_report(request):
 @login_required
 def all_categories_report(request):
     client_id = request.GET.get("client")
-    form = ClientSelectForm(request.GET or None)
+    form = BinderSelectForm(request.GET or None)
     selected_client = None
     category_subtotals = {}
     total = 0
@@ -343,7 +313,7 @@ def all_categories_report(request):
 @staff_member_required
 def irs_worksheet_report(request, worksheet_name):
     client_id = request.GET.get("client")
-    form = ClientSelectForm(request.GET or None)
+    form = BinderSelectForm(request.GET or None)
     categories = []
     total = 0
     selected_client = None
@@ -500,7 +470,7 @@ def interest_income_report(request):
 @login_required
 def donations_report(request):
     client_id = request.GET.get("client")
-    form = ClientSelectForm(request.GET or None)
+    form = BinderSelectForm(request.GET or None)
     selected_client = None
     donation_transactions = []
     total_donations = Decimal("0.00")
@@ -595,3 +565,56 @@ def donations_report(request):
     if hasattr(request, "admin_site_context"):
         context.update(request.admin_site_context)
     return render(request, "reports/donations_report.html", context)
+
+
+def calculate_6a_categories(transactions):
+    """
+    Returns a list of (category_name, subtotal) for all IRSExpenseCategory categories in the worksheet,
+    and the grand total for all such categories.
+    """
+    from profiles.models import IRSExpenseCategory
+
+    # Get all IRS categories (for 6A worksheet)
+    irs_categories = IRSExpenseCategory.objects.all().order_by("line_number")
+    results = []
+    grand_total = 0
+    for cat in irs_categories:
+        subtotal = (
+            transactions.filter(
+                classification_type="business", category=cat.name
+            ).aggregate(sum=Sum("amount"))["sum"]
+            or 0
+        )
+        results.append((cat.name, f"${subtotal:,.2f}"))
+        grand_total += subtotal
+    return results, f"${grand_total:,.2f}"
+
+
+def calculate_unmapped_business_categories(transactions):
+    """
+    Returns a list of (category_name, subtotal) for business categories not mapped to IRSExpenseCategory,
+    and a list of their names (for the note).
+    """
+    from profiles.models import IRSExpenseCategory
+
+    # Get all IRS category names
+    irs_cat_names = set(IRSExpenseCategory.objects.values_list("name", flat=True))
+    # Get all unique business categories in these transactions
+    business_cats = (
+        transactions.filter(classification_type="business")
+        .values_list("category", flat=True)
+        .distinct()
+    )
+    results = []
+    unmapped_names = []
+    for cat_name in business_cats:
+        if cat_name and cat_name not in irs_cat_names:
+            subtotal = (
+                transactions.filter(
+                    classification_type="business", category=cat_name
+                ).aggregate(sum=Sum("amount"))["sum"]
+                or 0
+            )
+            results.append((cat_name, f"${subtotal:,.2f}"))
+            unmapped_names.append(cat_name)
+    return results, unmapped_names

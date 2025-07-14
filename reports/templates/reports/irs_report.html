@@ -16,98 +16,69 @@
 
 <h1>{{ title }}</h1>
 
-{% if selected_client %}
+{% if selected_binder %}
 <div style="margin: 1em 0;">
-    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
+    <a href="?binder={{ selected_binder.id }}&download=pdf" class="button"
         style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
         <span style="margin-right: 5px;">📥</span> Download PDF Report
     </a>
 </div>
-<h3>Client: {{ selected_client.client_id }}</h3>
-<h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>
+<h3>Binder: {{ selected_binder.business_profile.company_name }} – {{ selected_binder.year }}</h3>
+{% endif %}
 
-{% if worksheets %}
-    {% for worksheet in worksheets %}
-    <div class="module">
-        <h2><a
-                href="{% url 'admin:reports_reportsproxy_worksheet' name=worksheet.name %}?client={{ selected_client.client_id }}">{{
-                worksheet.name }}</a></h2>
-        <table style="width: 100%;">
-            <thead>
-                <tr>
-                    <th>Category</th>
-                    <th style="text-align: right;">Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for category, data in worksheet.categories.items %}
-                <tr>
-                    <td>{{ category }}</td>
-                    <td style="text-align: right;">${{ data.total|floatformat:2 }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-            <tfoot>
-                <tr style="border-top: 2px solid #ccc;">
-                    <td style="font-weight: bold;">Worksheet Total</td>
-                    <td style="text-align: right; font-weight: bold;">${{ worksheet.total|floatformat:2 }}</td>
-                </tr>
-            </tfoot>
-        </table>
-    </div>
-    {% endfor %}
-{% elif categories %}
-    <table style="width: 100%;">
+{% if categories or business_categories or unmapped_business_cats %}
+    {% if categories %}
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 1em;">
         <thead>
-            <tr>
-                <th>Category</th>
-                <th style="text-align: right;">Total</th>
+            <tr style="background: #f0f0f0;">
+                <th style="border: 1px solid #ccc; padding: 8px;">Category</th>
+                <th style="border: 1px solid #ccc; padding: 8px;">Total</th>
             </tr>
         </thead>
         <tbody>
-            {% for cat in categories %}
+            {% for row in categories %}
             <tr>
-                <td>{{ cat.name }}</td>
-                <td style="text-align: right;">${{ cat.subtotal|floatformat:2 }}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">{{ row.0 }}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">{{ row.1 }}</td>
+            </tr>
+            {% endfor %}
+            <tr style="font-weight: bold; background: #f9f9f9;">
+                <td style="border: 1px solid #ccc; padding: 8px;">Grand Total</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">{{ total }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% comment %} Show a message if all values are $0.00 {% endcomment %}
+    {% if categories and total == '$0.00' %}
+        <p style="color: #888;">No transactions found for this binder and year.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if business_categories %}
+    <h4>Other Business Expense Categories (User-Defined)</h4>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 1em;">
+        <thead>
+            <tr style="background: #f0f0f0;">
+                <th style="border: 1px solid #ccc; padding: 8px;">Category</th>
+                <th style="border: 1px solid #ccc; padding: 8px;">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in business_categories %}
+            <tr>
+                <td style="border: 1px solid #ccc; padding: 8px;">{{ row.0 }}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">{{ row.1 }}</td>
             </tr>
             {% endfor %}
         </tbody>
-        <tfoot>
-            <tr style="border-top: 2px solid #ccc;">
-                <td style="font-weight: bold;">Grand Total</td>
-                <td style="text-align: right; font-weight: bold;">${{ total|floatformat:2 }}</td>
-            </tr>
-        </tfoot>
     </table>
-    {% if business_categories %}
-        <h4 style="margin-top:2em;">Other Business Expense Categories (User-Defined)</h4>
-        {% if unmapped_business_cats %}
-        <p style="color: orange;">Note: Some business categories are not mapped to IRS categories and may not appear above.</p>
-        {% endif %}
-        <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
-            <tr>
-                <th style="width:60%">Category</th>
-                <th style="width:30%">Subtotal</th>
-            </tr>
-            {% for bcat in business_categories %}
-                {% if not bcat.mapped %}
-                <tr>
-                    <td>{{ bcat.name }}</td>
-                    <td style="position:relative;">
-                        <a href="{{ bcat.tx_url }}" target="_blank" class="subtotal-link">${{ bcat.subtotal|floatformat:2 }}</a>
-                    </td>
-                </tr>
-                {% endif %}
-            {% endfor %}
-        </table>
+    {% endif %}
+
+    {% if unmapped_business_cats %}
+    <p><em>Note: Some business categories are not mapped to IRS categories and may not appear above.</em></p>
     {% endif %}
 {% else %}
-    <p>No data available for this client and period.</p>
-{% endif %}
-
-{% else %}
-<p>Please select a client from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports dashboard</a> to
-    view this report.</p>
+    <p>Please select a binder from the <a href="{% url 'admin:reports_reportsproxy_changelist' %}">reports dashboard</a> to view this report.</p>
 {% endif %}
 
 {% endblock %}
