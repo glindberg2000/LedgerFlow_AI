@@ -17,6 +17,7 @@ from django import forms
 from django.utils.html import format_html
 from django.shortcuts import render, redirect
 from django.urls import path
+from django.template.response import TemplateResponse
 
 
 class OrganizerOutputInline(admin.TabularInline):
@@ -170,6 +171,10 @@ def attach_manifest(modeladmin, request, queryset):
     return render(request, "admin/attach_manifest.html", context)
 
 
+class ManifestUploadForm(forms.Form):
+    manifest_file = forms.FileField(label="Manifest JSON file")
+
+
 @admin.register(OrganizerWorkbook)
 class OrganizerWorkbookAdmin(admin.ModelAdmin):
     def get_binder_name(self, obj):
@@ -210,8 +215,68 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
         delete_all_checklist_items,
         import_manifest_to_checklist,
         "create_extraction_task",
-        attach_manifest,
     ]
+
+    change_form_template = (
+        "admin/organizers/organizerworkbook/change_form_with_manifest.html"
+    )
+
+    def render_change_form(
+        self, request, context, add=False, change=False, form_url="", obj=None
+    ):
+        # Add manifest upload form to context if editing an existing organizer
+        if obj and obj.pk:
+            if request.method == "POST" and "manifest_upload" in request.POST:
+                manifest_form = ManifestUploadForm(request.POST, request.FILES)
+                if manifest_form.is_valid():
+                    manifest_file = manifest_form.cleaned_data["manifest_file"]
+                    filename = f"organizer_{obj.id}_manifest.json"
+                    obj.original_file.save(
+                        filename, ContentFile(manifest_file.read()), save=False
+                    )
+                    manifest_file.seek(0)
+                    try:
+                        manifest = json.load(manifest_file)
+                        obj.manifest_hash = manifest.get("file_hash")
+                        obj.manifest_file_summary = manifest.get("file_summary")
+                        if "pages" in manifest:
+                            obj.manifest_page_count = len(manifest["pages"])
+                        elif "items" in manifest:
+                            obj.manifest_page_count = len(manifest["items"])
+                        else:
+                            obj.manifest_page_count = None
+                        obj.status = "manifest_ready"
+                        obj.save()
+                        # Immediately import manifest to checklist (same as PDF flow)
+                        try:
+                            ingest_cmd = IngestManifestCommand()
+                            ingest_cmd.handle(
+                                manifest=obj.original_file.path,
+                                tax_year=obj.tax_year.year,
+                                client_id=obj.business_profile.client_id,
+                                organizer_workbook_id=obj.id,
+                                manifest_hash=obj.manifest_hash,
+                                overwrite=True,
+                            )
+                            obj.status = "checklist_created"
+                            obj.save()
+                            context["manifest_upload_success"] = (
+                                f"Manifest attached, fields updated, and checklist imported for organizer '{obj}'."
+                            )
+                        except Exception as e:
+                            context["manifest_upload_error"] = (
+                                f"Manifest attached but failed to import checklist: {e}"
+                            )
+                    except Exception as e:
+                        context["manifest_upload_error"] = (
+                            f"Failed to attach manifest: {e}"
+                        )
+                else:
+                    context["manifest_upload_error"] = "Invalid manifest upload form."
+            else:
+                manifest_form = ManifestUploadForm()
+            context["manifest_upload_form"] = manifest_form
+        return super().render_change_form(request, context, add, change, form_url, obj)
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
