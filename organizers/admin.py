@@ -247,11 +247,12 @@ class OrganizerWorkbookAdmin(admin.ModelAdmin):
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
-        # Hide business_profile and tax_year fields if present
-        if "business_profile" in form.base_fields:
-            form.base_fields["business_profile"].widget = forms.HiddenInput()
-        if "tax_year" in form.base_fields:
-            form.base_fields["tax_year"].widget = forms.HiddenInput()
+        # Only hide on change, not add
+        if obj is not None:
+            if "business_profile" in form.base_fields:
+                form.base_fields["business_profile"].widget = forms.HiddenInput()
+            if "tax_year" in form.base_fields:
+                form.base_fields["tax_year"].widget = forms.HiddenInput()
         return form
 
     def create_extraction_task(self, request, queryset):
