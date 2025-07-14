@@ -50,11 +50,11 @@ class OrganizerWorkbookForm(forms.ModelForm):
     def clean_pages_to_parse(self):
         value = self.cleaned_data.get("pages_to_parse", "").strip()
         if not value:
-            return ""
+            return ""  # treat blank as no restriction
         import re
 
-        # Accepts formats like: 1-5,8,10-12
-        pattern = r"^\s*\d+\s*(-\s*\d+)?(\s*,\s*\d+\s*(-\s*\d+)?)*\s*$"
+        # Accept formats like 1-5,8,10-12
+        pattern = r"^\s*\d+\s*(-\s*\d+\s*)?(\s*,\s*\d+\s*(-\s*\d+\s*)?)*\s*$"
         if not re.match(pattern, value):
             raise forms.ValidationError(
                 "Invalid page range format. Use e.g. 1-5,8,10-12 or leave blank."
