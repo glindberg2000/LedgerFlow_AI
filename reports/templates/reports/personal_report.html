@@ -1,5 +1,8 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.5em;">
+    <a href="/admin/reports/reportsproxy/" class="button" style="background-color: #eee; color: #333; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">&larr; Back to Reports Dashboard</a>
+</div>
 <h2>Personal Expense Report</h2>
 <form method="get">
     Client: <input type="text" name="client" value="{{ client_id }}" />
