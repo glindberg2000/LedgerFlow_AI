@@ -957,8 +957,6 @@ class TransactionAdmin(admin.ModelAdmin):
         "worksheet",
         "business_percentage",
         "confidence",
-        "source",
-        "parser_name",  # Show parser used
         "transaction_type",  # Show type
         "bank_name",  # Custom method for bank
         "download_file_link",  # Download link now provides original filename
@@ -967,6 +965,8 @@ class TransactionAdmin(admin.ModelAdmin):
         "short_payee_reasoning",
         "classification_method",
         "payee_extraction_method",
+        "source",  # Move to end
+        "parser_name",  # Move to end
     )
     list_filter = (
         ClientFilter,
