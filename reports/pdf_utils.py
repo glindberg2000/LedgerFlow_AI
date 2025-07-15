@@ -513,10 +513,18 @@ def generate_categories_pdf(response, client, categories, total_income, total_ex
             safe_paragraph("Total", styles["Normal"]),
         ]
     ]
-    for cat, total in categories:
+    for cat in categories:
+        # Support both dict and tuple for backward compatibility
+        if isinstance(cat, dict):
+            name = cat.get("name", "")
+            total = cat.get("total", "")
+        elif isinstance(cat, (list, tuple)) and len(cat) == 2:
+            name, total = cat
+        else:
+            name, total = str(cat), ""
         table_data.append(
             [
-                safe_paragraph(cat, styles["Normal"]),
+                safe_paragraph(name, styles["Normal"]),
                 safe_paragraph(total, styles["Normal"]),
             ]
         )
