@@ -474,6 +474,8 @@ def generate_categories_pdf(response, client, categories, total_income, total_ex
     )
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
 
     styles = getSampleStyleSheet()
     story = []
@@ -487,105 +489,61 @@ def generate_categories_pdf(response, client, categories, total_income, total_ex
         topMargin=0.5 * inch,
         bottomMargin=0.5 * inch,
     )
-    printable_width = letter[0] - doc.leftMargin - doc.rightMargin  # 7.5 inches
+    printable_width = letter[0] - doc.leftMargin - doc.rightMargin
+    colWidths = [0.6 * printable_width, 0.4 * printable_width]
+    print(
+        f"[DEBUG] Categories PDF: page size={letter}, printable_width={printable_width}, colWidths={colWidths}"
+    )
 
     # Title
-    elements.append(safe_paragraph("All Categories Report", styles["h1"]))
-    elements.append(
+    story.append(safe_paragraph("All Categories Report", styles["h1"]))
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(
         safe_paragraph(
-            f"Client: {getattr(client, 'company_name', getattr(client, 'client_id', ''))}",
-            styles["h2"],
+            f"Client: {getattr(client, 'company_name', getattr(client, 'name', str(client)))}",
+            styles["Normal"],
         )
     )
-    elements.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.1 * inch))
 
-    # Totals Section
-    elements.append(safe_paragraph("Totals:", styles["h3"]))
-    totals_data = [
-        [
-            safe_paragraph("Total Income:", styles["Normal"]),
-            safe_paragraph(f"${total_income:,.2f}", styles["Normal"]),
-        ],
-        [
-            safe_paragraph("Total Expense:", styles["Normal"]),
-            safe_paragraph(f"${total_expense:,.2f}", styles["Normal"]),
-        ],
-    ]
-    totals_table = Table(totals_data, colWidths=[4.5 * inch, 2.0 * inch])
-    totals_table.setStyle(
-        TableStyle(
-            [
-                ("ALIGN", (0, 0), (0, -1), "LEFT"),
-                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ]
-        )
-    )
-    elements.append(totals_table)
-    elements.append(Spacer(1, 0.25 * inch))
-
-    # Categories Data
-    modern_table_style = TableStyle(
-        [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 10),
-            ("TOPPADDING", (0, 0), (-1, 0), 12),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-            # Data rows
-            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-            ("FONTSIZE", (0, 1), (-1, -1), 10),
-            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2C3E50")),
-            ("TOPPADDING", (0, 1), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]
-    )
-    data = [
+    # Table data
+    table_data = [
         [
             safe_paragraph("Category", styles["Normal"]),
             safe_paragraph("Total", styles["Normal"]),
         ]
     ]
-    if categories:
-        for category in categories:
-            # Accept both dicts and lists
-            if isinstance(category, dict):
-                data.append(
-                    [
-                        safe_paragraph(category.get("name", ""), styles["Normal"]),
-                        safe_paragraph(
-                            f"${category.get('total', 0):,.2f}", styles["Normal"]
-                        ),
-                    ]
-                )
-            else:
-                data.append(
-                    [
-                        safe_paragraph(category[0], styles["Normal"]),
-                        safe_paragraph(category[1], styles["Normal"]),
-                    ]
-                )
-    else:
-        data.append(
+    for cat, total in categories:
+        table_data.append(
             [
-                safe_paragraph("(none)", styles["Normal"]),
-                safe_paragraph("$0.00", styles["Normal"]),
+                safe_paragraph(cat, styles["Normal"]),
+                safe_paragraph(total, styles["Normal"]),
             ]
         )
-    print("[DEBUG] All Categories PDF table data:", data)
-    table = Table(data, colWidths=[4.5 * inch, 2.0 * inch])
-    table.setStyle(modern_table_style)
-    elements.append(table)
+    print(f"[DEBUG] Categories PDF main table data: {table_data}")
 
-    doc.build(elements)
+    table = Table(table_data, colWidths=colWidths)
+    table.setStyle(modern_table_style)
+    story.append(table)
+    story.append(Spacer(1, 0.2 * inch))
+
+    # Totals
+    totals_data = [
+        [
+            safe_paragraph("Total Income", styles["Normal"]),
+            safe_paragraph(total_income, styles["Normal"]),
+        ],
+        [
+            safe_paragraph("Total Expense", styles["Normal"]),
+            safe_paragraph(total_expense, styles["Normal"]),
+        ],
+    ]
+    print(f"[DEBUG] Categories PDF totals table data: {totals_data}")
+    totals_table = Table(totals_data, colWidths=colWidths)
+    totals_table.setStyle(modern_table_style)
+    story.append(totals_table)
+
+    doc.build(story)
 
 
 def generate_irs_pdf(response, client, pdf_context):
