@@ -1,25 +1,19 @@
 {% extends "admin/base_site.html" %}
 {% load i18n static admin_urls %}
 
-{% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
-    &rsaquo; <a href="{% url 'admin:reports_reportsproxy_changelist' %}">Reports</a>
-    &rsaquo; {{ title }}
-</div>
-{% endblock %}
-
 {% block content %}
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.5em;">
+    <a href="/admin/reports/reportsproxy/" class="button" style="background-color: #eee; color: #333; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">&larr; Back to Reports Dashboard</a>
+    {% if selected_client %}
+    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
+        style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">
+        <span style="margin-right: 5px;">📥</span> Download PDF Report
+    </a>
+    {% endif %}
+</div>
 <h1>{{ title }}</h1>
 
 {% if selected_client %}
-<div style="margin: 1em 0;">
-    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button"
-        style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
-        <span style="margin-right: 5px;">📥</span> Download PDF Report
-    </a>
-</div>
-
 <h3>Client: {{ selected_client.client_id }}</h3>
 {% if time_frame %}
 <h4 style="color: #666; margin-bottom: 20px;">Reporting Period: {{ time_frame }}</h4>

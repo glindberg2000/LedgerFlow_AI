@@ -600,32 +600,23 @@ def generate_irs_pdf(response, client, pdf_context):
     categories = pdf_context.get("categories", [])
     total = pdf_context.get("total", "$0.00")
     if categories:
-        data = (
+        data = [
             [
-                [
-                    safe_paragraph("Category", styles["Normal"]),
-                    safe_paragraph("Total", styles["Normal"]),
-                ]
+                safe_paragraph("Category", styles["Normal"]),
+                safe_paragraph("Total", styles["Normal"]),
             ]
-            + [
-                [
-                    safe_paragraph(row[0], styles["Normal"]),
-                    safe_paragraph(row[1], styles["Normal"]),
-                ]
-                for row in categories
+        ] + [
+            [
+                safe_paragraph(row[0], styles["Normal"]),
+                safe_paragraph(row[1], styles["Normal"]),
             ]
-            + [
-                [
-                    safe_paragraph("Grand Total", styles["Normal"]),
-                    safe_paragraph(total, styles["Normal"]),
-                ]
-            ]
-        )
+            for row in categories
+        ]
         print("[DEBUG] IRS 6A PDF main table data:", data)
         colWidths = [
             0.6 * printable_width,
             0.4 * printable_width,
-        ]  # e.g., [4.5, 3.0] inches for 2 columns
+        ]
         print(
             f"[DEBUG] IRS 6A PDF: page size={letter}, printable_width={printable_width}, colWidths={colWidths}"
         )
@@ -645,7 +636,7 @@ def generate_irs_pdf(response, client, pdf_context):
         data = [
             [
                 safe_paragraph("Category", styles["Normal"]),
-                safe_paragraph("Subtotal", styles["Normal"]),
+                safe_paragraph("Total", styles["Normal"]),
             ]
         ] + [
             [
@@ -655,9 +646,7 @@ def generate_irs_pdf(response, client, pdf_context):
             for row in business_categories
         ]
         print("[DEBUG] IRS 6A PDF business categories table data:", data)
-        t2 = Table(
-            data, colWidths=[4.5 * inch, 2.0 * inch]
-        )  # This table was not using printable_width, so it's not changed here.
+        t2 = Table(data, colWidths=colWidths)
         t2.setStyle(modern_table_style)
         story.append(t2)
         story.append(Spacer(1, 12))
