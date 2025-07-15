@@ -962,6 +962,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "transaction_type",  # Show type
         "bank_name",  # Custom method for bank
         "original_file_name",  # Custom method for original file name
+        "download_file_link",  # <-- Add download link here
         "account_number",
         "short_reasoning",
         "short_payee_reasoning",
@@ -1379,6 +1380,18 @@ class TransactionAdmin(admin.ModelAdmin):
             return obj.statement_file.bank
         return "-"
     bank_name.short_description = "Bank"
+
+    def download_file_link(self, obj):
+        if obj.statement_file and obj.statement_file.id:
+            from django.urls import reverse
+            return format_html(
+                '<a href="{}" target="_blank">{}</a>',
+                reverse('reports:download_statement_file', args=[obj.statement_file.id]),
+                obj.statement_file.original_filename or "Download"
+            )
+        return "-"
+    download_file_link.short_description = "Download File"
+    download_file_link.allow_tags = True
 
 
 @admin.register(LLMConfig)
