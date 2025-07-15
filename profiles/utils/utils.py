@@ -300,7 +300,7 @@ def ingest_manifest_to_organizer(
     updated_count = 0
     field_created = 0
     field_updated = 0
-    media_subdir = "organizers/outputs/4/"
+    media_subdir = f"organizers/outputs/{organizer_workbook.id}/"
     pages = manifest.get("pages", [])
     # --- BEGIN: Workflow mapping config ---
     CALCULATED_REPORTS = {
