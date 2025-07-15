@@ -1061,7 +1061,13 @@ class TransactionAdmin(admin.ModelAdmin):
 
     @admin.action(description="Batch set account number for selected transactions")
     def batch_set_account_number(self, request, queryset):
+        import logging
         from django import forms
+        from django.shortcuts import render, redirect
+        from django.urls import reverse
+        from django.http import HttpResponseRedirect
+
+        logger = logging.getLogger("django.request")
 
         class AccountNumberForm(forms.Form):
             account_number = forms.CharField(label="Account Number", required=True)
@@ -1070,15 +1076,29 @@ class TransactionAdmin(admin.ModelAdmin):
             form = AccountNumberForm(request.POST)
             if form.is_valid():
                 account_number = form.cleaned_data["account_number"]
+                pks = list(queryset.values_list("pk", flat=True))
+                logger.info(
+                    f"Batch set account number action triggered. Setting account_number='{account_number}' for {len(pks)} transactions: {pks}"
+                )
                 updated = queryset.update(
                     account_number=account_number, needs_account_number=False
+                )
+                logger.info(
+                    f"Batch set account number: Updated {updated} transactions."
                 )
                 self.message_user(
                     request, f"Set account number for {updated} transactions."
                 )
-                return
+                changelist_url = reverse("admin:profiles_transaction_changelist")
+                return HttpResponseRedirect(changelist_url)
+            else:
+                logger.info(
+                    f"Batch set account number: Form invalid. Errors: {form.errors}"
+                )
         else:
             form = AccountNumberForm()
+            if queryset.count() == 0:
+                logger.info("Batch set account number: No transactions selected.")
         return render(
             request,
             "admin/batch_set_account_number.html",
