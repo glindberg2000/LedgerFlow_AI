@@ -255,54 +255,90 @@ def personal_report(request):
 @staff_member_required
 @login_required
 def all_categories_report(request):
-    client_id = request.GET.get("client")
-    form = BinderSelectForm(request.GET or None)
+    binder_id = request.GET.get("binder")
+    selected_binder = None
     selected_client = None
     category_subtotals = {}
     total = 0
     category_links = {}
-    if client_id:
+    category_list = []
+    if binder_id:
         try:
-            selected_client = BusinessProfile.objects.get(client_id=client_id)
-        except BusinessProfile.DoesNotExist:
-            selected_client = None
-    if selected_client:
-        txs = Transaction.objects.filter(client=selected_client)
-        for tx in txs:
-            key = (
-                tx.worksheet or "(none)",
-                tx.classification_type or "(none)",
-                tx.category or "(none)",
+            from profiles.models import TaxYear
+
+            selected_binder = TaxYear.objects.select_related("business_profile").get(
+                id=binder_id
             )
-            if key not in category_subtotals:
-                category_subtotals[key] = 0
-            category_subtotals[key] += tx.amount or 0
-            total += tx.amount or 0
-            # Build admin URL for this category
-            category_links[key] = build_transaction_admin_url(
-                selected_client.client_id, key[0], key[1], key[2]
+            selected_client = selected_binder.business_profile
+            txs = Transaction.objects.filter(
+                client=selected_client, transaction_date__year=int(selected_binder.year)
             )
-    category_list = [
-        {
-            "worksheet": k[0],
-            "classification_type": k[1],
-            "category": k[2],
-            "subtotal": v,
-            "tx_url": category_links.get(k, ""),
-        }
-        for k, v in category_subtotals.items()
-    ]
-    category_list.sort(
-        key=lambda x: (x["worksheet"], x["classification_type"], x["category"])
-    )
+            for tx in txs:
+                key = (
+                    tx.worksheet or "(none)",
+                    tx.classification_type or "(none)",
+                    tx.category or "(none)",
+                )
+                if key not in category_subtotals:
+                    category_subtotals[key] = 0
+                category_subtotals[key] += tx.amount or 0
+                total += tx.amount or 0
+                # Build admin URL for this category
+                category_links[key] = build_transaction_admin_url(
+                    selected_client.client_id, key[0], key[1], key[2]
+                )
+            category_list = [
+                {
+                    "worksheet": k[0],
+                    "classification_type": k[1],
+                    "category": k[2],
+                    "subtotal": v,
+                    "tx_url": category_links.get(k, ""),
+                }
+                for k, v in category_subtotals.items()
+            ]
+            category_list.sort(
+                key=lambda x: (x["worksheet"], x["classification_type"], x["category"])
+            )
+        except TaxYear.DoesNotExist:
+            selected_binder = None
+    # PDF export logic
+    if (
+        "download" in request.GET
+        and request.GET["download"] == "pdf"
+        and selected_binder
+    ):
+        from .pdf_utils import generate_categories_pdf
+        from django.http import HttpResponse
+
+        response = HttpResponse(content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="all_categories_{selected_client.company_name}_{selected_binder.year}.pdf"'
+        )
+        # For PDF, flatten to worksheet/category/total
+        pdf_categories = [
+            {
+                "name": f"{row['worksheet']} / {row['category']}",
+                "total": row["subtotal"],
+            }
+            for row in category_list
+        ]
+        generate_categories_pdf(
+            response,
+            selected_client,
+            pdf_categories,
+            total_income=0,
+            total_expense=total,
+        )
+        return response
     context = _get_base_context(request)
     context.update(
         {
-            "client_id": client_id,
-            "form": form,
+            "selected_binder": selected_binder,
             "category_list": category_list,
             "total": total,
             "selected_client": selected_client,
+            "title": "All Categories Report",
         }
     )
     if hasattr(request, "admin_site_context"):

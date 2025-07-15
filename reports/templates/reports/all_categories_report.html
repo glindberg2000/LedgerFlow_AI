@@ -4,31 +4,41 @@
 <div style="margin-bottom: 1em;">
     <a href="/admin/reports/reportsproxy/" class="button">&larr; Back to Reports Dashboard</a>
 </div>
-{% if selected_client %}
-    <h3>Client: {{ selected_client.client_id }}</h3>
-    <table border="1" cellpadding="4" cellspacing="0" style="width: 100%;">
-        <tr>
-            <th>Worksheet</th>
-            <th>Type</th>
-            <th>Category</th>
-            <th>Subtotal</th>
+{% if selected_binder %}
+<div style="margin: 1em 0;">
+    <a href="?binder={{ selected_binder.id }}&download=pdf" class="button"
+        style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">
+        <span style="margin-right: 5px;">📥</span> Download PDF Report
+    </a>
+</div>
+<h3>Binder: {{ selected_binder.business_profile.company_name }} – {{ selected_binder.year }}</h3>
+{% endif %}
+{% if category_list %}
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 1em;">
+    <thead>
+        <tr style="background: #f0f0f0;">
+            <th style="border: 1px solid #ccc; padding: 8px;">Worksheet</th>
+            <th style="border: 1px solid #ccc; padding: 8px;">Type</th>
+            <th style="border: 1px solid #ccc; padding: 8px;">Category</th>
+            <th style="border: 1px solid #ccc; padding: 8px;">Subtotal</th>
         </tr>
+    </thead>
+    <tbody>
         {% for row in category_list %}
         <tr>
-            <td>{{ row.worksheet }}</td>
-            <td>{{ row.classification_type }}</td>
-            <td>{{ row.category }}</td>
-            <td><a href="{{ row.tx_url }}" target="_blank">${{ row.subtotal|floatformat:2 }}</a></td>
+            <td style="border: 1px solid #ccc; padding: 8px;">{{ row.worksheet }}</td>
+            <td style="border: 1px solid #ccc; padding: 8px;">{{ row.classification_type }}</td>
+            <td style="border: 1px solid #ccc; padding: 8px;">{{ row.category }}</td>
+            <td style="border: 1px solid #ccc; padding: 8px;"><a href="{{ row.tx_url }}" target="_blank">${{ row.subtotal|floatformat:2 }}</a></td>
         </tr>
         {% endfor %}
-        <tr>
-            <td colspan="3"><strong>Total</strong></td>
-            <td><strong>${{ total|floatformat:2 }}</strong></td>
+        <tr style="font-weight: bold; background: #f9f9f9;">
+            <td colspan="3" style="border: 1px solid #ccc; padding: 8px;"><strong>Total</strong></td>
+            <td style="border: 1px solid #ccc; padding: 8px;"><strong>${{ total|floatformat:2 }}</strong></td>
         </tr>
-    </table>
-{% elif client_id %}
-    <p style="color:red;">Client not found.</p>
+    </tbody>
+</table>
 {% else %}
-    <p>Please select a client from the <a href="/admin/reports/reportsproxy/">reports dashboard</a> to view this report.</p>
+    <p style="color: #888;">No categories found for this binder and year.</p>
 {% endif %}
 {% endblock %}
