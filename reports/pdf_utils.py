@@ -6,6 +6,28 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from decimal import Decimal
 from django.utils import timezone
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+from reportlab.platypus import Paragraph
+
+modern_table_style = TableStyle(
+    [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+        ("TOPPADDING", (0, 0), (-1, 0), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+        # Data rows
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2C3E50")),
+        ("TOPPADDING", (0, 1), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]
+)
 
 
 def create_styled_paragraph(text, style, color=None, alignment=None):
@@ -23,6 +45,14 @@ def format_contact_info(contact_info):
         return ""
     # Replace any combination of \n, \r\n, or \r with <br/>
     return contact_info.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>")
+
+
+def safe_paragraph(val, style):
+    s = str(val) if val is not None else ""
+    # Truncate if absurdly long (defensive)
+    if len(s) > 200:
+        s = s[:200] + "..."
+    return Paragraph(s, style)
 
 
 def generate_interest_income_pdf(response, client, interest_transactions, total):
@@ -435,28 +465,62 @@ def generate_donations_pdf(response, client, donation_transactions, total):
 
 
 def generate_categories_pdf(response, client, categories, total_income, total_expense):
-    doc = SimpleDocTemplate(response, pagesize=letter)
-    elements = []
+    from reportlab.platypus import (
+        TableStyle,
+        Table,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+    )
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+
     styles = getSampleStyleSheet()
-    inch = 1
+    story = []
+
+    # Set explicit margins to maximize printable area
+    doc = SimpleDocTemplate(
+        response,
+        pagesize=letter,
+        leftMargin=0.5 * inch,
+        rightMargin=0.5 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+    printable_width = letter[0] - doc.leftMargin - doc.rightMargin  # 7.5 inches
 
     # Title
-    elements.append(Paragraph("All Categories Report", styles["h1"]))
-    elements.append(Paragraph(f"Client: {client.client_id}", styles["h2"]))
+    elements.append(safe_paragraph("All Categories Report", styles["h1"]))
+    elements.append(
+        safe_paragraph(
+            f"Client: {getattr(client, 'company_name', getattr(client, 'client_id', ''))}",
+            styles["h2"],
+        )
+    )
     elements.append(Spacer(1, 0.25 * inch))
 
     # Totals Section
-    elements.append(Paragraph("Totals:", styles["h3"]))
+    elements.append(safe_paragraph("Totals:", styles["h3"]))
     totals_data = [
-        ["Total Income:", f"${total_income:,.2f}"],
-        ["Total Expense:", f"${total_expense:,.2f}"],
+        [
+            safe_paragraph("Total Income:", styles["Normal"]),
+            safe_paragraph(f"${total_income:,.2f}", styles["Normal"]),
+        ],
+        [
+            safe_paragraph("Total Expense:", styles["Normal"]),
+            safe_paragraph(f"${total_expense:,.2f}", styles["Normal"]),
+        ],
     ]
-    totals_table = Table(totals_data)
+    totals_table = Table(totals_data, colWidths=[4.5 * inch, 2.0 * inch])
     totals_table.setStyle(
         TableStyle(
             [
                 ("ALIGN", (0, 0), (0, -1), "LEFT"),
                 ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
             ]
         )
     )
@@ -464,100 +528,178 @@ def generate_categories_pdf(response, client, categories, total_income, total_ex
     elements.append(Spacer(1, 0.25 * inch))
 
     # Categories Data
-    data = [["Category", "Total"]]
-    for category in categories:
-        data.append([category["name"], f"${category['total']:,.2f}"])
-
-    table = Table(data, colWidths=[4 * inch, 1.5 * inch])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
-                ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ]
-        )
-    )
-    elements.append(table)
-
-    doc.build(elements)
-
-
-def generate_irs_pdf(response, client, context):
-    from reportlab.platypus import TableStyle
-    from reportlab.lib import colors
-
     modern_table_style = TableStyle(
         [
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2980B9")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("FONTSIZE", (0, 0), (-1, 0), 10),
+            ("TOPPADDING", (0, 0), (-1, 0), 12),
             ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+            # Data rows
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 1), (-1, -1), 10),
+            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#2C3E50")),
+            ("TOPPADDING", (0, 1), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
             ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
             ("GRID", (0, 0), (-1, -1), 1, colors.black),
             ("ALIGN", (0, 0), (-1, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]
     )
-    doc = SimpleDocTemplate(response, pagesize=letter)
+    data = [
+        [
+            safe_paragraph("Category", styles["Normal"]),
+            safe_paragraph("Total", styles["Normal"]),
+        ]
+    ]
+    if categories:
+        for category in categories:
+            # Accept both dicts and lists
+            if isinstance(category, dict):
+                data.append(
+                    [
+                        safe_paragraph(category.get("name", ""), styles["Normal"]),
+                        safe_paragraph(
+                            f"${category.get('total', 0):,.2f}", styles["Normal"]
+                        ),
+                    ]
+                )
+            else:
+                data.append(
+                    [
+                        safe_paragraph(category[0], styles["Normal"]),
+                        safe_paragraph(category[1], styles["Normal"]),
+                    ]
+                )
+    else:
+        data.append(
+            [
+                safe_paragraph("(none)", styles["Normal"]),
+                safe_paragraph("$0.00", styles["Normal"]),
+            ]
+        )
+    print("[DEBUG] All Categories PDF table data:", data)
+    table = Table(data, colWidths=[4.5 * inch, 2.0 * inch])
+    table.setStyle(modern_table_style)
+    elements.append(table)
+
+    doc.build(elements)
+
+
+def generate_irs_pdf(response, client, pdf_context):
+    from reportlab.platypus import (
+        TableStyle,
+        Table,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+    )
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+
     styles = getSampleStyleSheet()
     story = []
-    inch = 1
+
+    # Set explicit margins to maximize printable area
+    doc = SimpleDocTemplate(
+        response,
+        pagesize=letter,
+        leftMargin=0.5 * inch,
+        rightMargin=0.5 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+    printable_width = letter[0] - doc.leftMargin - doc.rightMargin  # 7.5 inches
 
     # Title
-    story.append(Paragraph("IRS 6A Worksheet Report", styles["h1"]))
+    story.append(safe_paragraph("IRS 6A Worksheet Report", styles["h1"]))
     story.append(Spacer(1, 12))
 
     # Binder Info
     company_name = (
-        context.get("company_name")
+        pdf_context.get("company_name")
         or getattr(client, "company_name", None)
         or getattr(client, "client_id", "")
     )
-    tax_year = context.get("tax_year")
+    tax_year = pdf_context.get("tax_year")
     if company_name:
-        story.append(Paragraph(f"Company: {company_name}", styles["h2"]))
+        story.append(safe_paragraph(f"Company: {company_name}", styles["h2"]))
     if tax_year:
-        story.append(Paragraph(f"Tax Year: {tax_year}", styles["h2"]))
+        story.append(safe_paragraph(f"Tax Year: {tax_year}", styles["h2"]))
     story.append(Spacer(1, 12))
 
     # Main worksheet table
-    categories = context.get("categories", [])
-    total = context.get("total", "$0.00")
+    categories = pdf_context.get("categories", [])
+    total = pdf_context.get("total", "$0.00")
     if categories:
         data = (
-            [["Category", "Total"]]
-            + [[str(row[0]), str(row[1])] for row in categories]
-            + [["Grand Total", str(total)]]
+            [
+                [
+                    safe_paragraph("Category", styles["Normal"]),
+                    safe_paragraph("Total", styles["Normal"]),
+                ]
+            ]
+            + [
+                [
+                    safe_paragraph(row[0], styles["Normal"]),
+                    safe_paragraph(row[1], styles["Normal"]),
+                ]
+                for row in categories
+            ]
+            + [
+                [
+                    safe_paragraph("Grand Total", styles["Normal"]),
+                    safe_paragraph(total, styles["Normal"]),
+                ]
+            ]
         )
-        t = Table(data, colWidths=[3.5 * inch, 2.5 * inch])
+        print("[DEBUG] IRS 6A PDF main table data:", data)
+        colWidths = [
+            0.6 * printable_width,
+            0.4 * printable_width,
+        ]  # e.g., [4.5, 3.0] inches for 2 columns
+        print(
+            f"[DEBUG] IRS 6A PDF: page size={letter}, printable_width={printable_width}, colWidths={colWidths}"
+        )
+        t = Table(data, colWidths=colWidths)
         t.setStyle(modern_table_style)
         story.append(t)
         story.append(Spacer(1, 18))
 
     # User-defined business categories
-    business_categories = context.get("business_categories", [])
+    business_categories = pdf_context.get("business_categories", [])
     if business_categories:
         story.append(
-            Paragraph("Other Business Expense Categories (User-Defined)", styles["h3"])
+            safe_paragraph(
+                "Other Business Expense Categories (User-Defined)", styles["h3"]
+            )
         )
-        data = [["Category", "Subtotal"]] + [
-            [str(row[0]), str(row[1])] for row in business_categories
+        data = [
+            [
+                safe_paragraph("Category", styles["Normal"]),
+                safe_paragraph("Subtotal", styles["Normal"]),
+            ]
+        ] + [
+            [
+                safe_paragraph(row[0], styles["Normal"]),
+                safe_paragraph(row[1], styles["Normal"]),
+            ]
+            for row in business_categories
         ]
-        t2 = Table(data, colWidths=[3.5 * inch, 2.5 * inch])
+        print("[DEBUG] IRS 6A PDF business categories table data:", data)
+        t2 = Table(
+            data, colWidths=[4.5 * inch, 2.0 * inch]
+        )  # This table was not using printable_width, so it's not changed here.
         t2.setStyle(modern_table_style)
         story.append(t2)
         story.append(Spacer(1, 12))
 
     # Note for unmapped categories
-    if context.get("unmapped_business_cats"):
+    if pdf_context.get("unmapped_business_cats"):
         story.append(
-            Paragraph(
+            safe_paragraph(
                 "<i>Note: Some business categories are not mapped to IRS categories and may not appear above.</i>",
                 styles["Normal"],
             )
