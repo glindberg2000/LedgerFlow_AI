@@ -2,16 +2,13 @@
 {% load i18n static admin_urls %}
 
 {% block content %}
-<div id="content-main">
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.5em;">
-        <a href="/admin/reports/reportsproxy/" class="button" style="background-color: #eee; color: #333; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">&larr; Back to Reports Dashboard</a>
-        {% if selected_client %}
-        <a href="?client={{ selected_client.client_id }}&download=pdf" class="button" style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">
-            <span style="margin-right: 5px;">📥</span> Download PDF Report
-        </a>
-        {% endif %}
-    </div>
-    <h1>{{ title }}</h1>
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.5em;">
+    <a href="/admin/reports/reportsproxy/" class="button" style="background-color: #eee; color: #333; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">&larr; Back to Reports Dashboard</a>
+    {% if selected_client %}
+    <a href="?client={{ selected_client.client_id }}&download=pdf" class="button" style="background-color: #417690; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: 500;">📥 Download PDF Report</a>
+    {% endif %}
+</div>
+<h2>Donations Report</h2>
 
     <div class="module">
         {% if selected_client %}
