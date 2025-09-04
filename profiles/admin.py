@@ -301,31 +301,60 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
             else:
                 client = OpenAI(api_key=api_key, timeout=30.0)
-            # Ensure user_prompt contains "json" for json_object response format
-            if user_prompt and "json" not in user_prompt.lower():
-                user_prompt += "\n\nPlease respond with a valid JSON object."
-            elif not user_prompt:
-                user_prompt = "Please respond with a valid JSON object containing the business profile information."
-                
+            # Use OpenAI's structured outputs with JSON schema (standard API)
+            business_profile_schema = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "business_profile_response",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "common_expenses": {
+                                "type": "string",
+                                "description": "Common business expenses for this industry/business type"
+                            },
+                            "custom_categories": {
+                                "type": "string", 
+                                "description": "Custom expense categories specific to this business"
+                            },
+                            "industry_keywords": {
+                                "type": "string",
+                                "description": "Keywords that identify transactions for this industry"
+                            },
+                            "category_patterns": {
+                                "type": "string",
+                                "description": "Patterns for categorizing transactions automatically"
+                            },
+                            "business_rules": {
+                                "type": "string",
+                                "description": "Business-specific rules for transaction processing"
+                            }
+                        },
+                        "required": ["common_expenses", "custom_categories", "industry_keywords", "category_patterns", "business_rules"],
+                        "additionalProperties": False
+                    }
+                }
+            }
+            
             response = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "user", "content": user_prompt or "Generate business profile fields based on the business information provided."},
                 ],
-                response_format={"type": "json_object"},
-                max_tokens=1000,  # Limit response length for faster generation
-                temperature=0.3,  # Lower temperature for more focused responses
+                response_format=business_profile_schema,
             )
+            # Extract structured data from JSON response
             content = response.choices[0].message.content
-            print(f"Raw LLM response: {content}")
+            print(f"Structured LLM response: {content}")
+            
             try:
                 data = json.loads(content)
             except Exception as e:
                 from django.contrib import messages
-
                 messages.error(
-                    request, f"LLM did not return valid JSON. Raw response: {content}"
+                    request, f"LLM did not return valid JSON. Raw response: {content}. Error: {e}"
                 )
                 return redirect(
                     reverse("admin:profiles_businessprofile_change", args=[obj.pk])
