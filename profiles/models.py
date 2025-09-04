@@ -25,7 +25,7 @@ class BusinessProfile(models.Model):
     # Default 'id' integer PK is used
     client_id = models.CharField(
         max_length=64,
-        unique=False,  # No longer unique
+        unique=True,  # Must be unique for foreign key references
         editable=False,
         blank=True,  # Now optional
         null=True,  # Now optional
@@ -183,7 +183,11 @@ class TransactionClassification(models.Model):
 
 class Transaction(models.Model):
     client = models.ForeignKey(
-        BusinessProfile, on_delete=models.CASCADE, related_name="transactions"
+        BusinessProfile, 
+        on_delete=models.CASCADE, 
+        related_name="transactions",
+        to_field='client_id',  # Reference the client_id field, not id
+        db_column='client_id'  # The database column name
     )
     transaction_date = models.DateField()
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -481,7 +485,12 @@ class ProcessingTask(models.Model):
     task_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     task_type = models.CharField(max_length=20, choices=TASK_TYPES)
-    client = models.ForeignKey(BusinessProfile, on_delete=models.CASCADE)
+    client = models.ForeignKey(
+        BusinessProfile, 
+        on_delete=models.CASCADE,
+        to_field='client_id',  # Reference the client_id field, not id
+        db_column='client_id'  # The database column name
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     transaction_count = models.IntegerField()
@@ -542,7 +551,11 @@ class StatementFile(models.Model):
         ("error", "Error"),
     ]
     client = models.ForeignKey(
-        BusinessProfile, on_delete=models.CASCADE, related_name="statement_files"
+        BusinessProfile, 
+        on_delete=models.CASCADE, 
+        related_name="statement_files",
+        to_field='client_id',  # Reference the client_id field, not id
+        db_column='client_id'  # The database column name
     )
     file = models.FileField(upload_to=statement_upload_to_uuid)
     file_type = models.CharField(

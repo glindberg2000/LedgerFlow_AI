@@ -86,6 +86,9 @@ searxng-fresh/
 *.dump
 *.sqlite3
 
+# Exception: Allow clean demo bootstrap database for developer onboarding
+!demo_bootstrap_clean.sqlite3
+
 # Exclude all backup and archive directories
 backups/
 archives/

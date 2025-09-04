@@ -301,6 +301,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 client = OpenAI(api_key=api_key, base_url=base_url)
             else:
                 client = OpenAI(api_key=api_key)
+            # Ensure user_prompt contains "json" for json_object response format
+            if user_prompt and "json" not in user_prompt.lower():
+                user_prompt += "\n\nPlease respond with a valid JSON object."
+            elif not user_prompt:
+                user_prompt = "Please respond with a valid JSON object containing the business profile information."
+                
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -509,6 +515,12 @@ def call_agent(
         # ... existing code to call LLM ...
         try:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            # Ensure user_prompt contains "json" for json_object response format
+            if user_prompt and "json" not in user_prompt.lower():
+                user_prompt += "\n\nPlease respond with a valid JSON object."
+            elif not user_prompt:
+                user_prompt = "Please respond with a valid JSON object containing the requested information."
+            
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
