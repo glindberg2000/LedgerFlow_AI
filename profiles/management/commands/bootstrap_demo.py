@@ -91,37 +91,29 @@ class Command(BaseCommand):
             else f"{db_engine}://{db_settings.get('USER','')}@{db_settings.get('HOST','')}:{db_settings.get('PORT','')}/{db_name}"
         )
 
-        # Failsafe: If --quickstart or --sqlite, always use a new SQLite DB in project root
+        # Use current active database instead of forcing separate demo database
+        # This allows bootstrap to work with any existing database configuration
         if quickstart or use_sqlite:
-            import pathlib
-
-            sqlite_path = Path(settings.BASE_DIR) / "demo_bootstrap.sqlite3"
-            self.stdout.write(
-                self.style.WARNING(
-                    f"[FAILSAFE] For quickstart/onboarding, using new SQLite DB: {sqlite_path}"
-                )
-            )
-            # Patch settings at runtime
-            settings.DATABASES["default"]["ENGINE"] = "django.db.backends.sqlite3"
-            settings.DATABASES["default"]["NAME"] = str(sqlite_path)
-            db_engine = "django.db.backends.sqlite3"
-            db_name = str(sqlite_path)
-            is_sqlite = True
-            db_url = db_name
-            # Remove any existing file for a clean start
-            if sqlite_path.exists():
+            if not is_sqlite:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"[FAILSAFE] SQLite DB already exists at {sqlite_path}. If you want a clean start, please delete this file manually and rerun 'python manage.py migrate' before bootstrapping."
+                        f"[NOTICE] --quickstart flag used with non-SQLite database ({db_name})"
+                    )
+                )
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"[NOTICE] Will bootstrap demo data in current active database: {db_url}"
                     )
                 )
             else:
                 self.stdout.write(
-                    self.style.SUCCESS(f"Created new SQLite DB for demo: {sqlite_path}")
+                    self.style.SUCCESS(
+                        f"[BOOTSTRAP] Using current SQLite database: {db_name}"
+                    )
                 )
-            # Run migrate to initialize schema
+            
+            # Ensure database is migrated
             from django.core.management import call_command
-
             call_command("migrate", interactive=False, verbosity=0)
         else:
             self.stdout.write(self.style.WARNING(f"Target database: {db_url}"))

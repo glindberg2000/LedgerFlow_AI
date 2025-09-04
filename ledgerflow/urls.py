@@ -9,7 +9,8 @@ from django.conf.urls.static import static
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("reports/", include(("reports.urls", "reports"), namespace="reports")),
-    # path('profiles/', include('profiles.urls')),
+    path('profiles/', include('profiles.urls')),
+    path('', include('profiles.urls')),  # Root paths
     # ... (comment out any other custom app URLs) ...
 ]
 
