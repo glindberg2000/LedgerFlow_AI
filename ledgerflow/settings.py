@@ -13,7 +13,7 @@ env = environ.Env()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Read environment file
-env_file = ".env.prod" if os.getenv("DJANGO_ENV") == "production" else ".env.dev"
+env_file = ".env.prod" if os.getenv("DJANGO_ENV") == "production" else ".env"
 print(f"[DEBUG] Loading env file: {os.path.join(BASE_DIR, env_file)}")
 environ.Env.read_env(os.path.join(BASE_DIR, env_file))
 print(f"[DEBUG] DATABASE_URL after loading env: {os.environ.get('DATABASE_URL')}")

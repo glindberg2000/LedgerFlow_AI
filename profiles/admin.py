@@ -275,7 +275,21 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 return redirect("..")
             model = agent.llm.model
             base_url = agent.llm.url
-            api_key = os.environ.get("OPENAI_API_KEY")
+            
+            # Force reload environment and clean the API key (critical for GPT-5)
+            load_dotenv(override=True)
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                # Clean API key to prevent "Illegal header value" errors - essential for GPT-5
+                api_key = api_key.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+            if not api_key:
+                messages.error(
+                    request,
+                    "OPENAI_API_KEY is not set in the environment. Set it in your .env or process env and retry.",
+                )
+                return redirect(
+                    reverse("admin:profiles_businessprofile_change", args=[obj.pk])
+                )
             # Render prompt from UI (Jinja2)
             try:
                 env = jinja2.Environment(undefined=jinja2.StrictUndefined)
@@ -297,10 +311,12 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             logger.info(f"System Prompt Sent: {system_prompt!r}")
             logger.info(f"User Prompt Sent: {user_prompt!r}")
             # Use LLMConfig.url as base_url if set
+            # Increase timeout for GPT-5 which takes longer to process
+            timeout_seconds = 120.0 if model == 'gpt-5' else 30.0
             if base_url:
-                client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
+                client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_seconds)
             else:
-                client = OpenAI(api_key=api_key, timeout=30.0)
+                client = OpenAI(api_key=api_key, timeout=timeout_seconds)
             # Use OpenAI's structured outputs with JSON schema (standard API)
             business_profile_schema = {
                 "type": "json_schema",
@@ -337,14 +353,33 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 }
             }
             
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
+            # GPT-5 has different parameter requirements
+            api_params = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt or "Generate business profile fields based on the business information provided."},
                 ],
-                response_format=business_profile_schema,
-            )
+                "response_format": business_profile_schema,
+            }
+            
+            # GPT-5 specific parameter handling (based on OpenAI GPT-5 migration guide)
+            if model.startswith("gpt-5"):
+                # GPT-5 is a reasoning model that REJECTS legacy parameters
+                # GPT-5 uses tokens for internal reasoning FIRST, then for response
+                # Remove token cap - let GPT-5 use whatever tokens needed for reasoning + response
+                # Don't specify max_completion_tokens - use model default
+                # GPT-5 enforces temperature=1 internally - DO NOT specify temperature
+                # GPT-5 rejects: temperature, top_p, presence_penalty, frequency_penalty, 
+                # logprobs, top_logprobs, logit_bias, stop, n
+                # Use structured outputs (response_format) for deterministic results
+                pass  # No additional parameters for GPT-5
+            else:
+                # Legacy models (GPT-4.1, etc.) support classic parameters
+                api_params["max_tokens"] = 1000
+                api_params["temperature"] = 0.7
+            
+            response = client.chat.completions.create(**api_params)
             # Extract structured data from JSON response
             content = response.choices[0].message.content
             print(f"Structured LLM response: {content}")
@@ -393,7 +428,17 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             logging.exception("Error generating AI profile")
             from django.contrib import messages
 
-            messages.error(request, f"Error generating AI profile: {e}")
+            err_type = type(e).__name__
+            # Provide more context to help debugging without exposing secrets
+            debug_ctx = f"model={model!r}, base_url={(base_url or 'https://api.openai.com/v1')!r}, api_key_present={bool(api_key)}"
+            cause = getattr(e, "__cause__", None)
+            context_exc = getattr(e, "__context__", None)
+            cause_str = f"; cause={cause!r}" if cause else ""
+            context_str = f"; context={context_exc!r}" if context_exc else ""
+            messages.error(
+                request,
+                f"Error generating AI profile ({err_type}). Details: {e}{cause_str}{context_str}. Context: {debug_ctx}",
+            )
             return redirect(
                 reverse("admin:profiles_businessprofile_change", args=[obj.pk])
             )
@@ -545,7 +590,13 @@ def call_agent(
             logger.info("No tools passed to LLM for this agent.")
         # ... existing code to call LLM ...
         try:
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            # Force reload environment and clean the API key
+            load_dotenv(override=True)
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                api_key = api_key.strip()  # Remove any whitespace/newlines
+            logger.info(f"Using API key (first 10 chars): {api_key[:10] if api_key else 'None'}")
+            client = OpenAI(api_key=api_key)
             # Ensure user_prompt contains "json" for json_object response format
             if user_prompt and "json" not in user_prompt.lower():
                 user_prompt += "\n\nPlease respond with a valid JSON object."
