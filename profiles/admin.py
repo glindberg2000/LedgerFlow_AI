@@ -259,11 +259,11 @@ class BusinessProfileAdmin(admin.ModelAdmin):
 
             # Robust: search for agent by name containing either 'business profile generator' or 'business profile generation'
             agent = Agent.objects.filter(
-                name__icontains="business profile generator"
+                name__icontains="business profile generation"
             ).first()
             if not agent:
                 agent = Agent.objects.filter(
-                    name__icontains="business profile generation"
+                    name__icontains="business profile generator"
                 ).first()
             if not agent or not agent.llm or not agent.llm.model:
                 from django.contrib import messages
@@ -301,19 +301,49 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                 client = OpenAI(api_key=api_key, base_url=base_url)
             else:
                 client = OpenAI(api_key=api_key)
-            # Ensure user_prompt contains "json" for json_object response format
-            if user_prompt and "json" not in user_prompt.lower():
-                user_prompt += "\n\nPlease respond with a valid JSON object."
-            elif not user_prompt:
-                user_prompt = "Please respond with a valid JSON object containing the business profile information."
+            # Define structured output schema for business profile generation
+            business_profile_schema = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "business_profile",
+                    "description": "Business profile fields for AI generation",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "common_expenses": {
+                                "type": "string",
+                                "description": "Common business expenses for this industry/business type"
+                            },
+                            "custom_categories": {
+                                "type": "string", 
+                                "description": "Custom expense categories specific to this business"
+                            },
+                            "industry_keywords": {
+                                "type": "string",
+                                "description": "Keywords that identify transactions for this industry"
+                            },
+                            "category_patterns": {
+                                "type": "string",
+                                "description": "Patterns for categorizing transactions automatically"
+                            },
+                            "business_rules": {
+                                "type": "string",
+                                "description": "Business-specific rules for transaction processing"
+                            }
+                        },
+                        "required": ["common_expenses", "custom_categories", "industry_keywords", "category_patterns", "business_rules"],
+                        "additionalProperties": False
+                    }
+                }
+            }
                 
             response = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "user", "content": user_prompt or "Generate business profile fields based on the business information provided."},
                 ],
-                response_format={"type": "json_object"},
+                response_format=business_profile_schema,
             )
             content = response.choices[0].message.content
             print(f"Raw LLM response: {content}")
