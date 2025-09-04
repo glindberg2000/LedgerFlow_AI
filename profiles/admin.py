@@ -298,9 +298,9 @@ class BusinessProfileAdmin(admin.ModelAdmin):
             logger.info(f"User Prompt Sent: {user_prompt!r}")
             # Use LLMConfig.url as base_url if set
             if base_url:
-                client = OpenAI(api_key=api_key, base_url=base_url)
+                client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
             else:
-                client = OpenAI(api_key=api_key)
+                client = OpenAI(api_key=api_key, timeout=30.0)
             # Ensure user_prompt contains "json" for json_object response format
             if user_prompt and "json" not in user_prompt.lower():
                 user_prompt += "\n\nPlease respond with a valid JSON object."
@@ -314,6 +314,8 @@ class BusinessProfileAdmin(admin.ModelAdmin):
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
+                max_tokens=1000,  # Limit response length for faster generation
+                temperature=0.3,  # Lower temperature for more focused responses
             )
             content = response.choices[0].message.content
             print(f"Raw LLM response: {content}")
