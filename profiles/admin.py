@@ -2150,35 +2150,42 @@ class StatementFileAdmin(admin.ModelAdmin):
                             result["errors"] = parser_output.errors
                         if parser_output.warnings:
                             result["warnings"] = parser_output.warnings
-                        # Create StatementFile
+                        # Create StatementFile with duplicate handling
                         try:
-                            statement_file = StatementFile.objects.create(
+                            # Use get_or_create to handle duplicate files gracefully
+                            statement_file, file_created = StatementFile.objects.get_or_create(
                                 client=client,
-                                file=f,
-                                file_type=file_type,
-                                account_number=metadata.get(
-                                    "account_number", account_number
-                                ),
-                                original_filename=f.name,
-                                uploaded_by=uploaded_by,
-                                status="uploaded",
-                                bank=metadata.get("bank_name"),
-                                year=metadata.get("year"),
-                                month=metadata.get("month"),
-                                parser_module=used_parser,
-                                account_holder_name=metadata.get("account_holder_name"),
-                                address=metadata.get("address"),
-                                account_type=metadata.get("account_type"),
-                                statement_period_start=metadata.get(
-                                    "statement_period_start"
-                                ),
-                                statement_period_end=metadata.get(
-                                    "statement_period_end"
-                                ),
-                                statement_date=metadata.get("statement_date"),
-                                parsed_metadata=metadata,
+                                statement_hash=getattr(f, 'statement_hash', None) or f.name,
+                                defaults={
+                                    "file": f,
+                                    "file_type": file_type,
+                                    "account_number": metadata.get(
+                                        "account_number", account_number
+                                    ),
+                                    "original_filename": f.name,
+                                    "uploaded_by": uploaded_by,
+                                    "status": "uploaded",
+                                    "bank": metadata.get("bank_name"),
+                                    "year": metadata.get("year"),
+                                    "month": metadata.get("month"),
+                                    "parser_module": used_parser,
+                                    "account_holder_name": metadata.get("account_holder_name"),
+                                    "address": metadata.get("address"),
+                                    "account_type": metadata.get("account_type"),
+                                    "statement_period_start": metadata.get(
+                                        "statement_period_start"
+                                    ),
+                                    "statement_period_end": metadata.get(
+                                        "statement_period_end"
+                                    ),
+                                    "statement_date": metadata.get("statement_date"),
+                                    "parsed_metadata": metadata,
+                                }
                             )
                             result["statement_file"] = statement_file.id
+                            if not file_created:
+                                # Log duplicate file detection for clear user feedback
+                                result["warning"] = f"💡 DUPLICATE FILE DETECTED: This exact file was already imported (StatementFile #{statement_file.id}). Processing transactions anyway to check for new data."
                         except Exception as e:
                             result["error"] = f"StatementFile creation failed: {e}"
                             results.append(result)
@@ -2191,26 +2198,48 @@ class StatementFileAdmin(admin.ModelAdmin):
 
                         for idx, tx in enumerate(transactions):
                             try:
-                                Transaction.objects.create(
+                                # Generate transaction hash if not present
+                                if "transaction_hash" not in tx or not tx["transaction_hash"]:
+                                    tx_hash = Transaction.compute_transaction_hash(
+                                        client.client_id,
+                                        tx.get("transaction_date"),
+                                        tx.get("amount"),
+                                        tx.get("description"),
+                                        tx.get("category", "")
+                                    )
+                                else:
+                                    tx_hash = tx["transaction_hash"]
+                                
+                                # Use get_or_create to handle duplicates gracefully
+                                transaction, created = Transaction.objects.get_or_create(
                                     client=client,
-                                    statement_file=statement_file,
-                                    transaction_date=tx.get("transaction_date"),
-                                    amount=tx.get("amount"),
-                                    description=tx.get("description"),
-                                    category=tx.get("category", ""),
-                                    file_path=statement_file.file.name,
-                                    source=tx.get("source", "batch_upload"),
-                                    transaction_type=tx.get("transaction_type", ""),
-                                    normalized_amount=tx.get("normalized_amount"),
-                                    parser_name=used_parser,
-                                    classification_method=tx.get(
-                                        "classification_method", "None"
-                                    ),
-                                    payee_extraction_method=tx.get(
-                                        "payee_extraction_method", "None"
-                                    ),
+                                    transaction_hash=tx_hash,
+                                    defaults={
+                                        "statement_file": statement_file,
+                                        "transaction_hash": tx_hash,
+                                        "transaction_date": tx.get("transaction_date"),
+                                        "amount": tx.get("amount"),
+                                        "description": tx.get("description"),
+                                        "category": tx.get("category", ""),
+                                        "file_path": statement_file.file.name,
+                                        "source": tx.get("source", "batch_upload"),
+                                        "transaction_type": tx.get("transaction_type", ""),
+                                        "normalized_amount": tx.get("normalized_amount"),
+                                        "parser_name": used_parser,
+                                        "classification_method": tx.get(
+                                            "classification_method", "None"
+                                        ),
+                                        "payee_extraction_method": tx.get(
+                                            "payee_extraction_method", "None"
+                                        ),
+                                    }
                                 )
-                                transactions_created += 1
+                                if created:
+                                    transactions_created += 1
+                                else:
+                                    # Log duplicate transaction (for debugging)
+                                    duplicate_info = f"Duplicate transaction skipped: {tx.get('transaction_date')} | ${tx.get('amount')} | {tx.get('description', '')[:30]}..."
+                                    print(f"⚠️  Idx {idx}: {duplicate_info}")
                             except Exception as e:
                                 transaction_errors.append(
                                     {"index": idx, "error": str(e)}
@@ -2238,8 +2267,23 @@ class StatementFileAdmin(admin.ModelAdmin):
                 from django.urls import reverse
                 from django.contrib import messages
 
+                # Calculate totals for obvious feedback
+                total_files = len(files)
+                total_created = sum(result.get("transactions_created", 0) for result in results)
+                total_skipped = sum(result.get("transactions_skipped", 0) for result in results)
+                duplicate_files = sum(1 for result in results if result.get("warning"))
+                
+                # Build detailed success message with obvious feedback
+                feedback_parts = [
+                    f"✅ BATCH UPLOAD COMPLETE: {total_files} files processed",
+                    f"📊 TRANSACTION STATS: {total_created} created, {total_skipped} skipped duplicates"
+                ]
+                
+                if duplicate_files > 0:
+                    feedback_parts.append(f"💡 DUPLICATE FILES: {duplicate_files} files were already imported")
+                
                 messages.success(
-                    request, f"Processed {len(files)} files. See results below."
+                    request, " | ".join(feedback_parts)
                 )
                 context = {
                     "form": form,

@@ -32,32 +32,44 @@ def upload_transactions(request):
             decoded_file = csv_file.read().decode("utf-8").splitlines()
             reader = csv.DictReader(decoded_file)
             client = BusinessProfile.objects.get(client_id="Tim and Gene")
-            for row in reader:
+            transactions_created = 0
+            transactions_skipped = 0
+            for row_index, row in enumerate(reader):
                 try:
-                    Transaction.objects.create(
+                    # Use get_or_create to handle duplicates gracefully
+                    transaction, created = Transaction.objects.get_or_create(
                         client=client,
                         transaction_date=row["transaction_date"],
                         description=row["description"],
                         amount=row["amount"],
-                        file_path=row["file_path"],
-                        source=row["source"],
-                        transaction_type=row["transaction_type"],
-                        normalized_amount=row["normalized_amount"],
-                        statement_start_date=row["statement_start_date"] or None,
-                        statement_end_date=row["statement_end_date"] or None,
                         account_number=row["account_number"],
-                        transaction_id=row["transaction_id"],
-                        classification_method=CLASSIFICATION_METHOD_UNCLASSIFIED,
-                        payee_extraction_method=PAYEE_EXTRACTION_METHOD_UNPROCESSED,
-                        needs_account_number=(
-                            not row.get("account_number")
-                            or str(row.get("account_number")).strip() == ""
-                        ),
+                        defaults={
+                            "file_path": row["file_path"],
+                            "source": row["source"],
+                            "transaction_type": row["transaction_type"],
+                            "normalized_amount": row["normalized_amount"],
+                            "statement_start_date": row["statement_start_date"] or None,
+                            "statement_end_date": row["statement_end_date"] or None,
+                            "transaction_id": row["transaction_id"],
+                            "classification_method": CLASSIFICATION_METHOD_UNCLASSIFIED,
+                            "payee_extraction_method": PAYEE_EXTRACTION_METHOD_UNPROCESSED,
+                            "needs_account_number": (
+                                not row.get("account_number")
+                                or str(row.get("account_number")).strip() == ""
+                            ),
+                        }
                     )
+                    
+                    if created:
+                        transactions_created += 1
+                    else:
+                        transactions_skipped += 1
+                        logger.info(f"⚠️  Row {row_index + 1}: Duplicate transaction skipped: {row['transaction_date']} | ${row['amount']} | {row['description'][:50]}")
+                        
                 except Exception as e:
                     logger.error(f"Error processing row {row}: {e}")
                     messages.error(request, f"Error processing row: {row}")
-            messages.success(request, "Transactions uploaded successfully.")
+            messages.success(request, f"CSV import complete! Created: {transactions_created} transactions, Skipped: {transactions_skipped} duplicates.")
             return redirect("profile-list")
     else:
         form = TransactionCSVForm()
