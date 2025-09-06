@@ -1,28 +1,193 @@
 {% extends "admin/change_form.html" %}
 
-{% block submit_buttons_bottom %}
-{% if hide_save %}
-<div style="margin-top: 2em; text-align: right;">
-    <a href="{% url 'admin:profiles_processingtask_changelist' %}" class="button">Close</a>
-</div>
-{% else %}
+{% block extrajs %}
 {{ block.super }}
-{% endif %}
-{% endblock %}
-
-{% block extrahead %}
-{{ block.super }}
-{% if auto_refresh %}
-<script>
-    setTimeout(function () { window.location.reload(); }, 7000);
+<script type="text/javascript">
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // FORCE SHOW PROGRESS INDICATOR FOR ALL BATCH TASKS
+    console.log('🚀 Loading batch monitoring UI...');
+    
+    // Always show if this is a batch processing task page
+    const currentUrl = window.location.href;
+    const isProcessingTaskPage = currentUrl.includes('/processingtask/');
+    
+    console.log('Is processing task page:', isProcessingTaskPage);
+    
+    if (isProcessingTaskPage) {
+        
+        // Add visual indicator for auto-refresh
+        const form = document.querySelector('form');
+        if (form) {
+            const autoRefreshDiv = document.createElement('div');
+            autoRefreshDiv.innerHTML = `
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); position: relative; overflow: hidden;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.3) 100%); animation: shimmer 2s linear infinite;"></div>
+                    <h3 style="margin: 0 0 20px 0; display: flex; align-items: center; font-size: 18px;">
+                        <span style="font-size: 24px; margin-right: 10px;">🚀</span>
+                        Batch Processing Pipeline
+                    </h3>
+                    
+                    <!-- Progress Pipeline -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; flex: 1;">
+                                <!-- Step 1: Payee Extraction -->
+                                <div style="display: flex; align-items: center;">
+                                    <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #00c851, #007e33); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 2px 8px rgba(0,200,81,0.3);">✓</div>
+                                    <div style="margin-left: 8px;">
+                                        <div style="font-weight: bold; font-size: 12px;">Payee Extraction</div>
+                                        <div style="font-size: 10px; opacity: 0.9;">Tool calls & search</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Arrow -->
+                                <div style="flex: 1; height: 2px; background: linear-gradient(90deg, #00c851 0%, #667eea 100%); margin: 0 15px; position: relative;">
+                                    <div style="position: absolute; right: -4px; top: -4px; width: 0; height: 0; border-left: 8px solid #667eea; border-top: 5px solid transparent; border-bottom: 5px solid transparent;"></div>
+                                </div>
+                                
+                                <!-- Step 2: Classification -->
+                                <div style="display: flex; align-items: center;">
+                                    <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; animation: pulse 2s infinite; box-shadow: 0 2px 8px rgba(102,126,234,0.4);">2</div>
+                                    <div style="margin-left: 8px;">
+                                        <div style="font-weight: bold; font-size: 12px;">Classification</div>
+                                        <div style="font-size: 10px; opacity: 0.9;">AI categorization</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Dynamic Status Text -->
+                        <div style="font-size: 13px; opacity: 0.95; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px;" id="pipeline-status">
+                            <strong>🔄 Processing:</strong> Waiting for OpenAI batch completion (typically 2-5 minutes)...
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                        <div style="flex: 1;">
+                            <p style="margin: 0 0 10px 0; opacity: 0.9;">⚡ Auto-monitoring: Refreshes every 15 seconds and processes completed batches automatically</p>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div id="countdown-circle" style="width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                                <span id="countdown-text" style="font-weight: bold; font-size: 16px;">Next refresh in: 15s</span>
+                            </div>
+                        </div>
+                        <div style="text-align: right; opacity: 0.8;">
+                            <div style="font-size: 12px; margin-bottom: 5px;">💰 50% Cost Savings</div>
+                            <div style="font-size: 12px;">⏱️ Auto-Pipeline</div>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    @keyframes shimmer {
+                        0% { transform: translateX(-100%); }
+                        100% { transform: translateX(100%); }
+                    }
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    @keyframes pulse {
+                        0% { transform: scale(1); box-shadow: 0 2px 8px rgba(102,126,234,0.4); }
+                        50% { transform: scale(1.05); box-shadow: 0 4px 16px rgba(102,126,234,0.6); }
+                        100% { transform: scale(1); box-shadow: 0 2px 8px rgba(102,126,234,0.4); }
+                    }
+                </style>
+            `;
+            form.insertBefore(autoRefreshDiv, form.firstChild);
+        }
+        
+        // Faster refresh for active processing
+        let timeLeft = 15; // Reduced from 45s to 15s for better responsiveness
+        const countdownText = document.getElementById('countdown-text');
+        
+        const timer = setInterval(function() {
+            timeLeft--;
+            if (countdownText) {
+                countdownText.textContent = `Next refresh in: ${timeLeft}s`;
+            }
+            
+            if (timeLeft <= 0) {
+                clearInterval(timer);
+                location.reload();
+            }
+        }, 1000);
+        
+        // Hide the confusing Save button and fix the title
+        const saveButtons = document.querySelectorAll('input[type="submit"]');
+        saveButtons.forEach(btn => btn.style.display = 'none');
+        
+        const title = document.querySelector('h1');
+        if (title && title.textContent.includes('Change processing task')) {
+            title.textContent = '📊 Batch Processing Monitor';
+        }
+        
+        console.log('✅ Batch monitoring UI loaded successfully');
+    }
+});
 </script>
-{% endif %}
+
+<style>
+/* Hide the save buttons and form actions for monitoring interface */
+.submit-row {
+    display: none !important;
+}
+.object-tools {
+    margin-bottom: 20px;
+}
+</style>
 {% endblock %}
 
-{% block after_related_objects %}
+{% block content %}
 {{ block.super }}
-{% if log_content %}
-<h3>Task Log</h3>
-{{ log_content|safe }}
+
+<!-- Display automatic batch processing results -->
+{% if auto_process_results %}
+<div style="margin: 20px 0;">
+{{ auto_process_results }}
+</div>
 {% endif %}
+
+<!-- Display enhanced batch status -->
+{% if batch_status %}
+<div style="margin: 20px 0;">
+{{ batch_status }}
+</div>
+{% endif %}
+
+{% if process_ready %}
+<div style="margin: 20px 0;">
+{{ process_ready }}
+</div>
+{% endif %}
+
+{% if batch_error %}
+<div style="margin: 20px 0;">
+{{ batch_error }}
+</div>
+{% endif %}
+
+<!-- Display log content if available -->
+{% if log_content %}
+<div style="margin: 20px 0;">
+    <h3 style="color:#1976D2;">📋 Processing Logs</h3>
+    {{ log_content }}
+</div>
+{% endif %}
+
+<!-- Debug information for troubleshooting -->
+<div style="margin: 20px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; border-left: 4px solid #999;">
+    <h4 style="margin: 0 0 10px 0; color: #666;">🔍 Debug Information</h4>
+    <p><strong>Task ID:</strong> {{ original.task_id }}</p>
+    <p><strong>Status:</strong> {{ original.status }}</p>
+    <p><strong>Transaction Count:</strong> {{ original.transaction_count }}</p>
+    {% if original.task_metadata %}
+    <p><strong>Batch ID:</strong> {{ original.task_metadata.openai_batch_id|default:"Not set" }}</p>
+    <p><strong>Agent:</strong> {{ original.task_metadata.agent_name|default:"Not set" }}</p>
+    {% endif %}
+    <p><em>Page refreshed at: <span id="refresh-time"></span></em></p>
+</div>
+
+<script>
+document.getElementById('refresh-time').textContent = new Date().toLocaleTimeString();
+</script>
 {% endblock %}

@@ -45,6 +45,7 @@ import re
 from profiles.utils.utils import get_update_fields_from_response
 from profiles.utils.utils import sync_transaction_id_sequence
 from profiles.utils.utils import extract_pdf_metadata
+from profiles.utils.async_batch_processor import start_batch_processing
 from profiles.utils.binder_item_options import get_all_binder_item_options
 from django.template.response import TemplateResponse
 from django.contrib.admin import AdminSite
@@ -1133,6 +1134,9 @@ class TransactionAdmin(admin.ModelAdmin):
         "batch_payee_lookup",
         "batch_classify",
         "batch_escalate_classification",
+        "async_batch_payee_lookup",  # New async batch action
+        "async_batch_classify",  # New async batch action
+        "async_batch_full_workflow",  # New async batch action
         "mark_as_personal",
         "mark_as_business",
         "mark_as_unclassified",
@@ -1512,6 +1516,31 @@ class TransactionAdmin(admin.ModelAdmin):
     download_file_link.short_description = "Download File"
     download_file_link.allow_tags = True
 
+    @admin.action(description="Start Async Batch Payee Lookup (50 percent cost savings)")
+    def async_batch_payee_lookup(self, request, queryset):
+        """Start async batch processing for payee lookup using OpenAI Batch API."""
+        transactions = list(queryset)
+        start_batch_processing(transactions, "Payee Lookup Agent", request)
+
+    async_batch_payee_lookup.short_description = "Async Batch Payee Lookup (50 percent cost savings)"
+
+    @admin.action(description="Start Async Batch Classification (50 percent cost savings)")
+    def async_batch_classify(self, request, queryset):
+        """Start async batch processing for classification using OpenAI Batch API."""
+        transactions = list(queryset)
+        start_batch_processing(transactions, "Classification Agent", request)
+
+    async_batch_classify.short_description = "Async Batch Classification (50 percent cost savings)"
+
+    @admin.action(description="Start Async Batch Full Workflow (50 percent cost savings)")
+    def async_batch_full_workflow(self, request, queryset):
+        """Start async batch processing for full workflow using OpenAI Batch API."""
+        transactions = list(queryset)
+        # Start with payee lookup first
+        start_batch_processing(transactions, "Payee Lookup Agent", request, task_type="batch_full_workflow")
+
+    async_batch_full_workflow.short_description = "Async Batch Full Workflow (50 percent cost savings)"
+
 
 @admin.register(LLMConfig)
 class LLMConfigAdmin(admin.ModelAdmin):
@@ -1567,15 +1596,14 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
     list_display = (
         "task_id",
         "task_type",
-        "client",
-        "tax_year_column",
+        "client", 
         "status",
+        "batch_status_display",
         "transaction_count",
         "processed_count",
         "error_count",
         "created_at",
         "updated_at",
-        "pages_to_parse",
     )
     list_filter = (
         "task_type",
@@ -1592,7 +1620,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "task_id",
-        "task_type",
+        "task_type", 
         "client",
         "status",
         "transaction_count",
@@ -1600,51 +1628,267 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         "error_count",
         "created_at",
         "updated_at",
+        "batch_status_display",
         "error_details",
-        "task_metadata",
-        "pages_to_parse",
-        "tax_year_column",
     )
-    actions = ["retry_failed_tasks", "cancel_tasks", "run_task"]
+    actions = ["retry_failed_tasks", "cancel_tasks", "run_task", "check_batch_completion"]
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                'batch-status/<str:task_id>/',
+                self.admin_site.admin_view(self.batch_status_detail_view),
+                name='processingtask_batch_status',
+            ),
+        ]
+        return custom_urls + urls
+    
+    def batch_status_detail_view(self, request, task_id):
+        """Enhanced OpenAI batch status view with debugging info"""
+        # Handle both UUID and integer task IDs
+        try:
+            task = get_object_or_404(ProcessingTask, task_id=task_id)
+        except:
+            task = get_object_or_404(ProcessingTask, pk=task_id)
+        
+        context = {
+            'title': f'OpenAI Batch Status - Task {task.task_id}',
+            'task': task,
+            'batch_details': None,
+            'error': None,
+            'database_info': None,
+            'response_sample': None,
+        }
+        
+        # Get database info for task
+        try:
+            from profiles.models import Transaction
+            
+            # Get transaction count info based on task selection criteria  
+            if hasattr(task, 'transaction_filter_criteria') and task.transaction_filter_criteria:
+                # Use stored filter criteria if available
+                filter_criteria = task.transaction_filter_criteria
+            else:
+                # Fallback to basic criteria based on task type
+                if task.task_type == "batch_full_workflow":
+                    filter_criteria = {
+                        'client': task.client,
+                        'payee__isnull': True  # Transactions needing payee extraction
+                    }
+                else:
+                    filter_criteria = {
+                        'client': task.client,
+                        'normalized_description__isnull': True  # Transactions needing classification
+                    }
+            
+            # Get counts for database info
+            total_transactions = Transaction.objects.filter(client=task.client).count()
+            null_payee_count = Transaction.objects.filter(client=task.client, payee__isnull=True).count()
+            null_normalized_count = Transaction.objects.filter(client=task.client, normalized_description__isnull=True).count()
+            both_null_count = Transaction.objects.filter(
+                client=task.client, 
+                payee__isnull=True, 
+                normalized_description__isnull=True
+            ).count()
+            
+            context['database_info'] = {
+                'total_transactions': total_transactions,
+                'null_payee_count': null_payee_count,
+                'null_normalized_count': null_normalized_count,
+                'both_null_count': both_null_count,
+                'task_processed_count': task.processed_count or 0,
+                'task_error_count': task.error_count or 0,
+            }
+            
+        except Exception as e:
+            context['database_info'] = {'error': f"Could not load database info: {e}"}
+        
+        if task.task_metadata and task.task_metadata.get('openai_batch_id'):
+            try:
+                from profiles.utils.async_batch_processor import AsyncBatchProcessor
+                processor = AsyncBatchProcessor()
+                batch_id = task.task_metadata.get('openai_batch_id')
+                
+                # Get detailed batch status from OpenAI
+                batch_details = processor.get_batch_status(batch_id)
+                
+                # Calculate remaining count
+                if 'request_counts' in batch_details:
+                    total = batch_details['request_counts'].get('total', 0)
+                    completed = batch_details['request_counts'].get('completed', 0) 
+                    failed = batch_details['request_counts'].get('failed', 0)
+                    batch_details['remaining_count'] = max(0, total - completed - failed)
+                
+                # Add timing information
+                if batch_details.get('created_at'):
+                    import datetime
+                    created_timestamp = batch_details['created_at']
+                    created_dt = datetime.datetime.fromtimestamp(created_timestamp)
+                    batch_details['created_at_formatted'] = created_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    
+                    # Calculate elapsed time
+                    now = datetime.datetime.now()
+                    elapsed = now - created_dt
+                    batch_details['elapsed_time'] = str(elapsed).split('.')[0]  # Remove microseconds
+                
+                if batch_details.get('completed_at'):
+                    completed_timestamp = batch_details['completed_at']
+                    completed_dt = datetime.datetime.fromtimestamp(completed_timestamp)
+                    batch_details['completed_at_formatted'] = completed_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+                
+                # Check if we can get file contents for debugging
+                if batch_details.get('error_file_id'):
+                    try:
+                        error_content = processor.client.files.content(batch_details['error_file_id'])
+                        batch_details['error_content'] = error_content.content.decode('utf-8')
+                    except Exception as e:
+                        batch_details['error_content'] = f"Could not read error file: {e}"
+                
+                # Try to get sample response data if batch is completed
+                if batch_details.get('output_file_id') and batch_details.get('status') == 'completed':
+                    try:
+                        import json
+                        output_content = processor.client.files.content(batch_details['output_file_id'])
+                        response_text = output_content.content.decode('utf-8')
+                        
+                        # Parse first few lines for sample
+                        lines = response_text.strip().split('\n')[:3]  # First 3 responses
+                        sample_responses = []
+                        
+                        for line in lines:
+                            if line.strip():
+                                response_data = json.loads(line)
+                                # Extract key info from response
+                                sample = {
+                                    'custom_id': response_data.get('custom_id', 'N/A'),
+                                    'response_status': response_data.get('response', {}).get('body', {}).get('choices', [{}])[0].get('message', {}).get('content', 'No content')[:200]
+                                }
+                                sample_responses.append(sample)
+                        
+                        context['response_sample'] = sample_responses
+                        
+                        # Also store truncated full output for debugging
+                        batch_details['output_sample'] = response_text[:2000]  # First 2000 chars
+                        
+                    except Exception as e:
+                        context['response_sample'] = [{'error': f"Could not parse response file: {e}"}]
+                
+                context['batch_details'] = batch_details
+                
+            except Exception as e:
+                context['error'] = str(e)
+        
+        return TemplateResponse(request, 'admin/profiles/processingtask/batch_status_detail.html', context)
 
+    def batch_status_display(self, obj):
+        """Clean, useful batch status display"""
+        if not obj.task_metadata or not obj.task_metadata.get("openai_batch_id"):
+            if obj.status == "pending":
+                return format_html('<span style="color:#666;">⏳ Ready to submit</span>')
+            elif obj.status == "processing":
+                return format_html('<span style="color:#ff9800;">🔄 Submitting to OpenAI...</span>')
+            else:
+                return format_html('<span style="color:#666;">No batch processing</span>')
+        
+        # Has batch ID - get live status
+        try:
+            from profiles.utils.async_batch_processor import AsyncBatchProcessor
+            processor = AsyncBatchProcessor()
+            batch_id = obj.task_metadata.get("openai_batch_id")
+            batch_status = processor.get_batch_status(batch_id)
+            
+            status = batch_status.get('status', 'unknown')
+            total = batch_status.get('request_counts', {}).get('total', 0)
+            completed = batch_status.get('request_counts', {}).get('completed', 0)
+            failed = batch_status.get('request_counts', {}).get('failed', 0)
+            
+            if status == 'completed':
+                return format_html(
+                    '<div><strong style="color:#4CAF50;">✅ Completed</strong><br>'
+                    '<small><a href="{}batch-status/{}/" target="_blank" style="color:#2E7D32;">📋 Batch ID: {}</a></small><br>'
+                    '<small>Processed: {}/{} | Failed: {}</small></div>',
+                    '/admin/profiles/processingtask/',
+                    obj.task_id,
+                    batch_id[:20] + '...' if len(batch_id) > 20 else batch_id,
+                    completed, total, failed
+                )
+            elif status == 'in_progress':
+                return format_html(
+                    '<div><strong style="color:#ff9800;">🔄 Processing at OpenAI</strong><br>'
+                    '<small><a href="{}batch-status/{}/" target="_blank" style="color:#F57C00;">📋 Batch ID: {}</a></small><br>'
+                    '<small>Progress: {}/{} | Failed: {}</small></div>',
+                    '/admin/profiles/processingtask/',
+                    obj.task_id,
+                    batch_id[:20] + '...' if len(batch_id) > 20 else batch_id,
+                    completed, total, failed
+                )
+            elif status == 'validating':
+                return format_html(
+                    '<div><strong style="color:#2196F3;">🔍 Validating at OpenAI</strong><br>'
+                    '<small><a href="{}batch-status/{}/" target="_blank" style="color:#1976D2;">📋 Batch ID: {}</a></small><br>'
+                    '<small>Total requests: {}</small></div>',
+                    '/admin/profiles/processingtask/',
+                    obj.task_id,
+                    batch_id[:20] + '...' if len(batch_id) > 20 else batch_id,
+                    total
+                )
+            elif status in ['failed', 'expired', 'cancelled']:
+                return format_html(
+                    '<div><strong style="color:#f44336;">❌ {}</strong><br>'
+                    '<small>Batch ID: {}</small></div>',
+                    status.title(),
+                    batch_id[:20] + '...' if len(batch_id) > 20 else batch_id
+                )
+            else:
+                return format_html(
+                    '<div><strong style="color:#666;">📋 {}</strong><br>'
+                    '<small>Batch ID: {}</small></div>',
+                    status.title(),
+                    batch_id[:20] + '...' if len(batch_id) > 20 else batch_id
+                )
+        except Exception as e:
+            return format_html('<span style="color:#f44336;">❌ Error: {}</span>', str(e))
+    
+    batch_status_display.short_description = "Live Batch Status"
+
+    def has_change_permission(self, request, obj=None):
+        # This is a read-only status view, not editable
+        return False
+    
+    def has_add_permission(self, request):
+        # Don't allow manual creation - tasks are created programmatically
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        # Allow deletion for cleanup
+        return True
+        
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         task = self.get_object(request, object_id)
-        # Always read-only
-        extra_context["hide_save"] = True
-        # Auto-refresh if running
+        
+        # This is a status/detail view, not a change form
+        extra_context["title"] = f"Task Status: {task.task_id}"
+        extra_context["subtitle"] = f"{task.task_type} - {task.status.title()}"
+        
+        # Auto-refresh every 10 seconds if task is running
         if task and task.status in ["pending", "processing"]:
             extra_context["auto_refresh"] = True
-        # Add log viewer if log file exists
-        import os
-        from django.conf import settings
-        from pathlib import Path
-
-        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
-        if log_file.exists():
+            extra_context["refresh_message"] = f"⟳ Auto-refreshing every 10 seconds while {task.status}..."
+        
+        # Auto-process completed batches silently
+        if task and task.status == "processing" and task.task_metadata and task.task_metadata.get("openai_batch_id"):
             try:
-                with open(log_file, "r") as f:
-                    lines = f.readlines()[-100:]
-                log_content = mark_safe(
-                    '<pre style="max-height:300px;overflow:auto;background:#222;color:#eee;padding:10px;">{}</pre>'.format(
-                        "".join(lines)
-                    )
-                )
-                extra_context["log_content"] = log_content
+                from profiles.utils.async_batch_processor import check_and_process_completed_batches
+                check_and_process_completed_batches()  # Silent auto-processing
             except Exception:
-                extra_context["log_content"] = mark_safe(
-                    '<pre style="color:red;">Error reading log file.</pre>'
-                )
-        else:
-            extra_context["log_content"] = mark_safe(
-                '<pre style="color:#888;">No log file found for this task.</pre>'
-            )
-        return super().change_view(
-            request, object_id, form_url, extra_context=extra_context
-        )
+                pass  # Silent failure - don't clutter UI
+                
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def run_task(self, request, queryset):
-        """Execute the selected task and show progress."""
+        """Execute the selected task with immediate feedback."""
         if queryset.count() > 1:
             messages.error(request, "Please select only one task to run at a time.")
             return
@@ -1654,121 +1898,49 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
             messages.error(request, f"Task {task.task_id} is not in pending state.")
             return
 
-        # Create log file first
-        log_file = Path(settings.BASE_DIR) / "logs" / f"task_{task.task_id}.log"
-        log_file.parent.mkdir(exist_ok=True)
-        with open(log_file, "w") as f:
-            f.write(f"[{timezone.now()}] [INFO] Starting task {task.task_id}\n")
-
         try:
-            # Verify the task exists and is in pending state
-            task.refresh_from_db()
-            if task.status != "pending":
-                messages.error(request, f"Task {task.task_id} is not in pending state.")
-                return
-
-            # Update task status to processing and commit it
-            with db_transaction.atomic():
-                task.status = "processing"
-                task.started_at = timezone.now()
-                task.save(force_update=True)
-
-            # Start the task processing command
-            python_executable = sys.executable
-            # Always use the manage.py in the LedgerFlow project root
-            manage_py = str(Path(settings.BASE_DIR) / "manage.py")
-            cmd = [
-                python_executable,
-                manage_py,
-                "process_task",
-                str(task.task_id),
-                "--log-file",
-                str(log_file),
-            ]
-
-            # Set up environment variables
-            env = os.environ.copy()
-            project_root = str(Path(settings.BASE_DIR).parent)
-            env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
-            env["DJANGO_SETTINGS_MODULE"] = "ledgerflow.settings"
-
-            # Start the process in the background
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                cwd=str(settings.BASE_DIR),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                start_new_session=True,
-                bufsize=1,
-            )
-
-            # Log the process start
-            logger.info(f"Started task {task.task_id} with PID {process.pid}")
-            self.message_user(request, f"Started task {task.task_id}")
-
-            # Start a thread to read the output
-            def read_output():
-                while True:
-                    output = process.stdout.readline()
-                    if output == "" and process.poll() is not None:
-                        break
-                    if output:
-                        logger.info(output.strip())
-                        with open(log_file, "a") as f:
-                            f.write(output)
-
-            import threading
-
-            output_thread = threading.Thread(target=read_output)
-            output_thread.daemon = True
-            output_thread.start()
-
-            # Start a thread to read errors
-            def read_errors():
-                while True:
-                    error = process.stderr.readline()
-                    if error == "" and process.poll() is not None:
-                        break
-                    if error:
-                        logger.error(error.strip())
-                        with open(log_file, "a") as f:
-                            f.write(f"[ERROR] {error}")
-
-            error_thread = threading.Thread(target=read_errors)
-            error_thread.daemon = True
-            error_thread.start()
-
-            # Wait for the process to complete
-            def wait_for_process():
-                process.wait()
-                if process.returncode != 0:
-                    logger.error(
-                        f"Task {task.task_id} failed with return code {process.returncode}"
-                    )
-                    # Update task status to failed if the process failed
+            # Update status to processing immediately for user feedback
+            task.status = "processing" 
+            task.started_at = timezone.now()
+            task.save()
+            
+            # Submit batch processing directly (no subprocess)
+            if task.task_type.startswith("batch_"):
+                from profiles.utils.async_batch_processor import submit_processing_task_batch
+                
+                success = submit_processing_task_batch(task)
+                if success:
+                    # Refresh to get updated metadata with batch ID
                     task.refresh_from_db()
-                    if task.status == "processing":
-                        task.status = "failed"
-                        task.error_details = {
-                            "error": f"Process failed with return code {process.returncode}"
-                        }
-                        task.save(force_update=True)
-
-            # Start the wait thread
-            wait_thread = threading.Thread(target=wait_for_process)
-            wait_thread.daemon = True
-            wait_thread.start()
+                    batch_id = task.task_metadata.get('openai_batch_id')
+                    
+                    messages.success(
+                        request, 
+                        f"✅ Batch submitted successfully! "
+                        f"OpenAI Batch ID: {batch_id[:20] if batch_id else 'N/A'}... "
+                        f"Processing {task.transaction_count} transactions."
+                    )
+                    messages.info(
+                        request,
+                        "The batch is now processing at OpenAI. This page will auto-refresh to show progress. "
+                        "Typical processing time: 5-60 minutes depending on queue load."
+                    )
+                else:
+                    task.refresh_from_db()  # Get error details
+                    error_msg = task.error_details.get('error', 'Unknown error') if task.error_details else 'Submission failed'
+                    messages.error(request, f"❌ Failed to submit batch: {error_msg}")
+            else:
+                messages.error(request, f"Task type '{task.task_type}' not supported for direct execution.")
+                task.status = "failed"
+                task.error_details = {"error": f"Unsupported task type: {task.task_type}"}
+                task.save()
 
         except Exception as e:
-            logger.error(f"Failed to start task {task.task_id}: {str(e)}")
+            logger.error(f"Failed to run task {task.task_id}: {str(e)}")
             task.status = "failed"
             task.error_details = {"error": str(e)}
-            task.save(force_update=True)
-            self.message_user(
-                request, f"Failed to start task: {str(e)}", level=messages.ERROR
-            )
+            task.save()
+            messages.error(request, f"❌ Error starting task: {str(e)}")
 
     run_task.short_description = "Run selected task"
 
@@ -1786,6 +1958,21 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
 
     retry_failed_tasks.short_description = "Retry failed tasks"
 
+    def check_batch_completion(self, request, queryset):
+        """Manually check for completed OpenAI batches and process results."""
+        from profiles.utils.async_batch_processor import check_and_process_completed_batches
+        
+        try:
+            completed_count = check_and_process_completed_batches()
+            if completed_count > 0:
+                messages.success(request, f"✅ Processed {completed_count} completed batch jobs")
+            else:
+                messages.info(request, "ℹ️ No completed batch jobs found")
+        except Exception as e:
+            messages.error(request, f"❌ Error checking batch completion: {str(e)}")
+    
+    check_batch_completion.short_description = "Check for completed batches"
+
     def cancel_tasks(self, request, queryset):
         """Cancel selected processing tasks."""
         for task in queryset.filter(status__in=["pending", "processing"]):
@@ -1802,6 +1989,92 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         )
 
     cancel_tasks.short_description = "Cancel selected tasks"
+
+    def check_batch_completion(self, request, queryset):
+        """Check for completed batch jobs and process results."""
+        from profiles.utils.async_batch_processor import AsyncBatchProcessor, Agent
+        
+        # Filter to only batch processing tasks that are still processing
+        batch_tasks = queryset.filter(
+            status="processing",
+            task_metadata__batch_processing=True,
+            task_metadata__openai_batch_id__isnull=False
+        )
+        
+        if not batch_tasks.exists():
+            messages.warning(request, "No batch processing tasks selected or all are already completed.")
+            return
+        
+        processor = AsyncBatchProcessor()
+        completed_count = 0
+        
+        for task in batch_tasks:
+            batch_id = task.task_metadata.get("openai_batch_id")
+            agent_name = task.task_metadata.get("agent_name", "Unknown")
+            
+            if not batch_id:
+                continue
+            
+            try:
+                # Check batch status
+                status = processor.get_batch_status(batch_id)
+                batch_status = status.get("status", "unknown")
+                
+                messages.info(request, f"Task {task.task_id}: OpenAI batch status is '{batch_status}'")
+                
+                if batch_status == "completed":
+                    # Get agent and process results
+                    agent = Agent.objects.get(name=agent_name)
+                    output_file_id = status.get("output_file_id")
+                    
+                    if output_file_id:
+                        # Download and process results
+                        batch_results = processor.download_batch_results(output_file_id)
+                        processed_results = processor.process_batch_results(batch_results, agent)
+                        
+                        # Update transactions
+                        success_count, failed_count = processor.update_transactions(
+                            processed_results, agent, task
+                        )
+                        
+                        # Update task status
+                        if failed_count == 0:
+                            task.status = "completed"
+                            task.save()
+                            messages.success(
+                                request, 
+                                f"✅ Task {task.task_id} completed! Processed {success_count} transactions successfully."
+                            )
+                        else:
+                            messages.warning(
+                                request, 
+                                f"⚠️ Task {task.task_id}: {success_count} succeeded, {failed_count} failed"
+                            )
+                        
+                        completed_count += 1
+                    else:
+                        messages.error(request, f"❌ Task {task.task_id}: No output file found")
+                        
+                elif batch_status == "failed":
+                    task.status = "failed"
+                    task.save()
+                    messages.error(
+                        request, 
+                        f"❌ Task {task.task_id}: OpenAI batch failed - {status.get('errors', 'Unknown error')}"
+                    )
+                    
+                elif batch_status in ["validating", "in_progress", "finalizing"]:
+                    messages.info(request, f"⏳ Task {task.task_id}: Batch still {batch_status}...")
+                
+            except Exception as e:
+                messages.error(request, f"❌ Task {task.task_id}: Error checking batch - {str(e)}")
+        
+        if completed_count > 0:
+            messages.success(request, f"🎉 Successfully processed {completed_count} completed batch jobs!")
+        else:
+            messages.info(request, "No completed batches found to process.")
+    
+    check_batch_completion.short_description = "Check & Process Completed Batch Jobs"
 
     def view_task_transactions(self, request, task_id):
         """View transactions associated with a processing task."""

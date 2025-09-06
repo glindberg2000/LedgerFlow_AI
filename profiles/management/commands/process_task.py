@@ -198,6 +198,21 @@ class Command(BaseCommand):
                     task.save()
                 return
 
+            # --- BATCH PROCESSING LOGIC ---
+            if task.task_metadata.get("batch_processing"):
+                # Handle OpenAI Batch API tasks
+                from profiles.utils.async_batch_processor import submit_processing_task_batch
+                
+                logger.info(f"Starting batch processing for task {task_id}")
+                success = submit_processing_task_batch(task)
+                
+                if success:
+                    logger.info(f"Successfully submitted batch processing task {task_id} to OpenAI")
+                else:
+                    logger.error(f"Failed to submit batch processing task {task_id} to OpenAI")
+                    
+                return
+
             # --- EXISTING TRANSACTION-BASED LOGIC ---
             # Get the appropriate agent
             if task.task_type == "payee_lookup":

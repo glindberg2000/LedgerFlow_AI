@@ -1,0 +1,58 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+{% if auto_refresh %}
+<script>
+    // Auto-refresh for active tasks
+    setTimeout(function() {
+        location.reload();
+    }, 10000); // 10 seconds
+</script>
+<style>
+    .refresh-notice {
+        background: #e3f2fd;
+        border: 1px solid #2196F3;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0;
+        color: #1976D2;
+        font-size: 14px;
+    }
+    .task-status-header {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    .task-status-header h2 {
+        margin: 0 0 5px 0;
+        color: #495057;
+    }
+    .task-status-header p {
+        margin: 0;
+        color: #6c757d;
+        font-size: 14px;
+    }
+</style>
+{% endif %}
+{% endblock %}
+
+{% block content_title %}
+{% if title %}
+    <div class="task-status-header">
+        <h2>{{ title }}</h2>
+        {% if subtitle %}<p>{{ subtitle }}</p>{% endif %}
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if auto_refresh %}
+    <div class="refresh-notice">
+        <strong>🔄 Live Status:</strong> {{ refresh_message }}
+    </div>
+{% endif %}
+{{ block.super }}
+{% endblock %}

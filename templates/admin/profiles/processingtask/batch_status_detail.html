@@ -1,0 +1,393 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+<style>
+    .batch-status-container {
+        max-width: 1000px;
+        margin: 20px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .batch-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px 8px 0 0;
+    }
+    .batch-header h1 {
+        margin: 0;
+        font-size: 24px;
+    }
+    .batch-header p {
+        margin: 5px 0 0 0;
+        opacity: 0.9;
+    }
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        padding: 20px;
+    }
+    .status-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 15px;
+        background: #f9f9f9;
+    }
+    .status-card h3 {
+        margin: 0 0 10px 0;
+        color: #333;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .status-card p {
+        margin: 5px 0;
+        color: #666;
+    }
+    .status-card strong {
+        color: #333;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .status-completed { background: #e8f5e8; color: #2e7d32; }
+    .status-in_progress { background: #fff3e0; color: #f57c00; }
+    .status-validating { background: #e3f2fd; color: #1976d2; }
+    .status-failed { background: #ffebee; color: #d32f2f; }
+    .status-cancelled { background: #fafafa; color: #666; }
+    .progress-bar {
+        width: 100%;
+        height: 10px;
+        background: #e0e0e0;
+        border-radius: 5px;
+        overflow: hidden;
+        margin: 10px 0;
+    }
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4caf50, #66bb6a);
+        transition: width 0.3s ease;
+    }
+    .raw-data {
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 20px;
+        font-family: Monaco, 'Courier New', monospace;
+        font-size: 12px;
+        overflow: auto;
+        max-height: 400px;
+    }
+    .refresh-notice {
+        background: #e3f2fd;
+        border: 1px solid #2196f3;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 20px;
+        color: #1976d2;
+        text-align: center;
+    }
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        margin: 8px 0;
+        padding: 5px;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    .step-complete { background: #e8f5e8; color: #2e7d32; }
+    .step-current { background: #fff3e0; color: #f57c00; animation: pulse 2s infinite; }
+    .step-pending { background: #f5f5f5; color: #666; }
+    .step-number {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 24px;
+        margin-right: 10px;
+        font-weight: bold;
+        font-size: 12px;
+    }
+    .step-complete .step-number { background: #4caf50; color: white; }
+    .step-current .step-number { background: #ff9800; color: white; }
+    .step-pending .step-number { background: #ccc; color: white; }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    .error-card {
+        background: #ffebee;
+        border: 1px solid #f44336;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 20px;
+        color: #d32f2f;
+    }
+</style>
+<script>
+    // Auto-refresh every 15 seconds if batch is still processing
+    {% if batch_details.status == 'in_progress' or batch_details.status == 'validating' %}
+    setTimeout(function() {
+        location.reload();
+    }, 15000);
+    {% endif %}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="batch-status-container">
+    <div class="batch-header">
+        <h1>🚀 OpenAI Batch Status</h1>
+        <p>Live data directly from OpenAI API</p>
+    </div>
+    
+    {% if error %}
+        <div class="error-card">
+            <h3>❌ Error Getting Batch Status</h3>
+            <p>{{ error }}</p>
+        </div>
+    {% elif not batch_details %}
+        <div class="error-card">
+            <h3>⚠️ No Batch Found</h3>
+            <p>This task does not have an associated OpenAI batch ID.</p>
+        </div>
+    {% else %}
+        {% if batch_details.status == 'in_progress' or batch_details.status == 'validating' %}
+        <div class="refresh-notice">
+            <strong>🔄 Auto-refreshing every 15 seconds...</strong> This batch is still processing at OpenAI.
+        </div>
+        {% endif %}
+        
+        <div class="status-grid">
+            <!-- Workflow Progress -->
+            <div class="status-card">
+                <h3>🔄 Workflow Progress</h3>
+                {% if task.task_type == "batch_full_workflow" %}
+                <p><strong>Workflow Type:</strong> Full (Payee + Classification)</p>
+                {% else %}
+                <p><strong>Workflow Type:</strong> {{ task.task_type|title }}</p>
+                {% endif %}
+                
+                {% if batch_details.status == "validating" %}
+                <div class="step-indicator step-complete">
+                    <span class="step-number">1</span>
+                    <strong>Batch submitted to OpenAI</strong> ✅
+                </div>
+                <div class="step-indicator step-current">
+                    <span class="step-number">2</span>
+                    <strong>OpenAI validating batch request...</strong> ⏳
+                </div>
+                <div class="step-indicator step-pending">
+                    <span class="step-number">3</span>
+                    <strong>Pending - AI processing</strong>
+                </div>
+                <div class="step-indicator step-pending">
+                    <span class="step-number">4</span>
+                    <strong>Pending - Database update</strong>
+                </div>
+                {% elif batch_details.status == "in_progress" %}
+                <div class="step-indicator step-complete">
+                    <span class="step-number">1</span>
+                    <strong>Batch submitted to OpenAI</strong> ✅
+                </div>
+                <div class="step-indicator step-complete">
+                    <span class="step-number">2</span>
+                    <strong>OpenAI batch validated</strong> ✅
+                </div>
+                <div class="step-indicator step-current">
+                    <span class="step-number">3</span>
+                    <strong>OpenAI processing {{ batch_details.request_counts.total }} transaction{{ batch_details.request_counts.total|pluralize }}...</strong> ⏳
+                </div>
+                <div class="step-indicator step-pending">
+                    <span class="step-number">4</span>
+                    <strong>Pending - Database update</strong>
+                </div>
+                {% elif batch_details.status == "completed" %}
+                <div class="step-indicator step-complete">
+                    <span class="step-number">1</span>
+                    <strong>Batch submitted to OpenAI</strong> ✅
+                </div>
+                <div class="step-indicator step-complete">
+                    <span class="step-number">2</span>
+                    <strong>OpenAI batch validated</strong> ✅
+                </div>
+                <div class="step-indicator step-complete">
+                    <span class="step-number">3</span>
+                    <strong>OpenAI processing complete</strong> ✅
+                </div>
+                {% if task.status == "completed" %}
+                <div class="step-indicator step-complete">
+                    <span class="step-number">4</span>
+                    <strong>Database updated successfully!</strong> ✅
+                </div>
+                {% if task.task_type == "batch_full_workflow" and task.task_metadata.full_workflow_completed %}
+                <div style="margin-top: 10px; padding: 10px; background: #e8f5e8; border-radius: 4px;">
+                    <strong>📊 Full Workflow Results:</strong><br>
+                    🎯 Payee Extraction: {{ task.task_metadata.payee_success_count|default:"?" }}/{{ task.task_metadata.total_transactions|default:"?" }} transactions<br>
+                    🏷️ Classification: {{ task.task_metadata.classification_success_count|default:"?" }}/{{ task.task_metadata.total_transactions|default:"?" }} transactions<br>
+                    💾 Database Updates: {{ task.processed_count|default:0 }} successful, {{ task.error_count|default:0 }} failed
+                </div>
+                {% endif %}
+                {% else %}
+                <div class="step-indicator step-current">
+                    <span class="step-number">4</span>
+                    <strong>Updating database with results...</strong> ⏳
+                </div>
+                {% endif %}
+                {% else %}
+                <div class="step-indicator step-pending">
+                    <span class="step-number">?</span>
+                    <strong>Status: {{ batch_details.status|title }}</strong>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Batch Overview -->
+            <div class="status-card">
+                <h3>📊 Batch Overview</h3>
+                <p><strong>Batch ID:</strong><br><code>{{ batch_details.id }}</code></p>
+                <p><strong>Status:</strong> <span class="status-badge status-{{ batch_details.status }}">{{ batch_details.status }}</span></p>
+                <p><strong>Endpoint:</strong> /v1/chat/completions</p>
+                <p><strong>Completion Window:</strong> 24h</p>
+            </div>
+            
+            <!-- Request Progress -->
+            <div class="status-card">
+                <h3>⚡ Request Progress</h3>
+                {% with total=batch_details.request_counts.total completed=batch_details.request_counts.completed failed=batch_details.request_counts.failed %}
+                <p><strong>Total Requests:</strong> {{ total }}</p>
+                <p><strong>Completed:</strong> <span style="color:#4caf50;">{{ completed }}</span></p>
+                <p><strong>Failed:</strong> <span style="color:#f44336;">{{ failed }}</span></p>
+                <p><strong>In Progress:</strong> <span style="color:#ff9800;">{{ batch_details.remaining_count|default:"Calculating..." }}</span></p>
+                
+                {% if total > 0 %}
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {% widthratio completed total 100 %}%"></div>
+                </div>
+                <p><small>{% widthratio completed total 100 %}% complete</small></p>
+                {% endif %}
+                {% endwith %}
+            </div>
+            
+            <!-- Timing Information -->
+            <div class="status-card">
+                <h3>⏰ Timing</h3>
+                <p><strong>Created:</strong><br>{{ batch_details.created_at_formatted|default:"Unknown" }}</p>
+                {% if batch_details.completed_at_formatted %}
+                <p><strong>Completed:</strong><br>{{ batch_details.completed_at_formatted }}</p>
+                {% endif %}
+                {% if batch_details.elapsed_time %}
+                <p><strong>Elapsed Time:</strong><br>{{ batch_details.elapsed_time }}</p>
+                {% endif %}
+            </div>
+            
+            <!-- File Information -->
+            <div class="status-card">
+                <h3>📁 Files</h3>
+                <p><strong>Input File ID:</strong><br><code>{{ batch_details.input_file_id|default:"None" }}</code></p>
+                {% if batch_details.output_file_id %}
+                <p><strong>Output File ID:</strong><br><code>{{ batch_details.output_file_id }}</code></p>
+                {% endif %}
+                {% if batch_details.error_file_id %}
+                <p><strong>Error File ID:</strong><br><code>{{ batch_details.error_file_id }}</code></p>
+                {% endif %}
+            </div>
+            
+            <!-- Task Information -->
+            <div class="status-card">
+                <h3>📋 Task Details</h3>
+                <p><strong>Task ID:</strong><br>{{ task.task_id }}</p>
+                <p><strong>Task Type:</strong><br>{{ task.task_type }}</p>
+                <p><strong>Client:</strong><br>{{ task.client.company_name }}</p>
+                <p><strong>Transaction Count:</strong><br>{{ task.transaction_count }}</p>
+                <p><strong>Task Status:</strong><br>{{ task.status }}</p>
+                <p><strong>Processed:</strong><br>{{ task.processed_count|default:0 }} successful</p>
+                <p><strong>Errors:</strong><br>{{ task.error_count|default:0 }} failed</p>
+            </div>
+            
+            <!-- Database Row Counts -->
+            {% if database_info %}
+            <div class="status-card">
+                <h3>🗄️ Database Status</h3>
+                {% if database_info.error %}
+                    <p style="color: #f44336;">{{ database_info.error }}</p>
+                {% else %}
+                    <p><strong>Total Transactions:</strong><br>{{ database_info.total_transactions }}</p>
+                    <p><strong>Missing Payee:</strong><br>{{ database_info.null_payee_count }}</p>
+                    <p><strong>Missing Classification:</strong><br>{{ database_info.null_normalized_count }}</p>
+                    <p><strong>Missing Both:</strong><br>{{ database_info.both_null_count }}</p>
+                    <hr style="margin: 10px 0;">
+                    <p><strong>Task Processed:</strong><br>{{ database_info.task_processed_count }}</p>
+                    <p><strong>Task Errors:</strong><br>{{ database_info.task_error_count }}</p>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <!-- Metadata -->
+            {% if batch_details.metadata %}
+            <div class="status-card">
+                <h3>🏷️ Batch Metadata</h3>
+                {% for key, value in batch_details.metadata.items %}
+                <p><strong>{{ key|title }}:</strong><br>{{ value }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        
+        {% if response_sample %}
+        <div class="raw-data">
+            <h3>📝 Sample AI Responses (First 3)</h3>
+            {% for sample in response_sample %}
+            <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
+                <strong>Transaction ID:</strong> {{ sample.custom_id }}<br>
+                {% if sample.error %}
+                    <span style="color: #f44336;">❌ {{ sample.error }}</span>
+                {% else %}
+                    <strong>AI Response:</strong><br>
+                    <code style="font-size: 11px; color: #333;">{{ sample.response_status }}</code>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        {% if batch_details.output_sample %}
+        <div class="raw-data">
+            <h3>📋 Raw Output File Sample (First 2000 chars)</h3>
+            <pre style="font-size: 10px;">{{ batch_details.output_sample }}</pre>
+        </div>
+        {% endif %}
+        
+        {% if batch_details.error_content %}
+        <div class="raw-data">
+            <h3>❌ Error File Content</h3>
+            <pre>{{ batch_details.error_content }}</pre>
+        </div>
+        {% endif %}
+        
+        <!-- Raw OpenAI Response -->
+        <div class="raw-data">
+            <h3>🔧 Raw OpenAI API Response</h3>
+            <pre>{{ batch_details|pprint }}</pre>
+        </div>
+    {% endif %}
+</div>
+
+<div style="text-align: center; padding: 20px;">
+    <a href="{% url 'admin:profiles_processingtask_changelist' %}" class="button" style="background: #417690; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">← Back to Task List</a>
+    <a href="{% url 'admin:profiles_processingtask_change' task.pk %}" class="button" style="background: #666; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-left: 10px;">View Task Details</a>
+</div>
+
+{% endblock %}

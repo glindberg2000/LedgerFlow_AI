@@ -480,11 +480,14 @@ class ProcessingTask(models.Model):
         ("payee_lookup", "Payee Lookup"),
         ("classification", "Classification"),
         ("organizer_extraction", "Organizer Extraction"),
+        ("batch_payee_lookup", "Batch Payee Lookup (OpenAI Batch API)"),
+        ("batch_classification", "Batch Classification (OpenAI Batch API)"),
+        ("batch_full_workflow", "Batch Full Workflow (Payee + Classification)"),
     ]
 
     task_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-    task_type = models.CharField(max_length=20, choices=TASK_TYPES)
+    task_type = models.CharField(max_length=30, choices=TASK_TYPES)
     client = models.ForeignKey(
         BusinessProfile, 
         on_delete=models.CASCADE,
