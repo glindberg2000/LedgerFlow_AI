@@ -5,8 +5,59 @@
 <script type="text/javascript">
 document.addEventListener('DOMContentLoaded', function() {
     
-    // FORCE SHOW PROGRESS INDICATOR FOR ALL BATCH TASKS
-    console.log('🚀 Loading batch monitoring UI...');
+    // CHECK IF WE SHOULD REDIRECT TO ENHANCED BATCH STATUS PAGE
+    const currentUrl = window.location.href;
+    const isProcessingTaskPage = currentUrl.includes('/processingtask/');
+    
+    // Extract task ID for potential redirect
+    const taskIdMatch = currentUrl.match(/\/processingtask\/([^\/]+)\/change/);
+    
+    if (isProcessingTaskPage && taskIdMatch) {
+        const taskId = taskIdMatch[1];
+        
+        // Check if this task has batch processing (has batch_id or is batch type)
+        const hasOpenAIBatch = '{{ original.task_metadata.openai_batch_id|default:"" }}' !== '';
+        const isBatchType = '{{ original.task_type }}' === 'batch_full_workflow' || '{{ original.task_type }}'.includes('batch');
+        
+        if (hasOpenAIBatch || isBatchType) {
+            // Add redirect notification
+            const redirectDiv = document.createElement('div');
+            redirectDiv.innerHTML = `
+                <div style="background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; padding: 20px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3); text-align: center;">
+                    <h3 style="margin: 0 0 15px 0; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                        <span style="font-size: 24px; margin-right: 10px;">🚀</span>
+                        Enhanced Batch Status Available
+                    </h3>
+                    <p style="margin: 0 0 15px 0; font-size: 14px; opacity: 0.9;">
+                        This task has comprehensive batch monitoring with LLM details, prompt verification, and real-time status updates.
+                    </p>
+                    <div style="display: flex; gap: 15px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                        <a href="/admin/profiles/processingtask/batch-status/${taskId}/" 
+                           style="background: rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 25px; text-decoration: none; font-weight: bold; border: 2px solid rgba(255,255,255,0.3); transition: all 0.3s ease;"
+                           onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                           onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            🔍 View Enhanced Status
+                        </a>
+                        <button onclick="this.parentElement.parentElement.parentElement.style.display='none'"
+                                style="background: rgba(255,255,255,0.1); color: white; padding: 10px 15px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.3); cursor: pointer;">
+                            Stay Here
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            const form = document.querySelector('form');
+            if (form) {
+                form.insertBefore(redirectDiv, form.firstChild);
+            }
+            
+            console.log('✅ Enhanced batch status link added');
+            return; // Don't show the old UI if we have enhanced status
+        }
+    }
+    
+    // FORCE SHOW PROGRESS INDICATOR FOR ALL BATCH TASKS (fallback for non-batch tasks)
+    console.log('🚀 Loading basic batch monitoring UI...');
     
     // Always show if this is a batch processing task page
     const currentUrl = window.location.href;

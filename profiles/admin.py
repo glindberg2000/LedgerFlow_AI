@@ -1658,6 +1658,8 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
             'error': None,
             'database_info': None,
             'response_sample': None,
+            'agent_details': None,
+            'prompt_details': None,
         }
         
         # Get database info for task
@@ -1702,6 +1704,100 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
             
         except Exception as e:
             context['database_info'] = {'error': f"Could not load database info: {e}"}
+        
+        # Get agent and prompt details for verification
+        try:
+            from profiles.models import Agent
+            agent_details = {}
+            prompt_details = {}
+            
+            # Get agent info based on task type  
+            if task.task_type == "batch_full_workflow":
+                # Full workflow - get both agents
+                first_agent_name = task.task_metadata.get('first_agent')
+                second_agent_name = task.task_metadata.get('second_agent')
+                
+                if first_agent_name:
+                    first_agent = Agent.objects.get(name=first_agent_name)
+                    agent_details['first_agent'] = {
+                        'name': first_agent.name,
+                        'model': first_agent.llm.model if first_agent.llm else 'No LLM configured',
+                        'purpose': first_agent.purpose or 'No purpose specified',
+                        'prompt_length': len(first_agent.prompt) if first_agent.prompt else 0,
+                        'prompt_preview': (first_agent.prompt[:200] + '...' if len(first_agent.prompt) > 200 else first_agent.prompt) if first_agent.prompt else 'No prompt configured',
+                    }
+                    
+                if second_agent_name:
+                    second_agent = Agent.objects.get(name=second_agent_name)
+                    agent_details['second_agent'] = {
+                        'name': second_agent.name,
+                        'model': second_agent.llm.model if second_agent.llm else 'No LLM configured',
+                        'purpose': second_agent.purpose or 'No purpose specified',
+                        'prompt_length': len(second_agent.prompt) if second_agent.prompt else 0,
+                        'prompt_preview': (second_agent.prompt[:200] + '...' if len(second_agent.prompt) > 200 else second_agent.prompt) if second_agent.prompt else 'No prompt configured',
+                    }
+            else:
+                # Single agent task
+                agent_name = task.task_metadata.get('agent_name')
+                if agent_name:
+                    agent = Agent.objects.get(name=agent_name)
+                    agent_details['single_agent'] = {
+                        'name': agent.name,
+                        'model': agent.llm.model if agent.llm else 'No LLM configured', 
+                        'purpose': agent.purpose or 'No purpose specified',
+                        'prompt_length': len(agent.prompt) if agent.prompt else 0,
+                        'prompt_preview': (agent.prompt[:200] + '...' if len(agent.prompt) > 200 else agent.prompt) if agent.prompt else 'No prompt configured',
+                    }
+                    
+            context['agent_details'] = agent_details
+            
+            # Get sample rendered prompts for verification
+            if task.transactions.exists():
+                sample_tx = task.transactions.first()
+                
+                try:
+                    # Try to render prompt template with sample transaction
+                    if task.task_type == "batch_full_workflow" and first_agent_name:
+                        agent = Agent.objects.get(name=first_agent_name)
+                    elif agent_name:
+                        agent = Agent.objects.get(name=agent_name)
+                    else:
+                        agent = None
+                        
+                    if agent and agent.prompt:
+                        from jinja2 import Template
+                        
+                        # Build context like async_batch_processor does
+                        context_vars = {
+                            "transaction": sample_tx,
+                            "business_profile": getattr(sample_tx, "client", None),
+                        }
+                        
+                        # For classification agents, add allowed categories
+                        if "classification" in agent.name.lower():
+                            context_vars["allowed_categories"] = build_allowed_categories(sample_tx)
+                        
+                        template = Template(agent.prompt)
+                        rendered_prompt = template.render(**context_vars)
+                        
+                        prompt_details['sample_rendered'] = {
+                            'agent_name': agent.name,
+                            'transaction_id': sample_tx.id,
+                            'transaction_desc': sample_tx.description,
+                            'rendered_length': len(rendered_prompt),
+                            'rendered_preview': rendered_prompt[:500] + '...' if len(rendered_prompt) > 500 else rendered_prompt,
+                        }
+                        
+                except Exception as prompt_error:
+                    prompt_details['sample_rendered'] = {
+                        'error': f"Could not render sample prompt: {prompt_error}"
+                    }
+                    
+            context['prompt_details'] = prompt_details
+            
+        except Exception as e:
+            context['agent_details'] = {'error': f"Could not load agent details: {e}"}
+            context['prompt_details'] = {'error': f"Could not load prompt details: {e}"}
         
         if task.task_metadata and task.task_metadata.get('openai_batch_id'):
             try:

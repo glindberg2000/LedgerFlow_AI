@@ -317,6 +317,46 @@
                 <p><strong>Errors:</strong><br>{{ task.error_count|default:0 }} failed</p>
             </div>
             
+            <!-- Agent & LLM Configuration -->
+            {% if agent_details %}
+            <div class="status-card">
+                <h3>🤖 AI Agent Configuration</h3>
+                {% if agent_details.error %}
+                    <p style="color: #f44336;">{{ agent_details.error }}</p>
+                {% else %}
+                    {% if agent_details.first_agent %}
+                    <div style="margin-bottom: 15px; padding: 10px; background: #e8f5e8; border-radius: 4px;">
+                        <strong>🎯 Step 1 - Payee Agent:</strong><br>
+                        <strong>Name:</strong> {{ agent_details.first_agent.name }}<br>
+                        <strong>LLM Model:</strong> <code>{{ agent_details.first_agent.model }}</code><br>
+                        <strong>Purpose:</strong> {{ agent_details.first_agent.purpose }}<br>
+                        <strong>Prompt Length:</strong> {{ agent_details.first_agent.prompt_length }} chars
+                    </div>
+                    {% endif %}
+                    
+                    {% if agent_details.second_agent %}
+                    <div style="margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 4px;">
+                        <strong>🏷️ Step 2 - Classification Agent:</strong><br>
+                        <strong>Name:</strong> {{ agent_details.second_agent.name }}<br>
+                        <strong>LLM Model:</strong> <code>{{ agent_details.second_agent.model }}</code><br>
+                        <strong>Purpose:</strong> {{ agent_details.second_agent.purpose }}<br>
+                        <strong>Prompt Length:</strong> {{ agent_details.second_agent.prompt_length }} chars
+                    </div>
+                    {% endif %}
+                    
+                    {% if agent_details.single_agent %}
+                    <div style="margin-bottom: 15px; padding: 10px; background: #f3e5f5; border-radius: 4px;">
+                        <strong>🔄 Single Agent:</strong><br>
+                        <strong>Name:</strong> {{ agent_details.single_agent.name }}<br>
+                        <strong>LLM Model:</strong> <code>{{ agent_details.single_agent.model }}</code><br>
+                        <strong>Purpose:</strong> {{ agent_details.single_agent.purpose }}<br>
+                        <strong>Prompt Length:</strong> {{ agent_details.single_agent.prompt_length }} chars
+                    </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
+            
             <!-- Database Row Counts -->
             {% if database_info %}
             <div class="status-card">
@@ -345,6 +385,24 @@
             </div>
             {% endif %}
         </div>
+        
+        {% if prompt_details.sample_rendered %}
+        <div class="raw-data">
+            <h3>📜 Sample Rendered Prompt (for verification)</h3>
+            {% if prompt_details.sample_rendered.error %}
+                <p style="color: #f44336;">❌ {{ prompt_details.sample_rendered.error }}</p>
+            {% else %}
+                <div style="margin-bottom: 15px; padding: 10px; background: #f9f9f9; border-radius: 4px;">
+                    <strong>Agent:</strong> {{ prompt_details.sample_rendered.agent_name }}<br>
+                    <strong>Sample Transaction:</strong> #{{ prompt_details.sample_rendered.transaction_id }} - {{ prompt_details.sample_rendered.transaction_desc|truncatechars:50 }}<br>
+                    <strong>Rendered Prompt Length:</strong> {{ prompt_details.sample_rendered.rendered_length }} characters<br>
+                    <hr style="margin: 10px 0;">
+                    <strong>Prompt Preview (first 500 chars):</strong><br>
+                    <code style="font-size: 11px; color: #333; background: #f0f0f0; padding: 10px; display: block; border-radius: 4px; margin-top: 5px; white-space: pre-wrap;">{{ prompt_details.sample_rendered.rendered_preview }}</code>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
         
         {% if response_sample %}
         <div class="raw-data">
