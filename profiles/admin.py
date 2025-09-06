@@ -56,7 +56,7 @@ from dataextractai.utils.normalize_api import normalize_parsed_data_df
 from django.core.exceptions import ValidationError
 import pandas as pd
 import tempfile
-from profiles.prompt_utils import get_fallback_payee_prompts
+# Removed fallback imports - NO FALLBACKS ALLOWED FOR FINANCIAL DATA
 import jinja2
 from django.forms import TextInput
 from django.db import models
@@ -552,25 +552,24 @@ def call_agent(
                     "[PROMPT] Used Agent.prompt from UI for agent '%s'", agent_name
                 )
             except Exception as e:
-                logger.warning(
-                    f"[PROMPT] Failed to render Agent.prompt for agent '%s': %s. Falling back.",
-                    agent_name,
-                    e,
+                logger.error(
+                    f"[PROMPT] CRITICAL ERROR: Failed to render Agent.prompt for agent '{agent_name}': {e}",
                 )
+                # NEVER USE FALLBACKS FOR FINANCIAL DATA - ERROR OUT IMMEDIATELY
+                raise ValueError(
+                    f"Agent '{agent_name}' prompt template failed to render. "
+                    f"This is financial data - no fallbacks allowed. "
+                    f"Fix the template immediately. Error: {e}"
+                )
+        
         if not template_rendered:
-            # Use fallback for any agent type if template missing or fails
-            if "payee" in agent_name.lower():
-                system_prompt, user_prompt = get_fallback_payee_prompts(transaction)
-                logger.info(
-                    "[PROMPT] Used fallback payee prompt for agent '%s'", agent_name
-                )
-            else:
-                # Generic fallback for other agents (can be improved with more helpers)
-                system_prompt = "Classification fallback prompt not implemented."
-                user_prompt = ""
-                logger.info(
-                    "[PROMPT] Used fallback generic prompt for agent '%s'", agent_name
-                )
+            # NEVER USE FALLBACKS FOR FINANCIAL DATA - ERROR OUT IMMEDIATELY
+            logger.error(f"[PROMPT] CRITICAL ERROR: No template rendered for agent '{agent_name}'")
+            raise ValueError(
+                f"Agent '{agent_name}' has no valid prompt template. "
+                f"This is financial data - no fallbacks or guesswork allowed. "
+                f"Configure a proper template immediately."
+            )
         # Log the actual prompts being sent
         logger.info(f"System Prompt Sent: {system_prompt!r}")
         logger.info(f"User Prompt Sent: {user_prompt!r}")
