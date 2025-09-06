@@ -1593,7 +1593,7 @@ class BusinessExpenseCategoryAdmin(admin.ModelAdmin):
 @admin.register(ProcessingTask)
 class ProcessingTaskAdmin(admin.ModelAdmin):
     list_display = (
-        "task_id",
+        "task_id_link",
         "task_type",
         "client", 
         "status",
@@ -1785,7 +1785,7 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
                             'transaction_id': sample_tx.id,
                             'transaction_desc': sample_tx.description,
                             'rendered_length': len(rendered_prompt),
-                            'rendered_preview': rendered_prompt[:500] + '...' if len(rendered_prompt) > 500 else rendered_prompt,
+                            'rendered_preview': rendered_prompt,
                         }
                         
                 except Exception as prompt_error:
@@ -1853,18 +1853,32 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
                         
                         for line in lines:
                             if line.strip():
-                                response_data = json.loads(line)
-                                # Extract key info from response
-                                sample = {
-                                    'custom_id': response_data.get('custom_id', 'N/A'),
-                                    'response_status': response_data.get('response', {}).get('body', {}).get('choices', [{}])[0].get('message', {}).get('content', 'No content')[:200]
-                                }
-                                sample_responses.append(sample)
+                                try:
+                                    response_data = json.loads(line)
+                                    # Extract key info from response
+                                    response_content = "No content"
+                                    if response_data.get('response') and response_data['response'].get('body'):
+                                        choices = response_data['response']['body'].get('choices', [])
+                                        if choices and len(choices) > 0:
+                                            message = choices[0].get('message', {})
+                                            content = message.get('content', 'No message content')
+                                            response_content = content if content else 'Empty content'
+                                    
+                                    sample = {
+                                        'custom_id': response_data.get('custom_id', 'N/A'),
+                                        'response_status': response_content
+                                    }
+                                    sample_responses.append(sample)
+                                except (json.JSONDecodeError, KeyError, IndexError, TypeError) as parse_error:
+                                    sample_responses.append({
+                                        'custom_id': 'Parse Error',
+                                        'error': f"Could not parse response line: {str(parse_error)}"
+                                    })
                         
                         context['response_sample'] = sample_responses
                         
-                        # Also store truncated full output for debugging
-                        batch_details['output_sample'] = response_text[:2000]  # First 2000 chars
+                        # Also store full output for debugging  
+                        batch_details['output_sample'] = response_text
                         
                     except Exception as e:
                         context['response_sample'] = [{'error': f"Could not parse response file: {e}"}]
@@ -2211,6 +2225,47 @@ class ProcessingTaskAdmin(admin.ModelAdmin):
         if "transactions" in fields:
             fields = tuple(f for f in fields if f != "transactions")
         return fields
+    
+    def task_id_link(self, obj):
+        """Generate task ID link that redirects batch tasks to enhanced dashboard"""
+        from django.utils.html import format_html
+        from django.urls import reverse
+        
+        # Check if this is a batch processing task
+        has_openai_batch = obj.task_metadata and obj.task_metadata.get('openai_batch_id')
+        is_batch_type = obj.task_type == 'batch_full_workflow' or 'batch' in obj.task_type
+        
+        if has_openai_batch or is_batch_type:
+            # Link to enhanced batch status page
+            url = reverse('admin:processingtask_batch_status', args=[obj.task_id])
+            return format_html('<a href="{}">{}</a>', url, obj.task_id)
+        else:
+            # Link to regular change form for non-batch tasks
+            url = reverse('admin:profiles_processingtask_change', args=[obj.pk])
+            return format_html('<a href="{}">{}</a>', url, obj.task_id)
+    
+    task_id_link.short_description = 'Task ID'
+    task_id_link.admin_order_field = 'task_id'
+    
+    def response_change(self, request, obj):
+        """Override to redirect batch processing tasks to enhanced batch status page"""
+        from django.http import HttpResponseRedirect
+        from django.urls import reverse
+        
+        # Check if this is a batch processing task
+        has_openai_batch = obj.task_metadata and obj.task_metadata.get('openai_batch_id')
+        is_batch_type = obj.task_type == 'batch_full_workflow' or 'batch' in obj.task_type
+        
+        if has_openai_batch or is_batch_type:
+            # Redirect to enhanced batch status page instead of regular change form
+            batch_status_url = reverse(
+                'admin:processingtask_batch_status',
+                args=[obj.task_id]
+            )
+            return HttpResponseRedirect(batch_status_url)
+        
+        # For non-batch tasks, use default behavior
+        return super().response_change(request, obj)
 
 
 # Restore the original StatementFileAdminForm for single-file upload

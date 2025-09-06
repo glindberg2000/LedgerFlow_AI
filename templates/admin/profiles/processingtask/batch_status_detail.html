@@ -397,8 +397,8 @@
                     <strong>Sample Transaction:</strong> #{{ prompt_details.sample_rendered.transaction_id }} - {{ prompt_details.sample_rendered.transaction_desc|truncatechars:50 }}<br>
                     <strong>Rendered Prompt Length:</strong> {{ prompt_details.sample_rendered.rendered_length }} characters<br>
                     <hr style="margin: 10px 0;">
-                    <strong>Prompt Preview (first 500 chars):</strong><br>
-                    <code style="font-size: 11px; color: #333; background: #f0f0f0; padding: 10px; display: block; border-radius: 4px; margin-top: 5px; white-space: pre-wrap;">{{ prompt_details.sample_rendered.rendered_preview }}</code>
+                    <strong>Full Rendered Prompt:</strong><br>
+                    <code class="code-container" style="font-size: 11px; color: #333; background: #f0f0f0; padding: 10px; display: block; border-radius: 4px; margin-top: 5px; white-space: pre-wrap; max-height: 300px;">{{ prompt_details.sample_rendered.rendered_preview }}</code>
                 </div>
             {% endif %}
         </div>
@@ -406,39 +406,41 @@
         
         {% if response_sample %}
         <div class="raw-data">
-            <h3>📝 Sample AI Responses (First 3)</h3>
-            {% for sample in response_sample %}
-            <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
-                <strong>Transaction ID:</strong> {{ sample.custom_id }}<br>
-                {% if sample.error %}
-                    <span style="color: #f44336;">❌ {{ sample.error }}</span>
-                {% else %}
-                    <strong>AI Response:</strong><br>
-                    <code style="font-size: 11px; color: #333;">{{ sample.response_status }}</code>
-                {% endif %}
+            <h3>📝 Sample AI Responses (Full Content)</h3>
+            <div class="code-container" style="max-height: 400px;">
+                {% for sample in response_sample %}
+                <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
+                    <strong>Transaction ID:</strong> {{ sample.custom_id }}<br>
+                    {% if sample.error %}
+                        <span style="color: #f44336;">❌ {{ sample.error }}</span>
+                    {% else %}
+                        <strong>AI Response:</strong><br>
+                        <code style="font-size: 11px; color: #333; white-space: pre-wrap;">{{ sample.response_status }}</code>
+                    {% endif %}
+                </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
         {% endif %}
         
         {% if batch_details.output_sample %}
         <div class="raw-data">
-            <h3>📋 Raw Output File Sample (First 2000 chars)</h3>
-            <pre style="font-size: 10px;">{{ batch_details.output_sample }}</pre>
+            <h3>📋 Full Raw Output File</h3>
+            <pre class="code-container" style="font-size: 10px;">{{ batch_details.output_sample }}</pre>
         </div>
         {% endif %}
         
         {% if batch_details.error_content %}
         <div class="raw-data">
             <h3>❌ Error File Content</h3>
-            <pre>{{ batch_details.error_content }}</pre>
+            <pre class="code-container">{{ batch_details.error_content }}</pre>
         </div>
         {% endif %}
         
         <!-- Raw OpenAI Response -->
         <div class="raw-data">
             <h3>🔧 Raw OpenAI API Response</h3>
-            <pre>{{ batch_details|pprint }}</pre>
+            <pre class="code-container">{{ batch_details|pprint }}</pre>
         </div>
     {% endif %}
 </div>
