@@ -159,5 +159,8 @@ tasks/
 # Added by Claude Task Master
 data/
 
+# PDF-extractor downloads (financial test files)
+PDF-extractor/downloads/
+
 # Added by Claude Task Master
 .cursor/ *.sqlite3
